@@ -98,13 +98,23 @@ jobs:
         uses: azure/setup-kubectl@v3
 
       - name: Write kubeconfig
+        id: kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
         run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
+          if [ -z "$KUBECONFIG_B64" ]; then
+            echo "No KUBECONFIG_B64 secret — deploy skipped (no cluster configured)"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            mkdir -p ~/.kube
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config
+            chmod 600 ~/.kube/config
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
 
       # Pin images to the exact commit SHA so rollbacks are deterministic
       - name: Update image tags
+        if: steps.kubeconfig.outputs.skip == 'false'
         run: |
           IMG_PREFIX="${{ env.REGISTRY }}/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
           kubectl set image deployment/backend \
@@ -115,9 +125,11 @@ jobs:
             -n loop-runner
 
       - name: Apply config changes
+        if: steps.kubeconfig.outputs.skip == 'false'
         run: kubectl apply -f k8s/ --recursive -n loop-runner
 
       - name: Wait for rollout
+        if: steps.kubeconfig.outputs.skip == 'false'
         run: |
           kubectl rollout status deployment/backend -n loop-runner --timeout=5m
           kubectl rollout status deployment/frontend -n loop-runner --timeout=5m

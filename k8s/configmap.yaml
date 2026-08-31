@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loop-runner-config
+  namespace: loop-runner
+data:
+  REDIS_URL: "redis://redis-service:6379"
+  DATABASE_URL: "postgresql://looprunner:$(POSTGRES_PASSWORD)@postgres-service:5432/looprunner"
+  CORS_ORIGIN: "https://app.looprunner.dev"
+  MAX_VERIFY_TIMEOUT_SECONDS: "120"
+  REPOS_PATH: "/repos"
+  NEXT_PUBLIC_API_URL: "https://loop-runner.example.com"

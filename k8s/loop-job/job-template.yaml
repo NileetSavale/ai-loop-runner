@@ -1,0 +1,69 @@
+# This is the Job template that backend/core/k8s_loop.py renders and submits
+# for each loop run. Each session gets its own ephemeral pod — complete isolation,
+# no shared process state between concurrent runs.
+#
+# The backend substitutes: JOB_NAME, SESSION_ID, TASK_ID, REPO_PATH, MODEL, MAX_ITER
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "loop-${JOB_NAME}"
+  namespace: loop-runner
+  labels:
+    app: loop-worker
+    session-id: "${SESSION_ID}"
+spec:
+  # Auto-delete 10 min after completion so completed Jobs don't pile up
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0          # don't retry the Job — the loop retries internally
+  template:
+    metadata:
+      labels:
+        app: loop-worker
+        session-id: "${SESSION_ID}"
+    spec:
+      restartPolicy: Never
+      serviceAccountName: loop-runner-sa
+      containers:
+        - name: loop-worker
+          image: ghcr.io/YOUR_ORG/loop-runner-backend:latest
+          imagePullPolicy: Always
+          command: ["python", "-m", "backend.core.loop_worker"]
+          env:
+            - name: SESSION_ID
+              value: "${SESSION_ID}"
+            - name: TASK_ID
+              value: "${TASK_ID}"
+            - name: REPO_PATH
+              value: "${REPO_PATH}"
+            - name: MODEL
+              value: "${MODEL}"
+            - name: MAX_ITERATIONS
+              value: "${MAX_ITER}"
+          envFrom:
+            - configMapRef:
+                name: loop-runner-config
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loop-runner-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: VAULT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loop-runner-secrets
+                  key: VAULT_KEY
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: repos
+              mountPath: /repos
+      volumes:
+        - name: repos
+          persistentVolumeClaim:
+            claimName: shared-repos-pvc

@@ -44,6 +44,13 @@ def test_own_session_no_user_passes():
     assert result is s
 
 
+def test_own_session_anonymous_cannot_reach_owned_session():
+    s = Session(id="s1", name="x", repo_path="/tmp", verify_command="true", user_id="u1")
+    with pytest.raises(HTTPException) as exc_info:
+        _own_session("s1", None, _FakeDb(s))
+    assert exc_info.value.status_code == 404
+
+
 def test_own_session_matching_uid_passes():
     s = Session(id="s1", name="x", repo_path="/tmp", verify_command="true", user_id="u1")
     result = _own_session("s1", "u1", _FakeDb(s))

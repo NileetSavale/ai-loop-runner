@@ -26,7 +26,7 @@ def _client_id(request: Request) -> str:
     if scheme.lower() == "bearer":
         try:
             return f"user:{_decode(token)['sub']}"
-        except (jwt.InvalidTokenError, KeyError):
+        except jwt.InvalidTokenError:
             pass
     return f"ip:{request.client.host if request.client else 'unknown'}"
 

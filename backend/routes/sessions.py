@@ -49,12 +49,10 @@ class SessionCreate(BaseModel):
 
 
 def _own_session(session_id: str, uid: str | None, db) -> Session:
-    """Return session if it belongs to uid (or uid is None for local/unauthed use)."""
+    """Return session if it belongs to uid. uid=None (anonymous local use) only reaches ownerless sessions."""
     session = db.get(Session, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if uid is not None and session.user_id != uid:
-        # Authenticated user trying to access someone else's session → 404 (not 403, to avoid info leak)
+    # Someone else's session → 404 (not 403, to avoid info leak)
+    if not session or session.user_id != uid:
         raise HTTPException(status_code=404, detail="Session not found")
     return session
 

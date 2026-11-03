@@ -173,7 +173,7 @@ async def run_loop(session_id: str, broadcast_fn: BroadcastFn, user_api_key: str
 
             if verify_result.passed:
                 await broadcast_fn({"event": "session_complete", "data": {"status": "passed", "commit": commit_hash, **iter_payload}})
-                await invalidate_analytics()
+                await invalidate_analytics(session_user_id)
                 break
             else:
                 await broadcast_fn({"event": "iteration_complete", "data": iter_payload})

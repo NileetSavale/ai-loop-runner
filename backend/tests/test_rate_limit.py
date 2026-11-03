@@ -9,9 +9,11 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError as RedisConnectionError
+from sqlmodel import create_engine
 
 import auth
 import cache
+import database
 import ratelimit
 from main import app
 
@@ -20,14 +22,17 @@ SECRET = "test-secret-that-is-long-enough-for-hs256"
 
 
 @pytest.fixture(autouse=True)
-def limiter(monkeypatch):
+def limiter(tmp_path, monkeypatch):
     monkeypatch.setattr(cache, "redis", fakeredis.aioredis.FakeRedis())
     monkeypatch.setattr(auth, "SUPABASE_JWT_SECRET", SECRET)
+    monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", True)
     monkeypatch.setattr(ratelimit, "EXPENSIVE_LIMIT", 2)
     monkeypatch.setattr(ratelimit, "GENERAL_LIMIT", 3)
+    monkeypatch.setattr(database, "engine", create_engine(f"sqlite:///{tmp_path}/test.db", connect_args={"check_same_thread": False}))
     clock = SimpleNamespace(time=lambda: 1000.0)  # 40s into its window
     monkeypatch.setattr(ratelimit, "time", clock)
-    return clock
+    with client:  # one event loop across requests: FakeRedis binds to the first one it sees
+        yield clock
 
 
 def bearer(sub: str, secret: str = SECRET) -> dict:

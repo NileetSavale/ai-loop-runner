@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import select
 
 from agents.test_gen import generate_tests, apply_tests, detect_stack
@@ -33,11 +33,11 @@ class ApplyAndStartRequest(BaseModel):
     implementation_spec: str
     session_name: str
     model: str = "claude-sonnet-4-6"
-    max_iterations: int = 10
+    max_iterations: int = Field(10, ge=1, le=50)
 
 
 @router.get("/detect-stack")
-def detect_stack_endpoint(repo_path: str):
+def detect_stack_endpoint(repo_path: str, user: dict | None = Depends(get_optional_user)):
     if not os.path.isdir(repo_path):
         raise HTTPException(status_code=400, detail="repo_path does not exist")
     return {"stack": detect_stack(repo_path)}

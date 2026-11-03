@@ -8,7 +8,7 @@ from fastapi import Depends
 from models import Session, UsageEvent
 from database import get_session as db_session
 from cache import redis
-from auth import get_current_user, user_id
+from auth import get_current_user, get_optional_user, user_id
 
 router = APIRouter()
 
@@ -16,32 +16,37 @@ CACHE_TTL = 60  # seconds
 
 
 def cached(key: str, ttl: int = CACHE_TTL):
-    """Cache the return value of an async or sync endpoint in Redis."""
+    """Cache the return value of an endpoint in Redis, separately for each user."""
     def decorator(fn):
         @wraps(fn)
         async def wrapper(*args, **kwargs):
-            hit = await redis.get(key)
+            user_key = f"{key}:{_uid(kwargs['user'])}"
+            hit = await redis.get(user_key)
             if hit:
                 return json.loads(hit)
             result = fn(*args, **kwargs)
-            await redis.setex(key, ttl, json.dumps(result))
+            await redis.setex(user_key, ttl, json.dumps(result))
             return result
         return wrapper
     return decorator
 
 
-async def invalidate_analytics():
-    """Call this when new session data arrives."""
+async def invalidate_analytics(uid: str | None):
+    """Call this when new session data arrives for uid."""
     keys = ["analytics:summary", "analytics:cost", "analytics:distribution",
             "analytics:success", "analytics:top"]
-    await redis.delete(*keys)
+    await redis.delete(*[f"{k}:{uid}" for k in keys])
+
+
+def _uid(user: dict | None) -> str | None:
+    return user_id(user) if user else None
 
 
 @router.get("/analytics/summary")
 @cached("analytics:summary")
-def summary():
+def summary(user: dict | None = Depends(get_optional_user)):
     with db_session() as db:
-        sessions = db.exec(select(Session)).all()
+        sessions = db.exec(select(Session).where(Session.user_id == _uid(user))).all()
         if not sessions:
             return {
                 "total_sessions": 0, "total_passed": 0, "success_rate": 0,
@@ -68,9 +73,9 @@ def summary():
 
 @router.get("/analytics/cost-over-time")
 @cached("analytics:cost")
-def cost_over_time():
+def cost_over_time(user: dict | None = Depends(get_optional_user)):
     with db_session() as db:
-        sessions = db.exec(select(Session)).all()
+        sessions = db.exec(select(Session).where(Session.user_id == _uid(user))).all()
     by_date: dict[str, float] = {}
     for s in sessions:
         day = s.created_at.strftime("%Y-%m-%d")
@@ -80,27 +85,27 @@ def cost_over_time():
 
 @router.get("/analytics/iteration-distribution")
 @cached("analytics:distribution")
-def iteration_distribution():
+def iteration_distribution(user: dict | None = Depends(get_optional_user)):
     with db_session() as db:
-        sessions = db.exec(select(Session)).all()
+        sessions = db.exec(select(Session).where(Session.user_id == _uid(user))).all()
     counts = Counter(s.total_iterations for s in sessions)
     return [{"iterations": k, "count": v} for k, v in sorted(counts.items())]
 
 
 @router.get("/analytics/success-rate")
 @cached("analytics:success")
-def success_rate():
+def success_rate(user: dict | None = Depends(get_optional_user)):
     with db_session() as db:
-        sessions = db.exec(select(Session)).all()
+        sessions = db.exec(select(Session).where(Session.user_id == _uid(user))).all()
     counts = Counter(s.status for s in sessions)
     return {"passed": counts.get("passed", 0), "failed": counts.get("failed", 0), "stopped": counts.get("stopped", 0)}
 
 
 @router.get("/analytics/top-tasks")
 @cached("analytics:top")
-def top_tasks():
+def top_tasks(user: dict | None = Depends(get_optional_user)):
     with db_session() as db:
-        sessions = db.exec(select(Session).order_by(Session.total_cost_usd.desc()).limit(10)).all()
+        sessions = db.exec(select(Session).where(Session.user_id == _uid(user)).order_by(Session.total_cost_usd.desc()).limit(10)).all()
     return [{"name": s.name, "total_cost_usd": s.total_cost_usd, "total_tokens": s.total_tokens, "id": s.id} for s in sessions]
 
 

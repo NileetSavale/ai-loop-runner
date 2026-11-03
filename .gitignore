@@ -28,3 +28,6 @@ Thumbs.db
 
 # Kubernetes secrets
 k8s/secret.yaml
+
+# Local loop target, has its own git repo
+demo/

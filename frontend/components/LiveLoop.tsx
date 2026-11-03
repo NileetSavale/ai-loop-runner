@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { Iteration, WsMessage } from "@/lib/types";
-import { WS_BASE } from "@/lib/api";
+import { authedSocket } from "@/lib/api";
 import { StatusBadge } from "./StatusBadge";
 
 interface LiveIteration extends Partial<Iteration> {
@@ -17,7 +17,7 @@ export function LiveLoop({ sessionId, initialIterations }: { sessionId: string; 
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket(`${WS_BASE}/ws/sessions/${sessionId}`);
+    const ws = authedSocket(`/ws/sessions/${sessionId}`);
     wsRef.current = ws;
 
     ws.onmessage = (e) => {

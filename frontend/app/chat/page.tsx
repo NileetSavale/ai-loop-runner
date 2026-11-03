@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api } from "@/lib/api-server";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";

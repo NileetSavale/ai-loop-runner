@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api } from "@/lib/api-server";
 import { CostChart } from "@/components/CostChart";
 import { IterationChart } from "@/components/IterationChart";
 import { CorrectionTax } from "@/components/CorrectionTax";

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { api, WS_BASE } from "@/lib/api";
+import { api, authedSocket } from "@/lib/api";
 import { useChatStore } from "@/lib/store";
 import { useSendMessage } from "@/lib/queries";
 import type { ChatMessage, WsMessage } from "@/lib/types";
@@ -30,7 +30,7 @@ export function ChatInterface({
 
   // single WebSocket for the whole chat session
   useEffect(() => {
-    const ws = new WebSocket(`${WS_BASE}/ws/chat/${chatSessionId}`);
+    const ws = authedSocket(`/ws/chat/${chatSessionId}`);
 
     ws.onmessage = (e) => {
       const msg: WsMessage = JSON.parse(e.data);

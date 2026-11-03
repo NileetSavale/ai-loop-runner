@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api } from "@/lib/api-server";
 import { StatusBadge } from "@/components/StatusBadge";
 import { LiveLoop } from "@/components/LiveLoop";
 import { StopButton } from "./StopButton";

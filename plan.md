@@ -18,7 +18,7 @@
 
 - [x] **Multi-tenancy enforcement on sessions API** — scoped `GET /sessions` to authenticated user, added `_own_session` ownership guard on all `{session_id}` endpoints; added `model` and `max_iterations` validators on `SessionCreate`.
 - [x] Fix `task.title` detached-instance access in `core/loop.py` — copied to `task_title` local before DB session closes.
-- [ ] `WsMessage` frontend type is incomplete — missing `"agent_token"` and `"cancelled"` events emitted by the backend.
+- [x] `WsMessage` frontend type is incomplete — missing `"agent_token"` and `"cancelled"` events emitted by the backend.
 - [x] `UsageEvent` recording — written atomically with each `Iteration` in the loop; skipped for unauthenticated sessions; `byok` flag set when user supplies their own key. Added `GET /analytics/usage` endpoint (auth-gated, scoped to calling user, max 1000 rows).
-- [ ] Input validation — Pydantic models on `SessionCreate` don't validate `model` string against `SUPPORTED_MODELS`; invalid model silently fails at loop start.
-- [ ] Rate limiting — no per-user request rate limiting on any endpoint.
+- [x] Input validation — Pydantic models on `SessionCreate` don't validate `model` string against `SUPPORTED_MODELS`; invalid model silently fails at loop start.
+- [x] Rate limiting — Redis fixed-window middleware in `ratelimit.py`, per verified user or client IP: 10/min on routes that start a loop or call an LLM, 120/min on everything else. Override with `RATE_LIMIT_EXPENSIVE_PER_MINUTE` / `RATE_LIMIT_PER_MINUTE`.

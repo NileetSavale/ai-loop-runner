@@ -4,8 +4,10 @@ load_dotenv()
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from database import init_db
+from ratelimit import rate_limit
 from routes.sessions import router as sessions_router
 from routes.analytics import router as analytics_router
 from routes.ws import router as ws_router
@@ -15,6 +17,8 @@ from routes.test_gen import router as test_gen_router
 
 app = FastAPI(title="Loop Runner")
 
+# Added before CORS so CORS wraps it: browsers can't read a 429 without CORS headers
+app.add_middleware(BaseHTTPMiddleware, dispatch=rate_limit)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[os.getenv("CORS_ORIGIN", "http://localhost:3000")],

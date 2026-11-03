@@ -80,7 +80,7 @@ Every token the LLM produces streams live to your browser over WebSocket. You wa
 ### Multi-Tenancy & Auth
 - **Supabase JWT authentication** — stateless, no DB roundtrip per request; tokens verified locally with `HS256`
 - Sessions are scoped to their owner — authenticated users can only see and modify their own sessions (returns 404, not 403, to avoid information leakage)
-- Optional auth — unauthenticated/local users can run sessions without logging in
+- Login required by default, plus a private beta allowlist (`ALLOWED_USER_IDS`). Set `ALLOW_ANONYMOUS=true` for local development only
 - All `{session_id}` endpoints enforce ownership before any operation
 
 ### Analytics Dashboard
@@ -300,6 +300,9 @@ REDIS_URL=redis://localhost:6379
 # Supabase
 SUPABASE_JWT_SECRET=your_supabase_jwt_secret
 
+# Local development only: skip login and the allowlist. Never set this on a reachable server.
+ALLOW_ANONYMOUS=true
+
 # LLM keys (at least one required)
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
@@ -418,6 +421,8 @@ cp k8s/secret.example.yaml k8s/secret.yaml
 # edit k8s/secret.yaml
 kubectl apply -f k8s/secret.yaml -n loop-runner
 ```
+
+Before deploying, set `ALLOWED_USER_IDS` in `k8s/configmap.yaml`; the API rejects everyone while it's empty. Also set the GitHub Actions variables `NEXT_PUBLIC_WS_URL` (`wss://your-host`), `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`, because they're compiled into the frontend image.
 
 ### CI/CD Pipeline
 

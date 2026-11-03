@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api } from "@/lib/api-server";
 import { ChatInterface } from "@/components/ChatInterface";
 import { notFound } from "next/navigation";
 

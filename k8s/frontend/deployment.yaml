@@ -27,11 +27,11 @@ spec:
           ports:
             - containerPort: 3000
           env:
-            - name: NEXT_PUBLIC_API_URL
+            - name: INTERNAL_API_URL
               valueFrom:
                 configMapKeyRef:
                   name: loop-runner-config
-                  key: NEXT_PUBLIC_API_URL
+                  key: INTERNAL_API_URL
             - name: NEXT_PUBLIC_SUPABASE_URL
               valueFrom:
                 secretKeyRef:

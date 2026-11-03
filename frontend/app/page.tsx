@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api } from "@/lib/api-server";
 import { SessionCard } from "@/components/SessionCard";
 import Link from "next/link";
 

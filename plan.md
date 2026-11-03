@@ -22,3 +22,7 @@
 - [x] `UsageEvent` recording — written atomically with each `Iteration` in the loop; skipped for unauthenticated sessions; `byok` flag set when user supplies their own key. Added `GET /analytics/usage` endpoint (auth-gated, scoped to calling user, max 1000 rows).
 - [x] Input validation — Pydantic models on `SessionCreate` don't validate `model` string against `SUPPORTED_MODELS`; invalid model silently fails at loop start.
 - [x] Rate limiting — Redis fixed-window middleware in `ratelimit.py`, per verified user or client IP: 10/min on routes that start a loop or call an LLM, 120/min on everything else. Override with `RATE_LIMIT_EXPENSIVE_PER_MINUTE` / `RATE_LIMIT_PER_MINUTE`.
+- [x] Login required by default on every route and WebSocket, with `ALLOW_ANONYMOUS=true` for local development. Chat and analytics scoped to their owner. Private beta allowlist via `ALLOWED_USER_IDS`.
+- [x] Production routing: `/api` rewrite in the ingress, `NEXT_PUBLIC_*` passed at image build, server-rendered pages send the user's token over `INTERNAL_API_URL`.
+- [ ] Sandbox loop execution. Loops run inside the backend process, because `core/k8s_loop.py` isn't called and `core/loop_worker` doesn't exist. Required before removing the allowlist.
+- [ ] Postgres support: no driver in `requirements.txt`, and `check_same_thread` in `database.py` is SQLite-only.

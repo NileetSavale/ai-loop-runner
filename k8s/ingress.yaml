@@ -8,10 +8,6 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
-    # Upgrade header required for WebSocket handshake
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "upgrade";
     # TLS
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
@@ -25,16 +21,8 @@ spec:
     - host: loop-runner.example.com
       http:
         paths:
-          # WebSocket endpoints — must come before the catch-all /api/ rule
+          # WebSocket endpoints
           - path: /ws
-            pathType: Prefix
-            backend:
-              service:
-                name: backend-service
-                port:
-                  number: 8000
-          # REST API
-          - path: /api
             pathType: Prefix
             backend:
               service:
@@ -49,3 +37,34 @@ spec:
                 name: frontend-service
                 port:
                   number: 3000
+---
+# REST API. Separate Ingress because rewrite-target applies to every path in an Ingress:
+# /api/sessions reaches the backend as /sessions.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: loop-runner-api-ingress
+  namespace: loop-runner
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # Test generation waits on a full LLM response
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - loop-runner.example.com
+      secretName: loop-runner-tls
+  rules:
+    - host: loop-runner.example.com
+      http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: backend-service
+                port:
+                  number: 8000

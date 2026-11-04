@@ -1,3 +1,4 @@
+import os
 import re
 from dataclasses import dataclass
 from providers.base import LLMProvider, TokenCallback, calculate_cost
@@ -18,7 +19,8 @@ Rules:
 - Output ONLY file blocks. No explanations unless asked.
 - Always output the COMPLETE file, not just the diff.
 - Do not create new files unless the spec requires it.
-- The tests already exist — make them pass, do not modify them.
+- Existing tests are read-only: make them pass, do not modify them. Test config files are read-only too.
+- You may add new test files. They are checked by planting bugs in your code, and tests that miss them are rejected.
 """
 
 
@@ -35,6 +37,15 @@ class AgentResult:
     input_tokens: int
     output_tokens: int
     cost_usd: float
+
+
+def resolve_in_repo(repo_path: str, rel_path: str) -> str:
+    """Absolute path of rel_path, or ValueError if it escapes repo_path (symlinks included)."""
+    root = os.path.realpath(repo_path)
+    path = os.path.realpath(os.path.join(root, rel_path))
+    if path == root or os.path.commonpath([root, path]) != root:
+        raise ValueError(f"path is outside the repo: {rel_path}")
+    return path
 
 
 def parse_file_blocks(text: str) -> list[FileEdit]:

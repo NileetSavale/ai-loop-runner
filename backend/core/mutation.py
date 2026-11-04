@@ -46,24 +46,34 @@ def _mutation_for(node: ast.AST):
         return f"{node.value} changed to {not node.value}", lambda: setattr(node, "value", not node.value)
     if isinstance(node, ast.Constant) and isinstance(node.value, int):
         return f"{node.value} changed to {node.value + 1}", lambda: setattr(node, "value", node.value + 1)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and not node.value.startswith("__"):
+        return f"string {node.value[:30]!r} altered", lambda: setattr(node, "value", node.value + "X")
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return "'not' removed", lambda: setattr(node, "operand", ast.UnaryOp(ast.Not(), node.operand))
     if isinstance(node, ast.Return) and node.value is not None:
         return "return value replaced with None", lambda: setattr(node, "value", ast.Constant(None))
     return None
 
 
+def _sites(tree: ast.AST) -> list[tuple[ast.AST, tuple]]:
+    # Docstrings and error messages can change without the code being wrong, so a miss there means nothing
+    ignored = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Expr):
+            ignored.add(id(node.value))
+        elif isinstance(node, ast.Raise):
+            ignored.update(id(n) for n in ast.walk(node))
+    return [(n, m) for n in ast.walk(tree) if id(n) not in ignored and (m := _mutation_for(n))]
+
+
 def list_mutants(source: str) -> list[str]:
     """One description per plantable bug, in the order apply_mutant numbers them."""
-    return [
-        f"line {node.lineno}: {mutation[0]}"
-        for node in ast.walk(ast.parse(source))
-        if (mutation := _mutation_for(node))
-    ]
+    return [f"line {node.lineno}: {mutation[0]}" for node, mutation in _sites(ast.parse(source))]
 
 
 def apply_mutant(source: str, index: int) -> str:
     tree = ast.parse(source)
-    sites = [m for node in ast.walk(tree) if (m := _mutation_for(node))]
-    sites[index][1]()
+    _sites(tree)[index][1][1]()
     return ast.unparse(tree)
 
 

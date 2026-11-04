@@ -38,3 +38,22 @@ def test_timeout(tmp_path, monkeypatch):
     result = run(v.run_verify("sleep 10", str(tmp_path)))
     assert result.passed is False
     assert "TIMEOUT" in result.output
+
+
+def test_secrets_hidden_from_code_under_test(tmp_path, monkeypatch):
+    for name in ["ANTHROPIC_API_KEY", "SUPABASE_JWT_SECRET", "VAULT_KEY", "DATABASE_URL", "GH_TOKEN"]:
+        monkeypatch.setenv(name, "hunter2")
+    monkeypatch.setenv("MY_ORDINARY_SETTING", "visible")
+    result = run(run_verify("env", str(tmp_path)))
+    assert "hunter2" not in result.output
+    assert "MY_ORDINARY_SETTING=visible" in result.output
+
+
+def test_repo_root_is_importable_and_existing_pythonpath_kept(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", "/already/here")
+    (tmp_path / "mymodule.py").write_text("VALUE = 42")
+    (tmp_path / "sub").mkdir()
+    script = tmp_path / "sub" / "check.py"
+    script.write_text("import sys, mymodule\nassert mymodule.VALUE == 42\nassert '/already/here' in sys.path\n")
+    result = run(run_verify(f"{sys.executable} sub/check.py", str(tmp_path)))
+    assert result.passed, result.output

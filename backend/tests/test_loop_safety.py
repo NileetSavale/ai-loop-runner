@@ -313,3 +313,31 @@ def test_cut_off_reply_is_explained_to_the_agent(tmp_path):
     status, _, _ = _run(tmp_path, agent, AsyncMock(return_value=PASS))
     assert status == "passed"
     assert "hit the output limit" in agent.call_args_list[1].args[0]
+
+
+STRINGY = '''"""Docstring."""
+import re
+
+def slugify(text):
+    """Docstring."""
+    if not isinstance(text, str):
+        raise TypeError("needs a string")
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+if __name__ == "__main__":
+    print(slugify("A b"))
+'''
+
+
+def test_string_and_not_mutants_exist_but_docstrings_errors_and_main_guard_are_ignored():
+    found = list_mutants(STRINGY)
+    assert any("not" in d for d in found)
+    assert any("[^a-z0-9]+" in d for d in found) and any("'-'" in d for d in found)
+    assert not any("Docstring" in d or "needs a string" in d or "__main__" in d for d in found)
+
+
+def test_vague_test_on_string_code_no_longer_clears_the_bar(tmp_path):
+    weak = "from calc import slugify\nassert slugify('x') is not None\n"
+    result = asyncio.run(check_test_strength(str(_repo(tmp_path, STRINGY, weak)), VERIFY, ["calc.py"]))
+    assert result.tested >= 3
+    assert result.caught / result.tested < loop.MIN_MUTATION_SCORE

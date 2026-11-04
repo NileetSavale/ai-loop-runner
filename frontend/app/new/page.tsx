@@ -21,6 +21,7 @@ export default function NewSession() {
         repo_path: f.get("repo_path"),
         verify_command: f.get("verify_command"),
         max_iterations: Number(f.get("max_iterations")),
+        max_cost_usd: f.get("max_cost_usd") ? Number(f.get("max_cost_usd")) : undefined,
         model: f.get("model"),
         task: {
           title: f.get("task_title"),
@@ -70,6 +71,11 @@ export default function NewSession() {
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">Max iterations</label>
             <input name="max_iterations" type="number" defaultValue={10} min={1} max={50}
+              className="w-full border rounded px-3 py-1.5 text-sm" />
+          </div>
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Cost limit (USD)</label>
+            <input name="max_cost_usd" type="number" placeholder="Default: 5" min={0.01} step={0.01}
               className="w-full border rounded px-3 py-1.5 text-sm" />
           </div>
           <div className="flex-1">

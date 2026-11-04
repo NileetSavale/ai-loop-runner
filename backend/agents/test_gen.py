@@ -9,6 +9,7 @@ import os
 import re
 from dataclasses import dataclass
 
+from core.agent import resolve_in_repo
 from providers.router import get_provider
 from providers.base import TokenCallback
 
@@ -106,12 +107,13 @@ def detect_stack(repo_path: str) -> str:
 def read_context(repo_path: str, context_files: list[str]) -> str:
     parts = []
     for rel in context_files:
-        abs_path = os.path.join(repo_path, rel)
         try:
-            content = open(abs_path).read()
+            content = open(resolve_in_repo(repo_path, rel)).read()
             parts.append(f"### {rel}\n```\n{content}\n```")
         except FileNotFoundError:
             parts.append(f"### {rel}\n(not found)")
+        except ValueError:
+            parts.append(f"### {rel}\n(outside the repo, not read)")
     return "\n\n".join(parts)
 
 
@@ -195,7 +197,7 @@ Generate the complete test suite now.
 
 async def apply_tests(repo_path: str, test_files: list[dict]):
     """Write the generated test files to disk."""
-    for f in test_files:
-        abs_path = os.path.join(repo_path, f["path"])
+    resolved = [(resolve_in_repo(repo_path, f["path"]), f["content"]) for f in test_files]  # all or nothing
+    for abs_path, content in resolved:
         os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-        open(abs_path, "w").write(f["content"])
+        open(abs_path, "w").write(content)

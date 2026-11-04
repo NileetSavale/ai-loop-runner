@@ -2,7 +2,7 @@ import uuid
 import json
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlmodel import select
 
 from models import Session, Task, Iteration
@@ -30,6 +30,7 @@ class SessionCreate(BaseModel):
     repo_path: str
     verify_command: str
     max_iterations: int = 10
+    max_cost_usd: float | None = Field(None, gt=0)  # None = server default
     model: str = "claude-sonnet-4-6"
     task: TaskCreate
 
@@ -106,7 +107,7 @@ async def create_session(body: SessionCreate, user: dict | None = Depends(get_op
     async def broadcast_fn(msg: dict):
         await broadcast(session_id, msg)
 
-    start_loop(session_id, broadcast_fn, user_api_key=api_key)
+    start_loop(session_id, broadcast_fn, user_api_key=api_key, max_cost_usd=body.max_cost_usd)
     return {"id": session_id}
 
 

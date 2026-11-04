@@ -34,6 +34,7 @@ class ApplyAndStartRequest(BaseModel):
     session_name: str
     model: str = "claude-sonnet-4-6"
     max_iterations: int = Field(10, ge=1, le=50)
+    max_cost_usd: float | None = Field(None, gt=0)  # None = server default
 
 
 @router.get("/detect-stack")
@@ -76,7 +77,10 @@ async def apply_and_start(body: ApplyAndStartRequest, user: dict | None = Depend
     api_key = get_user_api_key(uid, body.model) if uid else None
 
     # 1. write test files to disk
-    await apply_tests(body.repo_path, body.test_files)
+    try:
+        await apply_tests(body.repo_path, body.test_files)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # 2. create session + task
     session_id = str(uuid.uuid4())
@@ -108,5 +112,6 @@ async def apply_and_start(body: ApplyAndStartRequest, user: dict | None = Depend
     async def broadcast_fn(msg: dict):
         await broadcast(session_id, msg)
 
-    start_loop(session_id, broadcast_fn, user_api_key=api_key)
+    # Generated tests promise to fail until the feature exists, so hold them to it
+    start_loop(session_id, broadcast_fn, user_api_key=api_key, require_failing=True, max_cost_usd=body.max_cost_usd)
     return {"session_id": session_id}

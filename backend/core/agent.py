@@ -51,10 +51,9 @@ def resolve_in_repo(repo_path: str, rel_path: str) -> str:
 
 def parse_file_blocks(text: str) -> list[FileEdit]:
     pattern = r'<file path="([^"]+)">(.*?)</file>'
-    return [
-        FileEdit(path=m.group(1), content=m.group(2).strip())
-        for m in re.finditer(pattern, text, re.DOTALL)
-    ]
+    # Models sometimes revise a file mid-reply and write it again. The last version is the one they meant.
+    edits = {m.group(1): FileEdit(path=m.group(1), content=m.group(2).strip()) for m in re.finditer(pattern, text, re.DOTALL)}
+    return list(edits.values())
 
 
 async def run_agent(

@@ -106,6 +106,8 @@ async def _judge_test_strength(result: VerifyResult, repo_path: str, verify_comm
         return VerifyResult(True, f"{result.output}\nTest strength NOT checked: {reason}.", result.exit_code)
 
     summary = f"Tests caught {strength.caught} of {strength.tested} deliberately planted bugs"
+    if strength.tested < 3:
+        summary += " (too few to say much about these tests)"
     if strength.caught / strength.tested >= MIN_MUTATION_SCORE:
         return VerifyResult(True, f"{result.output}\n{summary}.", result.exit_code)
     missed = "\n".join(f"- {s}" for s in strength.survivors)

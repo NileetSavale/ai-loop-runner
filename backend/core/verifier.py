@@ -1,9 +1,12 @@
 import asyncio
 from dataclasses import dataclass
 import os
+import re
 import signal
 
 MAX_TIMEOUT = int(os.getenv("MAX_VERIFY_TIMEOUT_SECONDS", "120"))
+
+_SECRET_ENV = re.compile(r".*(_API_KEY|_SECRET|_TOKEN|_PASSWORD)|DATABASE_URL|REDIS_URL|VAULT_KEY", re.IGNORECASE)
 
 
 @dataclass
@@ -13,10 +16,23 @@ class VerifyResult:
     exit_code: int
 
 
+def _verify_env(cwd: str) -> dict[str, str]:
+    """Environment for a verify command, which runs code the LLM just wrote.
+
+    The repo root is importable, so `pytest` and `python -m pytest` behave the same.
+    """
+    # ponytail: hides secrets from the environment only. That code can still read files such as backend/.env
+    # until loops are sandboxed (see plan.md).
+    env = {k: v for k, v in os.environ.items() if not _SECRET_ENV.fullmatch(k)}
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [cwd, env.get("PYTHONPATH")]))
+    return env
+
+
 async def run_verify(command: str, cwd: str) -> VerifyResult:
     proc = await asyncio.create_subprocess_shell(
         command,
         cwd=cwd,
+        env=_verify_env(cwd),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,  # own process group, so everything it spawned can be killed with it

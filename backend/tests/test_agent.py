@@ -73,3 +73,9 @@ def test_cost_small_realistic():
 
 def test_cost_openai_gpt4o():
     assert calculate_cost("gpt-4o", 1_000_000, 1_000_000) == 2.50 + 10.00
+
+
+def test_parse_keeps_last_version_of_a_repeated_file():
+    text = '<file path="a.py">first</file> wait, let me fix that <file path="a.py">second</file><file path="b.py">b</file>'
+    edits = parse_file_blocks(text)
+    assert [(e.path, e.content) for e in edits] == [("a.py", "second"), ("b.py", "b")]

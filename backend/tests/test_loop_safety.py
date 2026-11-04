@@ -305,3 +305,11 @@ def test_non_python_code_passes_but_says_strength_was_not_checked(tmp_path):
     status, _, events = _run(tmp_path, agent, run_verify, command="sh ok.sh")
     assert status == "passed"
     assert "NOT checked" in events[-2]["data"]["output"]
+
+
+def test_cut_off_reply_is_explained_to_the_agent(tmp_path):
+    cut_off = AgentResult(raw_output="", edits=[], input_tokens=1, output_tokens=1, cost_usd=0.01, truncated=True)
+    agent = AsyncMock(side_effect=[cut_off, _agent(FileEdit("a.py", "1"))])
+    status, _, _ = _run(tmp_path, agent, AsyncMock(return_value=PASS))
+    assert status == "passed"
+    assert "hit the output limit" in agent.call_args_list[1].args[0]

@@ -203,6 +203,8 @@ async def run_loop(
             allowed, rejected = filter_edits(agent_result.edits, repo_path, added_tests)
             changed = apply_edits(allowed, repo_path)
             touched.update(changed)
+            if agent_result.truncated:
+                rejected.append("Your reply hit the output limit, so any unfinished file was dropped. Change fewer or smaller files.")
 
             # No change means nothing to verify. Already-green tests must not count as this attempt passing.
             if changed:

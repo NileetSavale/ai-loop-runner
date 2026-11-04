@@ -184,6 +184,9 @@ Generate the complete test suite now.
     provider = get_provider(model, user_api_key)
     result = await provider.complete(SYSTEM_PROMPT, prompt, model, on_token)
 
+    if result.truncated:
+        raise ValueError("The test suite was cut off by the output limit. Describe a smaller feature.")
+
     test_files = _parse_files(result.text)
     meta = _parse_meta(result.text)
 

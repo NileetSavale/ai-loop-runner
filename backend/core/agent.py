@@ -37,6 +37,7 @@ class AgentResult:
     input_tokens: int
     output_tokens: int
     cost_usd: float
+    truncated: bool = False
 
 
 def resolve_in_repo(repo_path: str, rel_path: str) -> str:
@@ -71,4 +72,5 @@ async def run_agent(
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
         cost_usd=cost,
+        truncated=result.truncated,
     )

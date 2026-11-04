@@ -4,12 +4,15 @@ from typing import Callable, Awaitable
 
 TokenCallback = Callable[[str], Awaitable[None]] | None
 
+MAX_OUTPUT_TOKENS = 16000  # the lowest ceiling among supported models is gpt-4o at 16384
+
 
 @dataclass
 class LLMResult:
     text: str
     input_tokens: int
     output_tokens: int
+    truncated: bool = False  # the reply hit MAX_OUTPUT_TOKENS and was cut off
 
 
 class LLMProvider(ABC):

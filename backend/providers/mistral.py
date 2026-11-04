@@ -1,29 +1,33 @@
 from mistralai.client import Mistral
-from .base import LLMProvider, LLMResult, TokenCallback
+from .base import LLMProvider, LLMResult, MAX_OUTPUT_TOKENS, TokenCallback
 
 
 class MistralProvider(LLMProvider):
     async def complete(self, system: str, prompt: str, model: str, on_token: TokenCallback = None) -> LLMResult:
         client = Mistral(api_key=self.api_key)
         full_text = ""
+        input_tokens = output_tokens = 0
+        truncated = False
 
-        async with client.chat.stream_async(
+        stream = await client.chat.stream_async(
             model=model,
+            max_tokens=MAX_OUTPUT_TOKENS,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-        ) as stream:
+        )
+        async with stream:
             async for chunk in stream:
-                token = chunk.data.choices[0].delta.content or "" if chunk.data.choices else ""
+                choice = chunk.data.choices[0] if chunk.data.choices else None
+                token = choice.delta.content or "" if choice else ""
                 full_text += token
                 if on_token and token:
                     await on_token(token)
-            final = await stream.get_final_response()
+                if choice and choice.finish_reason == "length":
+                    truncated = True
+                if chunk.data.usage:
+                    input_tokens = chunk.data.usage.prompt_tokens or 0
+                    output_tokens = chunk.data.usage.completion_tokens or 0
 
-        usage = final.usage
-        return LLMResult(
-            text=full_text,
-            input_tokens=usage.prompt_tokens if usage else 0,
-            output_tokens=usage.completion_tokens if usage else 0,
-        )
+        return LLMResult(text=full_text, input_tokens=input_tokens, output_tokens=output_tokens, truncated=truncated)

@@ -52,14 +52,17 @@ async def generate(body: GenerateRequest, user: dict | None = Depends(get_option
     uid = user_id(user) if user else None
     api_key = get_user_api_key(uid, body.model) if uid else None
 
-    result = await generate_tests(
-        description=body.description,
-        repo_path=body.repo_path,
-        tech_stack=body.tech_stack,
-        context_files=body.context_files,
-        model=body.model,
-        user_api_key=api_key,
-    )
+    try:
+        result = await generate_tests(
+            description=body.description,
+            repo_path=body.repo_path,
+            tech_stack=body.tech_stack,
+            context_files=body.context_files,
+            model=body.model,
+            user_api_key=api_key,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return {
         "test_files": result.test_files,

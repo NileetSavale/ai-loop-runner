@@ -346,3 +346,31 @@ def test_weak_tests_written_through_tools_are_still_rejected(tmp_path, db):
     status, _ = _loop(_session(tmp_path, f"{sys.executable} run_tests.py"), model)
     assert status == "passed"
     assert any("too weak" in str(m) for m in model.seen[2])
+
+
+def _system_prompt_for(tmp_path, **kwargs):
+    system = []
+
+    class Spy(ScriptedModel):
+        async def complete_with_tools(self, sys_prompt, messages, tools, model, on_token=None):
+            system.append(sys_prompt)
+            return await super().complete_with_tools(sys_prompt, messages, tools, model, on_token)
+
+    with patch("core.agent.get_provider", return_value=Spy([turn()])):
+        asyncio.run(run_agent("do it", MODEL, tools=RepoTools(str(tmp_path), "true"), **kwargs))
+    return system[0]
+
+
+def test_tests_are_only_written_on_request_by_default(tmp_path):
+    prompt = _system_prompt_for(tmp_path)
+    assert "Don't add test files unless the task or a failed check asks" in prompt and "{tests_rule}" not in prompt
+
+
+def test_the_setting_asks_for_tests(tmp_path):
+    prompt = _system_prompt_for(tmp_path, add_tests=True)
+    assert "Add test files that cover your change" in prompt and "Don't add test files" not in prompt
+
+
+def test_one_shot_prompt_gets_the_rule_too():
+    from core.agent import SYSTEM_PROMPT, _with_tests_rule
+    assert "{tests_rule}" in SYSTEM_PROMPT and "{tests_rule}" not in _with_tests_rule(SYSTEM_PROMPT, False)

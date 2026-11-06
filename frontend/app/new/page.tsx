@@ -47,6 +47,7 @@ export default function NewSession() {
         verify_command: f.get("verify_command"),
         max_iterations: Number(f.get("max_iterations")),
         max_cost_usd: f.get("max_cost_usd") ? Number(f.get("max_cost_usd")) : undefined,
+        add_tests: f.get("add_tests") === "on",
         model: f.get("model"),
         task: {
           title: f.get("task_title"),
@@ -103,6 +104,11 @@ export default function NewSession() {
         </div>
 
         <Field label="Verify command" name="verify_command" placeholder="pytest tests/" required />
+
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input name="add_tests" type="checkbox" />
+          Also write tests for the change
+        </label>
 
         <div className="flex gap-4">
           <div className="flex-1">

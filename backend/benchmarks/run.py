@@ -18,6 +18,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
+from functools import partial
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -46,6 +47,8 @@ RUN_TIMEOUT_SECONDS = 600
 # ponytail: budgets are checked after each model turn, so a run can overshoot by one turn. This reserve keeps a
 # run inside its limit unless that turn costs over a quarter of the limit. Stream and cancel mid-turn if that happens.
 BUDGET_RESERVE = 0.75
+# Across every benchmark run, so no single command can eat the API credits. Only raise this when the owner agrees.
+OVERALL_CAP_USD = float(os.getenv("BENCHMARK_OVERALL_CAP_USD", "50"))
 
 
 @dataclass
@@ -78,6 +81,7 @@ class RunResult:
     duration_seconds: float = 0.0
     usage_matches: bool | None = None
     note: str = ""
+    final_message: str = ""
     diff: str = ""
 
 
@@ -145,7 +149,7 @@ def temp_database():
             database.engine = previous
 
 
-async def run_loop_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult):
+async def run_loop_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult, add_tests: bool = False):
     """Run our agent the way POST /sessions does."""
     session_id = str(uuid.uuid4())
     with db_session() as db:
@@ -164,7 +168,7 @@ async def run_loop_arm(task: BenchTask, repo: Path, model: str, budget: float, r
 
     # Analytics caching needs Redis and has nothing to do with the agent
     with patch("core.loop.invalidate_analytics", AsyncMock()):
-        run = loop.start_loop(session_id, listen, max_cost_usd=budget * BUDGET_RESERVE)
+        run = loop.start_loop(session_id, listen, max_cost_usd=budget * BUDGET_RESERVE, add_tests=add_tests)
         try:
             await asyncio.wait_for(run, RUN_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
@@ -207,6 +211,7 @@ def apply_claude_output(stdout: str, result: RunResult):
     result.cache_read_tokens = usage.get("cache_read_input_tokens", 0)
     result.cache_write_tokens = usage.get("cache_creation_input_tokens", 0)
     result.attempts = 1
+    result.final_message = str(output.get("result") or "")[:2000]  # explains a run that stops without changing anything
     result.agent_status = "failed" if output.get("is_error") else "finished"
     if output.get("is_error"):
         result.note = str(output.get("subtype") or output.get("result"))[:300]
@@ -350,6 +355,21 @@ def format_summary(summary: dict) -> str:
     ])
 
 
+def spent_so_far(results_dir: Path = RESULTS_DIR) -> float:
+    """Total recorded in saved results. Runs still in progress count as far as they've got."""
+    total = 0.0
+    for path in results_dir.glob("*.json"):
+        total += sum(run["cost_usd"] for run in json.loads(path.read_text())["runs"])
+    return total
+
+
+def check_overall_cap(worst_case: float, spent: float, cap: float):
+    if spent + worst_case > cap:
+        raise SystemExit(
+            f"Refusing to start: ${spent:.2f} spent plus up to ${worst_case:.2f} more would pass the ${cap:.2f} overall cap."
+        )
+
+
 def _code_version() -> dict:
     return {
         "commit": _git(BACKEND, "rev-parse", "HEAD"),
@@ -365,15 +385,22 @@ def main():
     parser.add_argument("--max-run-usd", type=float, default=1.0)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--tasks", help="Comma-separated task names. Default: all of them.")
+    parser.add_argument("--add-tests", action="store_true", help="Tell the loop arm to write tests for its changes.")
     parser.add_argument("--yes", action="store_true", help="Skip the spending confirmation.")
     args = parser.parse_args()
+
+    if args.add_tests and args.arm != "loop":
+        raise SystemExit("--add-tests only applies to the loop arm.")
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("ANTHROPIC_API_KEY isn't set.")
     tasks = load_tasks(args.tasks.split(",") if args.tasks else None)
     runs = len(tasks) * args.repeats
     worst_case = min(runs * args.max_run_usd, args.max_total_usd)
+    spent = spent_so_far()
+    check_overall_cap(worst_case, spent, OVERALL_CAP_USD)
     print(f"{runs} runs of {args.arm} on {args.model}: up to ${args.max_run_usd:.2f} each, ${worst_case:.2f} at most in total.")
+    print(f"Overall: ${spent:.2f} spent of the ${OVERALL_CAP_USD:.2f} cap.")
     print("This spends real money, and agent-written code runs on this machine.")
     if not args.yes and input("Continue? [y/N] ").strip().lower() != "y":
         raise SystemExit("Stopped. Nothing was spent.")
@@ -398,6 +425,7 @@ def main():
 
     _, skipped = asyncio.run(run_benchmark(
         tasks, args.arm, args.model, args.repeats, args.max_run_usd, args.max_total_usd, on_result=on_result,
+        arm_fn=partial(run_loop_arm, add_tests=True) if args.add_tests else None,
     ))
     save(skipped)
     print(f"\n{format_table(finished)}\n\n{format_summary(summarize(finished))}")

@@ -1,0 +1,1 @@
+{"prompt": "The ledger package has drifted from docs/RULES.md. Audit the code against every rule and make it match.", "verify": "{python} -m pytest tests -q"}

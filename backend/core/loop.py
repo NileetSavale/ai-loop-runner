@@ -123,6 +123,7 @@ async def run_loop(
     require_failing: bool = False,
     max_cost_usd: float | None = None,
     use_map: bool = False,
+    add_tests: bool = False,
 ):
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
     with db_session() as db:
@@ -192,6 +193,7 @@ async def run_loop(
                 tools=RepoTools(repo_path, verify_command, added_tests),
                 max_cost_usd=cost_limit - total_cost,
                 on_event=emit,
+                add_tests=add_tests,
             )
 
             allowed, rejected = filter_edits(agent_result.edits, repo_path, added_tests)
@@ -332,8 +334,9 @@ def start_loop(
     require_failing: bool = False,
     max_cost_usd: float | None = None,
     use_map: bool = True,
+    add_tests: bool = False,
 ):
-    task = asyncio.create_task(run_loop(session_id, broadcast_fn, user_api_key, require_failing, max_cost_usd, use_map))
+    task = asyncio.create_task(run_loop(session_id, broadcast_fn, user_api_key, require_failing, max_cost_usd, use_map, add_tests))
     _running[session_id] = task
     return task
 

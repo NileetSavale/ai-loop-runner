@@ -5,13 +5,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import asyncio
 import json
 import shutil
+from functools import partial
 from unittest.mock import patch
 
 import pytest
 
 from benchmarks.run import (
     BenchTask, RunResult, apply_claude_output, changed_lines, claude_code_command, format_summary, format_table,
-    hidden_tests_pass, load_tasks, prepare_repo, run_benchmark, run_one, summarize,
+    hidden_tests_pass, load_tasks, prepare_repo, run_benchmark, run_loop_arm, run_one, spent_so_far, check_overall_cap, summarize,
 )
 from core.agent import run_agent
 from core.verifier import run_verify
@@ -165,11 +166,11 @@ def test_claude_code_only_gets_file_tools_and_the_task_tests():
 def test_reads_claude_code_usage():
     result = RunResult("a", "claude-code", MODEL, 1)
     apply_claude_output(json.dumps({
-        "is_error": False, "total_cost_usd": 0.12,
+        "is_error": False, "total_cost_usd": 0.12, "result": "Which month do you mean?",
         "usage": {"input_tokens": 5, "output_tokens": 6, "cache_read_input_tokens": 7, "cache_creation_input_tokens": 8},
     }), result)
     assert (result.cost_usd, result.input_tokens, result.output_tokens, result.cache_read_tokens, result.cache_write_tokens) == (0.12, 5, 6, 7, 8)
-    assert result.agent_status == "finished"
+    assert result.agent_status == "finished" and result.final_message == "Which month do you mean?"
 
 
 @pytest.mark.parametrize("stdout", ["not json", "{}", '{"total_cost_usd": 1}'])
@@ -177,3 +178,22 @@ def test_unreadable_claude_code_output_is_reported_not_counted_as_zero_cost(stdo
     result = RunResult("a", "claude-code", MODEL, 1)
     apply_claude_output(stdout, result)
     assert result.agent_status == "unreadable" and "Couldn't read" in result.note
+
+
+def test_loop_arm_passes_the_tests_setting_through():
+    seen = []
+
+    async def fake_loop(*args, **kwargs):
+        seen.append(kwargs.get("add_tests"))
+    with patch("core.loop.start_loop", side_effect=lambda *a, **k: asyncio.ensure_future(fake_loop(*a, **k))):
+        asyncio.run(run_benchmark([OFF_BY_ONE], "loop", MODEL, 1, 1.0, 1.0, arm_fn=partial(run_loop_arm, add_tests=True)))
+    assert seen == [True]
+
+
+def test_overall_cap_counts_saved_results_and_refuses_to_go_over(tmp_path):
+    (tmp_path / "a.json").write_text(json.dumps({"runs": [{"cost_usd": 1.5}, {"cost_usd": 0.5}]}))
+    (tmp_path / "b.json").write_text(json.dumps({"runs": [{"cost_usd": 3.0}]}))
+    assert spent_so_far(tmp_path) == 5.0
+    check_overall_cap(5.0, 5.0, 10.0)
+    with pytest.raises(SystemExit, match="overall cap"):
+        check_overall_cap(5.01, 5.0, 10.0)

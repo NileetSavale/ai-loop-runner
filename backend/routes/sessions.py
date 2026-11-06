@@ -32,6 +32,7 @@ class SessionCreate(BaseModel):
     verify_command: str
     max_iterations: int = 10
     max_cost_usd: float | None = Field(None, gt=0)  # None = server default
+    add_tests: bool = False
     model: str = "claude-sonnet-4-6"
     task: TaskCreate
 
@@ -108,7 +109,7 @@ async def create_session(body: SessionCreate, user: dict | None = Depends(get_op
     async def broadcast_fn(msg: dict):
         await broadcast(session_id, msg)
 
-    start_loop(session_id, broadcast_fn, user_api_key=api_key, max_cost_usd=body.max_cost_usd)
+    start_loop(session_id, broadcast_fn, user_api_key=api_key, max_cost_usd=body.max_cost_usd, add_tests=body.add_tests)
     return {"id": session_id}
 
 

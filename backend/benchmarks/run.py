@@ -36,9 +36,9 @@ from sqlmodel import SQLModel, create_engine, select
 import core.loop as loop
 import database
 from core.edits import is_test_path
-from core.verifier import _verify_env, run_verify
+from core.verifier import _verify_env, failing_tests, run_verify
 from database import get_session as db_session
-from models import Session, SessionEvent, Task
+from models import Iteration, Session, SessionEvent, Task
 
 TASKS_DIR = Path(__file__).parent / "tasks"
 RESULTS_DIR = Path(__file__).parent / "results"
@@ -81,6 +81,7 @@ class RunResult:
     duration_seconds: float = 0.0
     usage_matches: bool | None = None
     verify_runs: int | None = None
+    attempt_failures: list[list[str]] | None = None  # failing tests after each attempt, to see why a run kept going
     note: str = ""
     final_message: str = ""
     diff: str = ""
@@ -182,6 +183,11 @@ async def run_loop_arm(task: BenchTask, repo: Path, model: str, budget: float, r
         result.attempts = session.total_iterations
         recorded_cost, recorded_tokens = session.total_cost_usd, session.total_tokens
         kinds = [(e.kind, json.loads(e.data)) for e in events]
+        attempts = db.exec(select(Iteration).where(Iteration.session_id == session_id).order_by(Iteration.iteration_number)).all()
+        result.attempt_failures = [
+            [] if a.status == "passed" else sorted(failing_tests(a.verify_output or "")) or [f"(unrecognised) {(a.verify_output or '')[-200:]}"]
+            for a in attempts
+        ]
 
     for kind, data in kinds:
         if kind == "usage":

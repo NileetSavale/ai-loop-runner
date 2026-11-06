@@ -215,6 +215,7 @@ def test_stops_when_only_tests_that_already_failed_still_fail(tmp_path):
     assert status == "failed" and "already failing before any change" in data["error"]
     assert agent.call_count == 2
     assert "already failing before your changes: tests/test_a.py::test_old" in agent.call_args_list[1].args[0]
+    assert "## Tests already failing before your changes\n- tests/test_a.py::test_old" in agent.call_args_list[0].args[0]
 
 
 def test_a_new_failure_alongside_old_ones_keeps_going(tmp_path):
@@ -227,8 +228,9 @@ def test_a_new_failure_alongside_old_ones_keeps_going(tmp_path):
 def test_failing_tests_are_the_job_when_the_task_is_to_fix_them(tmp_path):
     verify = AsyncMock(side_effect=[_failed("test_x"), _failed("test_x", note="1"), _failed("test_x", note="2"), PASS])
     agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
-    status, _, _ = _run(tmp_path, agent, verify, max_iterations=10, require_failing=True)
+    status, _, _ = _run(tmp_path, agent, verify, max_iterations=10, require_failing=True, use_map=True)
     assert status == "passed" and agent.call_count == 3
+    assert "Tests already failing" not in agent.call_args_list[0].args[0]
 
 
 def test_per_session_cost_limit_overrides_default(tmp_path):

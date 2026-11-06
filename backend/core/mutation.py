@@ -6,10 +6,13 @@ for each bug. Tests like `assert True` catch none, so they can't be used to clea
 import ast
 import asyncio
 import os
+import re
 import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field
+
+import git
 
 from core.agent import resolve_in_repo
 from core.verifier import run_verify
@@ -66,9 +69,31 @@ def _sites(tree: ast.AST) -> list[tuple[ast.AST, tuple]]:
     return [(n, m) for n in ast.walk(tree) if id(n) not in ignored and (m := _mutation_for(n))]
 
 
-def list_mutants(source: str) -> list[str]:
-    """One description per plantable bug, in the order apply_mutant numbers them."""
-    return [f"line {node.lineno}: {mutation[0]}" for node, mutation in _sites(ast.parse(source))]
+def list_mutants(source: str, lines: set[int] | None = None) -> list[tuple[int, str]]:
+    """(apply_mutant index, description) per plantable bug, only on the given lines if there are any."""
+    return [
+        (index, f"line {node.lineno}: {mutation[0]}")
+        for index, (node, mutation) in enumerate(_sites(ast.parse(source)))
+        if lines is None or node.lineno in lines
+    ]
+
+
+def changed_lines(repo_path: str, rel_path: str) -> set[int] | None:
+    """Lines that differ from the last commit, so tests are only judged on what this work changed.
+
+    None means all of them: the file is new, or there's no git history to compare with.
+    """
+    try:
+        repo = git.Repo(repo_path)
+        if not repo.git.ls_files("--", rel_path):
+            return None
+        diff = repo.git.diff("HEAD", "--unified=0", "--", rel_path)
+    except (git.GitError, ValueError):
+        return None
+    lines = set()
+    for start, count in re.findall(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", diff, re.M):
+        lines.update(range(int(start), int(start) + int(count or 1)))
+    return lines
 
 
 def apply_mutant(source: str, index: int) -> str:
@@ -87,7 +112,7 @@ async def check_test_strength(repo_path: str, verify_command: str, files: list[s
     for rel in files:
         try:
             with open(resolve_in_repo(repo_path, rel)) as f:
-                mutants += [(rel, i, d) for i, d in enumerate(list_mutants(f.read()))]
+                mutants += [(rel, i, d) for i, d in list_mutants(f.read(), changed_lines(repo_path, rel))]
         except (OSError, ValueError, SyntaxError):
             continue
     if not mutants:

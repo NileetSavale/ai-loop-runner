@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from benchmarks.run import (
-    BenchTask, RunResult, apply_claude_output, changed_lines, format_summary, format_table,
+    BenchTask, RunResult, apply_claude_output, changed_lines, claude_code_command, format_summary, format_table,
     hidden_tests_pass, load_tasks, prepare_repo, run_benchmark, run_one, summarize,
 )
 from core.agent import run_agent
@@ -55,7 +55,7 @@ def test_every_task_starts_broken_and_its_solution_passes(task: BenchTask, tmp_p
 def test_a_correct_fix_is_a_success():
     result = _run(_writes(FIXED))
     assert (result.visible_passed, result.hidden_passed, result.agent_status) == (True, True, "passed")
-    assert result.changed_lines == 4  # 3 lines added and 1 removed
+    assert (result.changed_code_lines, result.changed_test_lines) == (4, 0)  # 3 lines added and 1 removed
     assert (result.attempts, result.tool_calls) == (1, 1)
     assert result.tool_result_chars > 0
 
@@ -97,11 +97,12 @@ def test_the_total_budget_stops_runs_it_cant_cover():
 def test_changes_count_whether_or_not_they_were_committed(tmp_path):
     repo = tmp_path / "repo"
     base = prepare_repo(OFF_BY_ONE, repo)
-    assert changed_lines(repo, base) == 0
+    assert changed_lines(repo, base) == (0, 0)
     (repo / "pagination.py").write_text(FIXED)
     (repo / "__pycache__").mkdir()
     (repo / "__pycache__" / "x.pyc").write_bytes(b"\0")
-    assert changed_lines(repo, base) == 4
+    (repo / "tests" / "test_extra.py").write_text("x = 1\ny = 2\n")
+    assert changed_lines(repo, base) == (4, 2)
 
 
 def test_one_shot_providers_log_usage_too():
@@ -138,6 +139,15 @@ def test_no_successes_has_no_cost_per_success():
     assert summary["cost_per_success_usd"] is None
     assert "none succeeded" in format_summary(summary)
     assert summarize([]) == {"runs": 0}
+
+
+def test_claude_code_only_gets_file_tools_and_the_task_tests():
+    command = claude_code_command(OFF_BY_ONE, MODEL, 1.0)
+    assert not any("dangerously" in part or "bypass" in part.lower() for part in command)
+    assert command[command.index("--permission-mode") + 1] == "dontAsk"
+    allowed = command[command.index("--allowedTools") + 1]
+    assert allowed == f"Read,Edit,Write,Glob,Grep,Bash({OFF_BY_ONE.verify}),Bash({OFF_BY_ONE.verify} *)"
+    assert command[command.index("--max-budget-usd") + 1] == "0.75"
 
 
 def test_reads_claude_code_usage():

@@ -1,0 +1,1 @@
+{"prompt": "Finance says invoices for customers who upgrade are sometimes wrong. The rules are in docs/BILLING.md. Check the billing code against them and fix whatever doesn't match.", "verify": "{python} -m pytest tests -q"}

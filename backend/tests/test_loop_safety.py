@@ -3,6 +3,7 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import asyncio
+import subprocess
 import time
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -15,7 +16,7 @@ import database
 from agents.test_gen import apply_tests
 from core.agent import AgentResult, FileEdit
 from core.loop import build_file_context, filter_edits, is_locked_path, is_test_path, run_loop
-from core.mutation import apply_mutant, check_test_strength, list_mutants
+from core.mutation import apply_mutant, changed_lines, check_test_strength, list_mutants
 from core.verifier import VerifyResult, run_verify
 from database import get_session as db_session
 from models import Session, Task
@@ -245,7 +246,7 @@ def _repo(tmp_path, impl=IMPL, test=None):
 
 def test_each_mutant_changes_behaviour_of_the_source():
     assert len(list_mutants(IMPL)) == 3  # >= to <, 18 to 19, return None
-    assert "age < 18" in apply_mutant(IMPL, [i for i, d in enumerate(list_mutants(IMPL)) if "GtE" in d][0])
+    assert "age < 18" in apply_mutant(IMPL, [i for i, d in list_mutants(IMPL) if "GtE" in d][0])
 
 
 def test_weak_tests_catch_nothing(tmp_path):
@@ -307,6 +308,57 @@ def test_non_python_code_passes_but_says_strength_was_not_checked(tmp_path):
     assert "NOT checked" in events[-2]["data"]["output"]
 
 
+TWO_FUNCTIONS = "def changed(x):\n    return x + 1\n\n\ndef untouched(x):\n    return x * 2\n"
+TESTS_CHANGED_ONLY = "from calc import changed\n\n\ndef test_changed():\n    assert changed(1) == 2\n"
+PYTEST = f"{sys.executable} -m pytest -q"
+
+
+def _committed_repo(tmp_path):
+    (tmp_path / "calc.py").write_text(TWO_FUNCTIONS)
+    (tmp_path / "test_calc.py").write_text(TESTS_CHANGED_ONLY)
+    subprocess.run("git init -q && git add -A && git -c user.name=t -c user.email=t@t.co commit -qm base", shell=True, cwd=tmp_path, check=True)
+    return tmp_path
+
+
+def test_untouched_code_is_not_held_against_the_tests(tmp_path):
+    repo = _committed_repo(tmp_path)
+    (repo / "calc.py").write_text(TWO_FUNCTIONS.replace("x + 1", "x + 1  # fixed"))
+    result = asyncio.run(check_test_strength(str(repo), PYTEST, ["calc.py"]))
+    assert result.tested == 3 and result.caught == 3  # return None, + to -, 1 to 2, all on the changed line
+    assert result.survivors == []
+
+
+def test_weak_tests_on_changed_lines_are_still_caught(tmp_path):
+    repo = _committed_repo(tmp_path)
+    (repo / "calc.py").write_text(TWO_FUNCTIONS.replace("x * 2", "x * 3"))
+    result = asyncio.run(check_test_strength(str(repo), PYTEST, ["calc.py"]))
+    assert result.tested == 3 and result.caught == 0
+    assert all("line 6" in survivor for survivor in result.survivors)
+
+
+def test_a_file_with_no_changes_has_nothing_to_check(tmp_path):
+    result = asyncio.run(check_test_strength(str(_committed_repo(tmp_path)), PYTEST, ["calc.py"]))
+    assert result.skipped_reason and result.tested == 0
+
+
+def test_a_new_file_counts_as_all_changed(tmp_path):
+    repo = _committed_repo(tmp_path)
+    (repo / "extra.py").write_text("def a():\n    return 1\n")
+    assert changed_lines(str(repo), "extra.py") is None
+    assert changed_lines(str(repo), "calc.py") == set()
+
+
+def test_no_git_history_counts_as_all_changed(tmp_path):
+    (tmp_path / "calc.py").write_text(TWO_FUNCTIONS)
+    assert changed_lines(str(tmp_path), "calc.py") is None
+
+
+def test_diff_ranges_cover_every_added_line(tmp_path):
+    repo = _committed_repo(tmp_path)
+    (repo / "calc.py").write_text(TWO_FUNCTIONS.replace("    return x + 1\n", "    y = x\n    z = y\n    return z + 1\n"))
+    assert changed_lines(str(repo), "calc.py") == {2, 3, 4}
+
+
 def test_cut_off_reply_is_explained_to_the_agent(tmp_path):
     cut_off = AgentResult(raw_output="", edits=[], input_tokens=1, output_tokens=1, cost_usd=0.01, truncated=True)
     agent = AsyncMock(side_effect=[cut_off, _agent(FileEdit("a.py", "1"))])
@@ -330,7 +382,7 @@ if __name__ == "__main__":
 
 
 def test_string_and_not_mutants_exist_but_docstrings_errors_and_main_guard_are_ignored():
-    found = list_mutants(STRINGY)
+    found = [description for _, description in list_mutants(STRINGY)]
     assert any("not" in d for d in found)
     assert any("[^a-z0-9]+" in d for d in found) and any("'-'" in d for d in found)
     assert not any("Docstring" in d or "needs a string" in d or "__main__" in d for d in found)

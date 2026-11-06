@@ -9,6 +9,16 @@ MAX_TIMEOUT = int(os.getenv("MAX_VERIFY_TIMEOUT_SECONDS", "120"))
 _SECRET_ENV = re.compile(r".*(_API_KEY|_SECRET|_TOKEN|_PASSWORD)|DATABASE_URL|REDIS_URL|VAULT_KEY", re.IGNORECASE)
 
 
+# pytest -rA ("FAILED a.py::test_x - ...", or "ERROR a.py" when collecting fails), unittest/Django
+# ("FAIL: test_x (mod.Class)"), and SymPy's bin/test ("____ sympy/a.py:test_x ____")
+_FAILING_TEST = re.compile(r"^(?:(?:FAILED|ERROR) (\S+\.py\S*)|(?:FAIL|ERROR): (\w+ \([\w.]+\))|_{3,} (\S+\.py:\w+) _{3,})", re.M)
+
+
+def failing_tests(output: str) -> set[str]:
+    """Names of the failing tests in a test run's output. Empty when the format isn't recognised."""
+    return {next(g for g in m.groups() if g) for m in _FAILING_TEST.finditer(output)}
+
+
 @dataclass
 class VerifyResult:
     passed: bool

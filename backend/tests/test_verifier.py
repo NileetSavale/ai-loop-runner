@@ -63,3 +63,14 @@ def test_verify_leaves_no_bytecode_to_commit(tmp_path):
     (tmp_path / "m.py").write_text("X = 1")
     assert run(run_verify(f"{sys.executable} -c 'import m'", str(tmp_path))).passed
     assert not (tmp_path / "__pycache__").exists()
+
+
+def test_reads_failing_test_names_from_pytest_django_and_sympy_output():
+    from core.verifier import failing_tests
+    pytest_out = "FAILED a/test_x.py::test_one - AssertionError\nERROR a/test_y.py - ImportError\nPASSED a/test_x.py::test_two\n"
+    django_out = "FAIL: test_one (app.tests.Case)\n----\nERROR: test_two (app.tests.Case.test_two)\n"
+    sympy_out = "____ sympy/core/tests/test_basic.py:test_one ____\n______ xpassed tests ______\n"
+    assert failing_tests(pytest_out) == {"a/test_x.py::test_one", "a/test_y.py"}
+    assert failing_tests(django_out) == {"test_one (app.tests.Case)", "test_two (app.tests.Case.test_two)"}
+    assert failing_tests(sympy_out) == {"sympy/core/tests/test_basic.py:test_one"}
+    assert failing_tests("1 failed in 0.01s") == set()

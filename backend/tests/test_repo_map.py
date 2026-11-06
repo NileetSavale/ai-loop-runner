@@ -211,8 +211,9 @@ def test_events_are_broadcast_and_saved_for_the_visual_view(tmp_path, db):
     events, saved = _run(tmp_path, model, files=["a.py"])
     kinds = [e["event"] for e in events]
     assert kinds[0] == "focus" and kinds.count("tool") == 3 and kinds.count("file_changed") == 1
-    assert [s.kind for s in saved] == ["focus", "tool", "tool", "file_changed", "tool"]
-    live = {e["data"]["id"] for e in events if e["event"] in ("focus", "tool", "file_changed")}
+    assert [s.kind for s in saved if s.kind != "usage"] == ["focus", "tool", "tool", "file_changed", "tool"]
+    assert [s.kind for s in saved].count("usage") == 2  # one per model turn
+    live = {e["data"]["id"] for e in events if e["event"] in ("focus", "usage", "tool", "file_changed")}
     assert live == {s.id for s in saved}  # the page uses these ids to merge saved and live events
     change = next(e["data"] for e in events if e["event"] == "file_changed")
     assert change["path"] == "a.py" and "+new" in change["diff"]

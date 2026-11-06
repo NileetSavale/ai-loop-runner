@@ -76,6 +76,15 @@ async def run_agent(
         return await _run_tool_agent(provider, prompt, model, tools, on_token, max_cost_usd, on_event)
     result = await provider.complete(SYSTEM_PROMPT, prompt, model, on_token)
     cost = calculate_cost(model, result.input_tokens, result.output_tokens)
+    if on_event:
+        await on_event("usage", {
+            "step": 1,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost_usd": cost,
+        })
     return AgentResult(
         raw_output=result.text,
         edits=parse_file_blocks(result.text),
@@ -103,11 +112,21 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
     async def show_model_text(chunk: str):
         await show(chunk)
 
-    for _ in range(MAX_AGENT_STEPS):
+    for step in range(1, MAX_AGENT_STEPS + 1):
         turn = await provider.complete_with_tools(TOOL_SYSTEM_PROMPT, messages, TOOL_SCHEMAS, model, show_model_text)
         input_tokens += turn.input_tokens + turn.cache_read_tokens + turn.cache_write_tokens
         output_tokens += turn.output_tokens
-        cost += calculate_cost(model, turn.input_tokens, turn.output_tokens, turn.cache_read_tokens, turn.cache_write_tokens)
+        turn_cost = calculate_cost(model, turn.input_tokens, turn.output_tokens, turn.cache_read_tokens, turn.cache_write_tokens)
+        cost += turn_cost
+        if on_event:
+            await on_event("usage", {
+                "step": step,
+                "input_tokens": turn.input_tokens,
+                "output_tokens": turn.output_tokens,
+                "cache_read_tokens": turn.cache_read_tokens,
+                "cache_write_tokens": turn.cache_write_tokens,
+                "cost_usd": turn_cost,
+            })
 
         # A cut-off or refused turn can hold an incomplete tool call, so none of its tools may run
         if turn.stop_reason == "refusal":
@@ -133,6 +152,7 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
                     "target": target,
                     "error": content[:300] if is_error else None,
                     "passed": content.startswith("PASSED") if call.name == "run_tests" and not is_error else None,
+                    "result_chars": len(content),
                 })
                 for change in tools.changes:
                     await on_event("file_changed", change)

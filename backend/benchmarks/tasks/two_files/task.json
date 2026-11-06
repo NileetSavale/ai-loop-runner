@@ -1,0 +1,1 @@
+{"prompt": "Cart totals are wrong when a discount is applied. A 20% discount on 100 should give 80. Percent must be between 0 and 100 inclusive, otherwise raise ValueError. Prices are rounded to 2 decimal places.", "verify": "{python} -m pytest tests -q"}

@@ -31,3 +31,6 @@ k8s/secret.yaml
 
 # Local loop target, has its own git repo
 demo/
+
+# Benchmark output
+backend/benchmarks/results/

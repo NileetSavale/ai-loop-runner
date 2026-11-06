@@ -1,0 +1,1 @@
+{"prompt": "Orders can oversell stock: units already reserved by earlier orders are still treated as available. Fix this. Change as little as you can, because the rest of the package works.", "verify": "{python} -m pytest tests -q"}

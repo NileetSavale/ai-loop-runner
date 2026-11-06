@@ -1,0 +1,1 @@
+{"prompt": "Implement `slugify(text)` in text_utils.py. Lowercase the text, convert accented letters to their plain ASCII form (é becomes e), replace each run of other non-alphanumeric characters with one hyphen, and remove leading and trailing hyphens. Text with no letters or digits gives an empty string.", "verify": "{python} -m pytest tests -q"}

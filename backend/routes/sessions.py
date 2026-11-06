@@ -5,9 +5,10 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import select
 
-from models import Session, Task, Iteration
+from models import Session, SessionEvent, Task, Iteration
 from database import get_session as db_session
 from core.loop import start_loop, stop_loop
+from core.repo_map import build_repo_map
 from routes.ws import broadcast
 from auth import get_optional_user, get_current_user, user_id
 from routes.keys import get_user_api_key
@@ -147,6 +148,8 @@ def delete_session(session_id: str, user: dict | None = Depends(get_optional_use
         session = _own_session(session_id, uid, db)
         for i in db.exec(select(Iteration).where(Iteration.session_id == session_id)).all():
             db.delete(i)
+        for e in db.exec(select(SessionEvent).where(SessionEvent.session_id == session_id)).all():
+            db.delete(e)
         task = db.exec(select(Task).where(Task.session_id == session_id)).first()
         if task:
             db.delete(task)
@@ -176,3 +179,30 @@ def get_iteration(iteration_id: str, user: dict | None = Depends(get_optional_us
         # Verify ownership via the parent session
         _own_session(it.session_id, uid, db)
         return it.model_dump()
+
+
+@router.get("/repo-map")
+def repo_map(repo_path: str, user: dict | None = Depends(get_optional_user)):
+    """The map of a repo, for choosing files before a session exists."""
+    if not os.path.isdir(repo_path):
+        raise HTTPException(status_code=400, detail="repo_path does not exist")
+    return build_repo_map(repo_path)
+
+
+@router.get("/sessions/{session_id}/map")
+def session_map(session_id: str, user: dict | None = Depends(get_optional_user)):
+    uid = user_id(user) if user else None
+    with db_session() as db:
+        repo_path = _own_session(session_id, uid, db).repo_path
+    if not os.path.isdir(repo_path):
+        raise HTTPException(status_code=404, detail="The repo for this session no longer exists")
+    return build_repo_map(repo_path)
+
+
+@router.get("/sessions/{session_id}/events")
+def session_events(session_id: str, user: dict | None = Depends(get_optional_user)):
+    uid = user_id(user) if user else None
+    with db_session() as db:
+        _own_session(session_id, uid, db)
+        rows = db.exec(select(SessionEvent).where(SessionEvent.session_id == session_id).order_by(SessionEvent.id)).all()
+        return [{"id": r.id, "kind": r.kind, **json.loads(r.data)} for r in rows]

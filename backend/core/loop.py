@@ -8,9 +8,12 @@ from typing import Callable, Awaitable
 
 from sqlmodel import select
 
-from models import Session, Task, Iteration, UsageEvent
+from models import Session, SessionEvent, Task, Iteration, UsageEvent
 from database import get_session as db_session
-from core.agent import run_agent, AgentResult, resolve_in_repo
+from core.agent import run_agent, AgentResult
+from core.edits import apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
+from core.repo_map import build_repo_map, locate_issue, map_for_prompt
+from core.tools import RepoTools
 from core.verifier import run_verify, VerifyResult
 from core.git_ops import git_commit
 from core.mutation import check_test_strength
@@ -24,12 +27,7 @@ BroadcastFn = Callable[[dict], Awaitable[None]]
 MAX_SESSION_COST_USD = float(os.getenv("MAX_SESSION_COST_USD", "5"))
 MAX_IDENTICAL_FAILURES = 3
 MIN_MUTATION_SCORE = float(os.getenv("MIN_MUTATION_SCORE", "0.7"))
-
-# ponytail: name patterns, so the agent can still weaken tests through pyproject.toml or package.json.
-# Hash the verify setup before each run if a real tamper proof is needed.
-_TEST_DIRS = {"tests", "test", "__tests__", "spec", "specs"}
-_TEST_FILES = re.compile(r"test_.*|.*_test\..+|.*\.(test|spec)\..+", re.IGNORECASE)
-_LOCKED_FILES = re.compile(r"conftest\.py|pytest\.ini|tox\.ini|(jest|vitest)\.config\..+", re.IGNORECASE)
+MAX_BASELINE_OUTPUT_CHARS = 1_500
 
 
 def build_file_context(files: list[str], repo_path: str) -> str:
@@ -45,49 +43,29 @@ def build_file_context(files: list[str], repo_path: str) -> str:
     return "\n\n".join(parts)
 
 
-def build_prompt(spec: str, context: str, iteration: int, last_verify_output: str | None = None) -> str:
+def build_prompt(spec: str, context: str, iteration: int, last_verify_output: str | None = None, guide: str = "") -> str:
     retry_note = ""
     if iteration > 1:
         error_block = f"\n\n```\n{last_verify_output}\n```" if last_verify_output else ""
         retry_note = f"\n\n> attempt #{iteration}. Previous attempt failed verification. Fix the errors below.{error_block}"
-    return f"## Task Spec\n{spec}{retry_note}\n\n## Current File Contents\n{context}"
+    return f"## Task Spec\n{spec}{retry_note}\n\n{guide}## Current File Contents\n{context}"
 
 
-def is_test_path(rel_path: str) -> bool:
-    *dirs, name = rel_path.replace(os.sep, "/").split("/")
-    return any(d.lower() in _TEST_DIRS for d in dirs) or bool(_TEST_FILES.fullmatch(name))
+def _build_guide(repo_map: dict, focus: list[dict], baseline: VerifyResult | None) -> str:
+    """Tell the agent where to look, so it doesn't pay to find out.
 
-
-def is_locked_path(rel_path: str) -> bool:
-    """Never editable. A new conftest.py or pytest.ini could make every test pass without touching a test."""
-    *dirs, name = rel_path.replace(os.sep, "/").split("/")
-    return any(d.lower() == ".git" for d in dirs) or bool(_LOCKED_FILES.fullmatch(name))
-
-
-def filter_edits(edits, repo_path: str, added_tests: set[str] | None = None) -> tuple[list, list[str]]:
-    """Split edits into those allowed and notes telling the agent what was refused and why.
-
-    added_tests holds the test files this session created. The agent may keep improving those, and any
-    new ones it writes are added to the set.
+    Names only, not file contents. Measured on one bug, including two files cost more than this on both Haiku 5.5
+    and Sonnet 5.5, because reads later in the conversation are cheap once it's cached.
     """
-    added_tests = set() if added_tests is None else added_tests
-    allowed, rejected = [], []
-    for edit in edits:
-        try:
-            real_path = resolve_in_repo(repo_path, edit.path)
-        except ValueError:
-            rejected.append(f"REJECTED {edit.path}: outside the repo.")
-            continue
-        rel = os.path.relpath(real_path, os.path.realpath(repo_path))
-        if is_locked_path(rel):
-            rejected.append(f"REJECTED {edit.path}: test config and git files are read-only.")
-        elif is_test_path(rel) and rel not in added_tests and os.path.exists(real_path):
-            rejected.append(f"REJECTED {edit.path}: existing tests are read-only. Add a new test file instead.")
-        else:
-            if is_test_path(rel):
-                added_tests.add(rel)
-            allowed.append(edit)
-    return allowed, rejected
+    parts = []
+    if focus:
+        likely = "\n".join(f"- {f['path']} ({f['reason']})" for f in focus)
+        parts.append(f"## Likely places to look\n{likely}")
+    if repo_map["nodes"]:
+        parts.append(f"## Repo map\n{map_for_prompt(repo_map, focus)}")
+    if baseline and not baseline.passed:
+        parts.append(f"## Test output before your changes\n```\n{baseline.output[-MAX_BASELINE_OUTPUT_CHARS:]}\n```")
+    return "".join(f"{p}\n\n" for p in parts)
 
 
 async def _judge_test_strength(result: VerifyResult, repo_path: str, verify_command: str, files: list[str]) -> VerifyResult:
@@ -119,16 +97,6 @@ async def _judge_test_strength(result: VerifyResult, repo_path: str, verify_comm
     )
 
 
-def apply_edits(edits, repo_path: str) -> list[str]:
-    changed = []
-    for edit in edits:
-        path = resolve_in_repo(repo_path, edit.path)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        open(path, "w").write(edit.content)
-        changed.append(edit.path)
-    return changed
-
-
 def _mark_session_failed(session_id: str, reason: str):
     try:
         with db_session() as db:
@@ -154,6 +122,7 @@ async def run_loop(
     user_api_key: str | None = None,
     require_failing: bool = False,
     max_cost_usd: float | None = None,
+    use_map: bool = False,
 ):
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
     with db_session() as db:
@@ -177,13 +146,31 @@ async def run_loop(
     cost_limit = MAX_SESSION_COST_USD if max_cost_usd is None else max_cost_usd
     added_tests: set[str] = set()
     touched: set[str] = set()
+    guide = ""
+
+    async def emit(kind: str, data: dict):
+        """Save what happened and send it to the website. The id lets the page merge saved and live events."""
+        with db_session() as db:
+            event = SessionEvent(session_id=session_id, kind=kind, data=json.dumps({**data, "iteration": iteration}))
+            db.add(event)
+            db.commit()
+            event_id = event.id
+        await broadcast_fn({"event": kind, "data": {**data, "id": event_id, "iteration": iteration}})
 
     try:
-        if require_failing and (await run_verify(verify_command, repo_path)).passed:
+        baseline = await run_verify(verify_command, repo_path) if require_failing or use_map else None
+        if require_failing and baseline.passed:
             reason = "The tests already pass before any work, so a pass would prove nothing. Stopped without calling the LLM."
             _mark_session_failed(session_id, reason)
             await _fail_session(session_id, broadcast_fn, reason)
             return
+
+        if use_map:
+            # No LLM here: this costs time, not tokens, and it's what saves them later
+            repo_map = await asyncio.to_thread(build_repo_map, repo_path)
+            focus = locate_issue(repo_map, spec, baseline.output if baseline and not baseline.passed else None, files, repo_path)
+            guide = _build_guide(repo_map, focus, baseline)
+            await emit("focus", {"files": focus, "tests_passing": baseline.passed})
 
         while iteration <= max_iterations:
             if session_id not in _running:
@@ -191,7 +178,7 @@ async def run_loop(
 
             # Files this session created have to be visible, or retries can't build on them
             context = build_file_context(files + sorted(touched - set(files)), repo_path)
-            prompt = build_prompt(spec, context, iteration, last_verify_output)
+            prompt = build_prompt(spec, context, iteration, last_verify_output, guide)
 
             await broadcast_fn({"event": "iteration_start", "data": {"iteration": iteration}})
 
@@ -200,10 +187,20 @@ async def run_loop(
             async def on_token(chunk: str):
                 await broadcast_fn({"event": "agent_token", "data": {"token": chunk}})
 
-            agent_result = await run_agent(prompt, model, user_api_key=user_api_key, on_token=on_token)
+            agent_result = await run_agent(
+                prompt, model, user_api_key=user_api_key, on_token=on_token,
+                tools=RepoTools(repo_path, verify_command, added_tests),
+                max_cost_usd=cost_limit - total_cost,
+                on_event=emit,
+            )
 
             allowed, rejected = filter_edits(agent_result.edits, repo_path, added_tests)
-            changed = apply_edits(allowed, repo_path)
+            # Tool agents report their own changes as they go. This is the one-shot path.
+            befores = [(e, read_current(repo_path, e.path)) for e in allowed]
+            changed = apply_edits(allowed, repo_path) + agent_result.applied
+            for edit, before in befores:
+                await emit("file_changed", describe_change(edit.path, before, edit.content))
+            rejected += agent_result.notes
             touched.update(changed)
             if agent_result.truncated:
                 rejected.append("Your reply hit the output limit, so any unfinished file was dropped. Change fewer or smaller files.")
@@ -322,7 +319,7 @@ async def run_loop(
 
     except Exception as e:
         _mark_session_failed(session_id, str(e))
-        await broadcast_fn({"event": "session_complete", "data": {"status": "failed", "error": str(e)}})
+        await _fail_session(session_id, broadcast_fn, f"The run crashed: {e}")
 
     finally:
         _running.pop(session_id, None)
@@ -334,8 +331,9 @@ def start_loop(
     user_api_key: str | None = None,
     require_failing: bool = False,
     max_cost_usd: float | None = None,
+    use_map: bool = True,
 ):
-    task = asyncio.create_task(run_loop(session_id, broadcast_fn, user_api_key, require_failing, max_cost_usd))
+    task = asyncio.create_task(run_loop(session_id, broadcast_fn, user_api_key, require_failing, max_cost_usd, use_map))
     _running[session_id] = task
     return task
 

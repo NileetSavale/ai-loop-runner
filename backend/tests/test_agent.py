@@ -55,7 +55,7 @@ def test_cost_sonnet():
 
 
 def test_cost_haiku_cheap():
-    assert calculate_cost("claude-haiku-4-5-20251001", 1_000_000, 1_000_000) == 0.80 + 4.00
+    assert calculate_cost("claude-haiku-4-5-20251001", 1_000_000, 1_000_000) == 1.00 + 5.00
 
 
 def test_cost_zero_tokens():

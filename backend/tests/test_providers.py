@@ -35,6 +35,26 @@ def _anthropic(stop):
     yield "message_stop", {"type": "message_stop"}
 
 
+def _anthropic_tool():
+    message = {"id": "m", "type": "message", "role": "assistant", "content": [], "model": "x", "stop_reason": None,
+               "stop_sequence": None, "usage": {"input_tokens": 7, "output_tokens": 1, "cache_read_input_tokens": 100,
+                                                 "cache_creation_input_tokens": 20}}
+    yield "message_start", {"type": "message_start", "message": message}
+    yield "content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}}
+    yield "content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "sig123"}}
+    yield "content_block_stop", {"type": "content_block_stop", "index": 0}
+    yield "content_block_start", {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}}
+    yield "content_block_delta", {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "Looking."}}
+    yield "content_block_stop", {"type": "content_block_stop", "index": 1}
+    yield "content_block_start", {"type": "content_block_start", "index": 2,
+                                  "content_block": {"type": "tool_use", "id": "t1", "name": "read_file", "input": {}}}
+    for part in ['{"path": ', '"src/a.py"}']:
+        yield "content_block_delta", {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": part}}
+    yield "content_block_stop", {"type": "content_block_stop", "index": 2}
+    yield "message_delta", {"type": "message_delta", "delta": {"stop_reason": "tool_use", "stop_sequence": None}, "usage": {"output_tokens": 11}}
+    yield "message_stop", {"type": "message_stop"}
+
+
 def _openai_style(stop):
     base = {"id": "c", "object": "chat.completion.chunk", "created": 1, "model": "x"}
     for t in TOKENS:
@@ -70,7 +90,7 @@ def server():
         def do_POST(self):
             state["bodies"].append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
             if self.path.startswith("/anthropic"):
-                events = _anthropic(state["stop"])
+                events = _anthropic_tool() if state.get("tool") else _anthropic(state["stop"])
             elif self.path.startswith("/openai"):
                 events = _openai_style(state["stop"])
             elif self.path.startswith("/mistral"):
@@ -170,3 +190,31 @@ def test_other_work_keeps_running_during_a_stream(server, name):
     with sdk_patch:
         ticks = asyncio.run(scenario())
     assert ticks >= 15  # the stream lasts at least 0.4s, so a free event loop ticks far more than this
+
+
+def test_anthropic_tool_turn_round_trip(server):
+    """The full wire format: a real SDK parses a tool call, then sends the answer back in the right shape."""
+    server["tool"] = True
+    provider, sdk_patch = _make("anthropic", server["url"])
+    tools = [{"name": "read_file", "description": "d", "input_schema": {"type": "object", "properties": {}}}]
+    messages = [{"role": "user", "content": "go"}]
+
+    async def scenario():
+        first = await provider.complete_with_tools("sys", messages, tools, "x")
+        history = messages + [first.assistant_message, provider.tool_results_message(
+            [{"id": first.tool_calls[0].id, "content": "file text", "is_error": False}])]
+        await provider.complete_with_tools("sys", history, tools, "x")
+        return first
+
+    with sdk_patch:
+        first = asyncio.run(scenario())
+    call = first.tool_calls[0]
+    assert (call.id, call.name, call.input) == ("t1", "read_file", {"path": "src/a.py"})
+    assert first.stop_reason == "tool_use" and first.text == "Looking."
+    assert (first.cache_read_tokens, first.cache_write_tokens) == (100, 20)
+    sent = server["bodies"][-1]
+    assert sent["cache_control"] == {"type": "ephemeral"}
+    assert [b["type"] for b in sent["messages"][1]["content"]] == ["thinking", "text", "tool_use"]
+    # Thinking goes back exactly as received, or the API rejects the request. SDK 0.40 failed this.
+    assert sent["messages"][1]["content"][0] == {"type": "thinking", "thinking": "", "signature": "sig123"}
+    assert sent["messages"][2]["content"] == [{"type": "tool_result", "tool_use_id": "t1", "content": "file text", "is_error": False}]

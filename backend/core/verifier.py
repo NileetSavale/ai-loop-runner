@@ -25,6 +25,7 @@ def _verify_env(cwd: str) -> dict[str, str]:
     # until loops are sandboxed (see plan.md).
     env = {k: v for k, v in os.environ.items() if not _SECRET_ENV.fullmatch(k)}
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [cwd, env.get("PYTHONPATH")]))
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # otherwise .pyc files get committed, and can hide mutants
     return env
 
 

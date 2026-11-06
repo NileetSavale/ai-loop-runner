@@ -1,8 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { Iteration, WsMessage } from "@/lib/types";
-import { authedSocket } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import type { AgentEvent, AgentEventKind, Iteration, WsMessage } from "@/lib/types";
+import { api, authedSocket } from "@/lib/api";
+import { AgentView } from "./AgentView";
 import { StatusBadge } from "./StatusBadge";
+
+const AGENT_EVENTS: string[] = ["focus", "tool", "file_changed"];
 
 interface LiveIteration extends Partial<Iteration> {
   iteration_number: number;
@@ -14,14 +18,31 @@ interface LiveIteration extends Partial<Iteration> {
 export function LiveLoop({ sessionId, initialIterations }: { sessionId: string; initialIterations: Iteration[] }) {
   const [iterations, setIterations] = useState<LiveIteration[]>(initialIterations);
   const [done, setDone] = useState(false);
+  const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const router = useRouter();
+
+  function addAgentEvents(incoming: AgentEvent[]) {
+    // Saved and live events can overlap while the page loads, so merge them by id
+    setAgentEvents((prev) => {
+      const byId = new Map(prev.map((e) => [e.id, e]));
+      incoming.forEach((e) => byId.set(e.id, e));
+      return Array.from(byId.values()).sort((a, b) => a.id - b.id);
+    });
+  }
 
   useEffect(() => {
     const ws = authedSocket(`/ws/sessions/${sessionId}`);
     wsRef.current = ws;
+    api.sessions.events(sessionId).then(addAgentEvents).catch(() => {});
 
     ws.onmessage = (e) => {
       const msg: WsMessage = JSON.parse(e.data);
+
+      if (AGENT_EVENTS.includes(msg.event)) {
+        const event = { ...msg.data, kind: msg.event as AgentEventKind } as unknown as AgentEvent;
+        addAgentEvents([event]);
+      }
 
       if (msg.event === "iteration_start") {
         const n = msg.data.iteration as number;
@@ -48,15 +69,19 @@ export function LiveLoop({ sessionId, initialIterations }: { sessionId: string; 
             i.iteration_number === d.iteration_number ? { ...i, ...d } : i
           )
         );
-        if (msg.event === "session_complete") setDone(true);
+        if (msg.event === "session_complete") {
+          setDone(true);
+          router.refresh(); // the header and totals are rendered on the server
+        }
       }
     };
 
     return () => ws.close();
-  }, [sessionId]);
+  }, [sessionId, router]);
 
   return (
     <div className="space-y-4">
+      <AgentView sessionId={sessionId} events={agentEvents} />
       {iterations.map((iter) => (
         <IterationRow key={iter.iteration_number} iter={iter} />
       ))}

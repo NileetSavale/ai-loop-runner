@@ -186,3 +186,31 @@ def test_one_event_per_iteration():
     with db_session() as db:
         events = db.exec(select(UsageEvent).where(UsageEvent.session_id == sid)).all()
     assert len(events) == 3
+
+
+def _generate(tmp_path, reply, user={"sub": "u1"}):
+    from routes.test_gen import GenerateRequest, generate
+    from providers.base import LLMResult
+    provider = MagicMock()
+    provider.complete = AsyncMock(return_value=LLMResult(input_tokens=1000, output_tokens=500, **reply))
+    with patch("agents.test_gen.get_provider", return_value=provider), \
+         patch("routes.test_gen.invalidate_analytics", new_callable=AsyncMock):
+        return asyncio.run(generate(GenerateRequest(description="d", repo_path=str(tmp_path), model="claude-sonnet-4-6"), user))
+
+
+def test_test_generation_is_billed(tmp_path):
+    response = _generate(tmp_path, {"text": '<file path="tests/test_a.py">x</file>'})
+    with db_session() as db:
+        event = db.exec(select(UsageEvent)).one()
+    assert event.user_id == "u1" and event.session_id == "test-generation"
+    assert (event.input_tokens, event.output_tokens) == (1000, 500)
+    assert event.cost_usd == pytest.approx(0.0105) == response["cost_usd"]
+
+
+def test_cut_off_test_generation_is_still_billed_then_refused(tmp_path):
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as e:
+        _generate(tmp_path, {"text": "partial", "truncated": True})
+    assert e.value.status_code == 400
+    with db_session() as db:
+        assert db.exec(select(UsageEvent)).one().cost_usd > 0

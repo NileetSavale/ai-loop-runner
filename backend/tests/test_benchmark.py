@@ -162,16 +162,31 @@ def test_claude_code_only_gets_file_tools_and_the_task_tests():
     allowed = command[command.index("--allowedTools") + 1]
     assert allowed == f"Read,Edit,Write,Glob,Grep,Bash({OFF_BY_ONE.verify}),Bash({OFF_BY_ONE.verify} *)"
     assert command[command.index("--max-budget-usd") + 1] == "0.75"
+    assert "only shell command" in command[command.index("-p") + 1]
 
 
-def test_reads_claude_code_usage():
+def _tool_use(name, **tool_input):
+    return json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": tool_input}]}})
+
+
+def test_reads_claude_code_usage_and_whether_it_ran_the_tests():
     result = RunResult("a", "claude-code", MODEL, 1)
-    apply_claude_output(json.dumps({
-        "is_error": False, "total_cost_usd": 0.12, "result": "Which month do you mean?",
-        "usage": {"input_tokens": 5, "output_tokens": 6, "cache_read_input_tokens": 7, "cache_creation_input_tokens": 8},
-    }), result)
+    stdout = "\n".join([
+        json.dumps({"type": "system"}),
+        _tool_use("Read", file_path="a.py"),
+        _tool_use("Bash", command="python3 -c 'print(1)'"),
+        _tool_use("Bash", command="bash verify.sh 2>&1 | tail"),
+        json.dumps({
+            "type": "result", "is_error": False, "total_cost_usd": 0.12, "result": "Which month do you mean?",
+            "usage": {"input_tokens": 5, "output_tokens": 6, "cache_read_input_tokens": 7, "cache_creation_input_tokens": 8},
+            "permission_denials": [{"tool_name": "Bash", "tool_input": {"command": "python3 -c 'print(1)'"}}],
+        }),
+    ])
+    apply_claude_output(stdout, result, "bash verify.sh")
     assert (result.cost_usd, result.input_tokens, result.output_tokens, result.cache_read_tokens, result.cache_write_tokens) == (0.12, 5, 6, 7, 8)
     assert result.agent_status == "finished" and result.final_message == "Which month do you mean?"
+    assert (result.tool_calls, result.verify_runs) == (3, 1)
+    assert result.note == "Denied: python3 -c 'print(1)'"
 
 
 @pytest.mark.parametrize("stdout", ["not json", "{}", '{"total_cost_usd": 1}'])

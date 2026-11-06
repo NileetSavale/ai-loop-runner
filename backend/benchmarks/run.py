@@ -80,6 +80,7 @@ class RunResult:
     changed_test_lines: int = 0
     duration_seconds: float = 0.0
     usage_matches: bool | None = None
+    verify_runs: int | None = None
     note: str = ""
     final_message: str = ""
     diff: str = ""
@@ -196,13 +197,20 @@ async def run_loop_arm(task: BenchTask, repo: Path, model: str, budget: float, r
     result.usage_matches = event_tokens == recorded_tokens and abs(result.cost_usd - recorded_cost) < 1e-9
 
 
-def apply_claude_output(stdout: str, result: RunResult):
-    """Read the JSON that `claude -p --output-format json` prints."""
+def apply_claude_output(stdout: str, result: RunResult, verify: str = ""):
+    """Read the JSON lines that `claude -p --output-format stream-json` prints. The last one sums up the run."""
+    messages = []
+    for line in stdout.splitlines():
+        try:
+            messages.append(json.loads(line))
+        except json.JSONDecodeError:
+            pass
+    messages = [m for m in messages if isinstance(m, dict)]
     try:
-        output = json.loads(stdout)
+        output = next(m for m in reversed(messages) if m.get("type") == "result")
         usage = output["usage"]
         result.cost_usd = output["total_cost_usd"]
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
+    except (StopIteration, KeyError, TypeError) as e:
         result.agent_status = "unreadable"
         result.note = f"Couldn't read Claude Code's usage ({e!r}): {stdout[:300]}"
         return
@@ -211,17 +219,34 @@ def apply_claude_output(stdout: str, result: RunResult):
     result.cache_read_tokens = usage.get("cache_read_input_tokens", 0)
     result.cache_write_tokens = usage.get("cache_creation_input_tokens", 0)
     result.attempts = 1
+    calls = [
+        block for m in messages if m.get("type") == "assistant"
+        for block in m.get("message", {}).get("content", []) if block.get("type") == "tool_use"
+    ]
+    result.tool_calls = len(calls)
+    # Whether it checked its work at all: a single denied command once made it stop running the tests
+    result.verify_runs = sum(1 for c in calls if c.get("name") == "Bash" and verify and c.get("input", {}).get("command", "").startswith(verify))
+    denied = [str(d.get("tool_input", {}).get("command", d.get("tool_name"))) for d in output.get("permission_denials") or []]
+    if denied:
+        result.note = f"Denied: {'; '.join(denied)}"[:300]
     result.final_message = str(output.get("result") or "")[:2000]  # explains a run that stops without changing anything
     result.agent_status = "failed" if output.get("is_error") else "finished"
     if output.get("is_error"):
-        result.note = str(output.get("subtype") or output.get("result"))[:300]
+        result.note = f"{output.get('subtype') or output.get('result')} {result.note}"[:300]
+
+
+# Without this, one denied command made Claude Code decide all shell commands were off and skip the tests
+VERIFY_ONLY_RULE = (
+    "That is the only shell command you're allowed to run, and it is always allowed. Run it exactly as written. "
+    "Any other shell command will be denied; when one is, carry on with the file tools and this command."
+)
 
 
 def claude_code_command(task: BenchTask, model: str, budget: float) -> list[str]:
     """It can read and edit files and run the task's tests. Anything else is refused without asking."""
     return [
-        "claude", "--bare", "-p", f"{task.prompt}\n\nCheck your work with: {task.verify}",
-        "--output-format", "json", "--model", model, "--max-budget-usd", str(budget * BUDGET_RESERVE),
+        "claude", "--bare", "-p", f"{task.prompt}\n\nCheck your work with: {task.verify}\n{VERIFY_ONLY_RULE}",
+        "--output-format", "stream-json", "--verbose", "--model", model, "--max-budget-usd", str(budget * BUDGET_RESERVE),
         "--no-session-persistence", "--strict-mcp-config", "--permission-mode", "dontAsk",
         "--tools", "Read,Edit,Write,Glob,Grep,Bash",
         "--allowedTools", f"Read,Edit,Write,Glob,Grep,Bash({task.verify}),Bash({task.verify} *)",
@@ -245,7 +270,7 @@ async def run_claude_code_arm(task: BenchTask, repo: Path, model: str, budget: f
         result.agent_status = "timeout"
         result.note = f"Timed out after {RUN_TIMEOUT_SECONDS}s, so its cost is unknown"
         return
-    apply_claude_output(stdout.decode(errors="replace"), result)
+    apply_claude_output(stdout.decode(errors="replace"), result, task.verify)
 
 
 ARMS = {"loop": run_loop_arm, "claude-code": run_claude_code_arm}

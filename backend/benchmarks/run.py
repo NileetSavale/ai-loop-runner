@@ -34,6 +34,7 @@ from sqlmodel import SQLModel, create_engine, select
 
 import core.loop as loop
 import database
+from core.edits import is_test_path
 from core.verifier import _verify_env, run_verify
 from database import get_session as db_session
 from models import Session, SessionEvent, Task
@@ -72,7 +73,8 @@ class RunResult:
     attempts: int = 0
     tool_calls: int | None = None
     tool_result_chars: int | None = None
-    changed_lines: int = 0
+    changed_code_lines: int = 0
+    changed_test_lines: int = 0
     duration_seconds: float = 0.0
     usage_matches: bool | None = None
     note: str = ""
@@ -110,14 +112,18 @@ def prepare_repo(task: BenchTask, dest: Path) -> str:
     return _git(dest, "rev-parse", "HEAD")
 
 
-def changed_lines(repo: Path, base: str) -> int:
-    """Lines added plus removed since base, committed or not."""
+def changed_lines(repo: Path, base: str) -> tuple[int, int]:
+    """Lines added plus removed since base, committed or not, as (code, tests)."""
     _git(repo, "add", "-A")
-    total = 0
+    code = tests = 0
     for line in _git(repo, "diff", "--cached", "--numstat", base).splitlines():
-        added, removed, _ = line.split("\t", 2)
-        total += sum(int(n) for n in (added, removed) if n != "-")  # "-" means a binary file
-    return total
+        added, removed, path = line.split("\t", 2)
+        lines = sum(int(n) for n in (added, removed) if n != "-")  # "-" means a binary file
+        if is_test_path(path):
+            tests += lines
+        else:
+            code += lines
+    return code, tests
 
 
 async def hidden_tests_pass(task: BenchTask, repo: Path) -> bool:
@@ -206,15 +212,24 @@ def apply_claude_output(stdout: str, result: RunResult):
         result.note = str(output.get("subtype") or output.get("result"))[:300]
 
 
+def claude_code_command(task: BenchTask, model: str, budget: float) -> list[str]:
+    """It can read and edit files and run the task's tests. Anything else is refused without asking."""
+    return [
+        "claude", "--bare", "-p", f"{task.prompt}\n\nCheck your work with: {task.verify}",
+        "--output-format", "json", "--model", model, "--max-budget-usd", str(budget * BUDGET_RESERVE),
+        "--no-session-persistence", "--strict-mcp-config", "--permission-mode", "dontAsk",
+        "--tools", "Read,Edit,Write,Glob,Grep,Bash",
+        "--allowedTools", f"Read,Edit,Write,Glob,Grep,Bash({task.verify}),Bash({task.verify} *)",
+    ]
+
+
 async def run_claude_code_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult):
     """The comparison: Claude Code with no plugins, hooks or CLAUDE.md, billed to the API so its cost is real."""
     env = _verify_env(str(repo))
     env = {k: v for k, v in env.items() if not k.startswith("CLAUDE")}
     env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
     process = await asyncio.create_subprocess_exec(
-        "claude", "--bare", "-p", f"{task.prompt}\n\nCheck your work with: {task.verify}",
-        "--output-format", "json", "--model", model, "--max-budget-usd", str(budget * BUDGET_RESERVE),
-        "--no-session-persistence", "--strict-mcp-config", "--dangerously-skip-permissions",
+        *claude_code_command(task, model, budget),
         cwd=repo, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
     try:
@@ -239,7 +254,7 @@ async def run_one(task: BenchTask, arm: str, model: str, repeat: int, budget: fl
         started = time.monotonic()
         await (arm_fn or ARMS[arm])(task, repo, model, budget, result)
         result.duration_seconds = round(time.monotonic() - started, 1)
-        result.changed_lines = changed_lines(repo, base)
+        result.changed_code_lines, result.changed_test_lines = changed_lines(repo, base)
         result.diff = _git(repo, "diff", "--cached", base)
         result.visible_passed = (await run_verify(task.verify, str(repo))).passed
         result.hidden_passed = await hidden_tests_pass(task, repo)
@@ -287,18 +302,19 @@ def summarize(results: list[RunResult]) -> dict:
         "cache_hit_rate": read / (fresh + read + written) if fresh + read + written else 0.0,
         "avg_attempts": sum(r.attempts for r in results) / runs,
         "avg_tool_calls": sum(tools) / len(tools) if tools else None,
-        "avg_changed_lines": sum(r.changed_lines for r in results) / runs,
+        "avg_changed_code_lines": sum(r.changed_code_lines for r in results) / runs,
+        "avg_changed_test_lines": sum(r.changed_test_lines for r in results) / runs,
         "avg_seconds": sum(r.duration_seconds for r in results) / runs,
     }
 
 
 def format_table(results: list[RunResult]) -> str:
-    rows = [("Task", "Hidden", "Visible", "Cost", "Tries", "Tools", "Lines", "Status")]
+    rows = [("Task", "Hidden", "Visible", "Cost", "Tries", "Tools", "Code", "Tests", "Status")]
     for r in results:
         rows.append((
             f"{r.task} #{r.repeat}", "pass" if r.hidden_passed else "FAIL", "pass" if r.visible_passed else "FAIL",
             f"${r.cost_usd:.4f}", str(r.attempts), "-" if r.tool_calls is None else str(r.tool_calls),
-            str(r.changed_lines), r.agent_status,
+            str(r.changed_code_lines), str(r.changed_test_lines), r.agent_status,
         ))
     widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     return "\n".join("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip() for row in rows)
@@ -315,7 +331,7 @@ def format_summary(summary: dict) -> str:
         f"Tokens per run:       {summary['avg_input_tokens']:.0f} input, {summary['avg_cache_read_tokens']:.0f} cache read, "
         f"{summary['avg_cache_write_tokens']:.0f} cache write, {summary['avg_output_tokens']:.0f} output",
         f"Cache hit rate:       {summary['cache_hit_rate']:.0%}",
-        f"Lines changed per run: {summary['avg_changed_lines']:.1f}",
+        f"Lines changed per run: {summary['avg_changed_code_lines']:.1f} code, {summary['avg_changed_test_lines']:.1f} tests",
     ])
 
 

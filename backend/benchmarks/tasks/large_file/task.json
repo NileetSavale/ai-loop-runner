@@ -1,0 +1,1 @@
+{"prompt": "`handle_refund_partial` in handlers.py is wrong. A refund of `event[\"amount\"]` must reduce the order's balance by that amount. The status becomes \"refunded\" when the balance reaches 0, otherwise \"partially_refunded\". A refund above the balance, or of 0 or less, raises ValueError and leaves the order unchanged.", "verify": "{python} -m pytest tests -q"}

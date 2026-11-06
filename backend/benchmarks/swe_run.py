@@ -1,9 +1,10 @@
 """Measure the agent on a real bug from SWE-bench Verified, scored by SWE-bench's own hidden tests.
 
-    cd backend && python -m benchmarks.swe_run --instance sympy__sympy-20590 --model claude-sonnet-5-5 --max-run-usd 2
+    cd backend && python -m benchmarks.swe_run --instances sympy__sympy-20590 --arms loop,claude-code \\
+        --model claude-sonnet-5-5 --max-run-usd 2 --max-total-usd 20
 
-Spends real money. The agent edits a checkout on this machine through its file tools, and its code only runs inside
-the bug's Docker image, with no network. The agent sees the issue and the existing tests in the files the fix's tests
+Spends real money. Agents edit a checkout on this machine through file tools, and the code they write only runs inside
+the bug's Docker image, with no network. They see the issue and the existing tests in the files the fix's tests
 touch. Published SWE-bench agents get the issue alone, so these results aren't directly comparable with theirs.
 """
 import argparse
@@ -29,14 +30,16 @@ if __name__ == "__main__":
     load_dotenv(BACKEND / ".env")
 
 from benchmarks.run import (
-    OVERALL_CAP_USD, RESULTS_DIR, BenchTask, RunResult, _code_version, _git, changed_lines, check_overall_cap,
-    format_summary, format_table, run_loop_arm, spent_so_far, summarize, temp_database,
+    ARMS, BUDGET_RESERVE, OVERALL_CAP_USD, RESULTS_DIR, BenchTask, RunResult, _code_version, _git, changed_lines,
+    check_overall_cap, format_summary, format_table, spent_so_far, summarize, temp_database,
 )
 from core.verifier import run_verify
 
 SWE_DIR = Path(os.getenv("SWEBENCH_DIR", "/Volumes/LoopRunnerDocker/swe"))
 DATASET = "SWE-bench/SWE-bench_Verified"
 MODEL_NAME = "loop-runner"
+# The images are Intel-only, and SWE-bench's fallback pull otherwise asks for this Mac's arm64 and fails
+os.environ.setdefault("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
 
 _LOAD_INSTANCE = """
 import json, sys
@@ -55,19 +58,23 @@ def load_instance(instance_id: str) -> dict:
 
 
 def test_command(eval_script: str) -> str:
-    """The command SWE-bench itself runs. Hidden tests are added by the script before it, not by this command."""
+    """The commands SWE-bench itself runs, minus the steps that add its hidden tests or need the network."""
     match = re.search(r">>>>> Start Test Output'\n(.*?)\n: '>>>>> End Test Output'", eval_script, re.DOTALL)
     if not match:
         raise ValueError("Couldn't find the test command in the eval script")
-    return match.group(1)
+    setup = eval_script.split("\ngit checkout ")[0].splitlines()
+    kept = [line for line in setup if not re.match(r"#!|set -|git |.*pip install", line)]
+    return "\n".join([*kept, match.group(1)])
 
 
 def verify_command(image: str, command: str) -> str:
-    """$PWD rather than a fixed path, so it tests whichever copy of the repo it runs in."""
-    inner = f"source /opt/miniconda3/bin/activate && conda activate testbed && {command}"
+    """$PWD rather than a fixed path, so it tests whichever copy of the repo it runs in.
+
+    PYTHONPATH because the setup's pip install is skipped, and a non-editable install would hide the agent's changes.
+    """
     return (
-        f'docker run --rm --network none --platform linux/amd64 -e PYTHONDONTWRITEBYTECODE=1 -v "$PWD":/testbed '
-        f"-w /testbed {shlex.quote(image)} bash -c {shlex.quote(inner)}"
+        'docker run --rm --network none --platform linux/amd64 -e PYTHONDONTWRITEBYTECODE=1 -e PYTHONPATH=/testbed '
+        f'-v "$PWD":/testbed -w /testbed {shlex.quote(image)} bash -c {shlex.quote(command)}'
     )
 
 
@@ -108,55 +115,88 @@ def score(instance_id: str, patch: str, run_id: str) -> tuple[bool, str]:
     return bool(json.loads(report.read_text())[instance_id]["resolved"]), ""
 
 
+def run_bug(instance_id: str, instance: dict, arm: str, model: str, budget: float, run_id: str, on_paid) -> RunResult:
+    result = RunResult(task=instance_id, arm=f"swe-{arm}", model=model, repeat=1)
+    with tempfile.TemporaryDirectory() as folder:
+        # A script outside the repo, so Claude Code can be allowed exactly this command and nothing else
+        script = Path(folder) / "verify.sh"
+        script.write_text(verify_command(instance["image"], test_command(instance["eval_script"])) + "\n")
+        task = BenchTask(
+            instance_id, Path(), f"Fix this issue in the repo.\n\n{instance['problem_statement']}",
+            f"bash {shlex.quote(str(script))}",
+        )
+        repo = Path(folder) / "repo"
+        base = checkout(instance["image"], repo)
+        started = time.monotonic()
+        asyncio.run(ARMS[arm](task, repo, model, budget, result))
+        result.duration_seconds = round(time.monotonic() - started, 1)
+        result.changed_code_lines, result.changed_test_lines = changed_lines(repo, base)
+        result.diff = _git(repo, "diff", "--cached", base) + "\n"  # git apply refuses a patch with no final newline
+        on_paid(result)  # before scoring, so a scoring failure doesn't lose what was paid for
+        result.visible_passed = asyncio.run(run_verify(task.verify, str(repo))).passed
+        result.hidden_passed, note = score(instance_id, result.diff, run_id)
+        result.note = result.note or note
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--instance", required=True)
+    parser.add_argument("--instances", required=True, help="Comma-separated SWE-bench instance ids.")
+    parser.add_argument("--arms", default="loop", help="Comma-separated: loop, claude-code.")
     parser.add_argument("--model", required=True)
     parser.add_argument("--max-run-usd", type=float, required=True)
+    parser.add_argument("--max-total-usd", type=float, required=True, help="Stop starting runs this budget can't cover.")
     parser.add_argument("--yes", action="store_true", help="Skip the spending confirmation.")
     args = parser.parse_args()
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("ANTHROPIC_API_KEY isn't set.")
+    instance_ids, arms = args.instances.split(","), args.arms.split(",")
+    worst_case = min(len(instance_ids) * len(arms) * args.max_run_usd, args.max_total_usd)
     spent = spent_so_far()
-    check_overall_cap(args.max_run_usd, spent, OVERALL_CAP_USD)
-    print(f"{args.instance} on {args.model}: up to ${args.max_run_usd:.2f}. Overall: ${spent:.2f} spent of the ${OVERALL_CAP_USD:.2f} cap.")
+    check_overall_cap(worst_case, spent, OVERALL_CAP_USD)
+    print(f"{len(instance_ids)} bugs, arms {args.arms}, {args.model}: ${worst_case:.2f} at most. Overall: ${spent:.2f} spent of the ${OVERALL_CAP_USD:.2f} cap.")
     if not args.yes and input("Continue? [y/N] ").strip().lower() != "y":
         raise SystemExit("Stopped. Nothing was spent.")
 
-    # ponytail: needs the image built already (swebench eval --gold builds it). Build here when the pilot needs it.
-    instance = load_instance(args.instance)
-    image = instance["image"]
-    task = BenchTask(
-        args.instance, Path(), f"Fix this issue in the repo.\n\n{instance['problem_statement']}",
-        verify_command(image, test_command(instance["eval_script"])),
-    )
-    result = RunResult(task=args.instance, arm="loop-swe", model=args.model, repeat=1)
-
+    # ponytail: needs the images built already (swebench eval --gold builds them).
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    path = RESULTS_DIR / f"{stamp}-swe-{args.instance}-{args.model}.json"
+    path = RESULTS_DIR / f"{stamp}-swe-{args.model}.json"
+    finished: list[RunResult] = []
 
-    def save():
+    def save(current: RunResult | None = None):
+        runs = finished + ([current] if current else [])
         path.write_text(json.dumps({
-            "settings": vars(args), "code": _code_version(), "summary": summarize([result]), "runs": [asdict(result)],
+            "settings": vars(args), "code": _code_version(), "summary": summarize(runs), "runs": [asdict(r) for r in runs],
         }, indent=2))
 
-    with tempfile.TemporaryDirectory() as folder, temp_database():
-        repo = Path(folder) / "repo"
-        base = checkout(image, repo)
-        started = time.monotonic()
-        asyncio.run(run_loop_arm(task, repo, args.model, args.max_run_usd, result))
-        result.duration_seconds = round(time.monotonic() - started, 1)
-        result.changed_code_lines, result.changed_test_lines = changed_lines(repo, base)
-        result.diff = _git(repo, "diff", "--cached", base) + "\n"  # git apply refuses a patch with no final newline
-        save()  # before scoring, so a scoring failure doesn't lose what was paid for
-        result.visible_passed = asyncio.run(run_verify(task.verify, str(repo))).passed
-        result.hidden_passed, note = score(args.instance, result.diff, f"loop-{stamp}")
-        result.note = result.note or note
-        save()
+    def unknown_cost(result: RunResult, budget: float) -> float:
+        """A killed Claude Code run never reports its cost, so assume it spent all it was allowed."""
+        return budget if result.agent_status == "timeout" else result.cost_usd
 
-    print(f"\n{format_table([result])}\n\n{format_summary(summarize([result]))}\nSaved to {path}")
+    total = 0.0
+    with temp_database():
+        for index, instance_id in enumerate(instance_ids):
+            instance = load_instance(instance_id)
+            # Take turns going first, so neither arm always runs on a warmer machine
+            for arm in arms[::-1] if index % 2 else arms:
+                if total + args.max_run_usd > args.max_total_usd:
+                    print(f"Stopping: ${total:.2f} spent, and another run could pass the ${args.max_total_usd:.2f} total.")
+                    save()
+                    print(f"\n{format_table(finished)}\n\nSaved to {path}")
+                    return
+                result = run_bug(instance_id, instance, arm, args.model, args.max_run_usd, f"{stamp}-{arm}-{instance_id}", save)
+                finished.append(result)
+                total += unknown_cost(result, args.max_run_usd * BUDGET_RESERVE)
+                save()
+                print(f"{instance_id} {arm}: {'RESOLVED' if result.hidden_passed else 'not resolved'}, ${result.cost_usd:.4f}, "
+                      f"${total:.4f} so far" + (f" ({result.note[:200]})" if result.note else ""), flush=True)
+
+    for arm in arms:
+        runs = [r for r in finished if r.arm == f"swe-{arm}"]
+        print(f"\n{arm}\n{format_table(runs)}\n\n{format_summary(summarize(runs))}")
+    print(f"Saved to {path}")
 
 
 if __name__ == "__main__":

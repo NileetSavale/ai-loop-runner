@@ -13,7 +13,7 @@ import core.agent as agent_module
 import database
 from core.agent import run_agent
 from core.loop import run_loop
-from core.tools import MAX_READ_CHARS, RepoTools
+from core.tools import MAX_READ_CHARS, MAX_READ_LINES, MAX_READABLE_BYTES, RepoTools
 from database import get_session as db_session
 from models import Iteration, Session, Task, UsageEvent
 from providers.base import LLMProvider, LLMResult, ToolCall, ToolTurn, calculate_cost
@@ -134,12 +134,76 @@ def test_new_tests_allowed_and_search_finds_text(tmp_path):
     assert "a.py:1: def Target():" in _last_results(model)[0]["content"]
 
 
-def test_big_file_is_refused_rather_than_silently_cut(tmp_path):
-    (tmp_path / "big.txt").write_text("x" * (MAX_READ_CHARS + 1))
-    model = ScriptedModel([turn(("read_file", {"path": "big.txt"})), turn()])
-    _go(tmp_path, model)
-    answer = _last_results(model)[0]
-    assert answer["is_error"] is True and "too large" in answer["content"]
+def _read(repo, **args):
+    return asyncio.run(RepoTools(str(repo), "true").run("read_file", {"path": "big.py", **args}))
+
+
+def _numbered(repo, count):
+    (repo / "big.py").write_text("".join(f"line {n}\n" for n in range(1, count + 1)))
+
+
+def test_a_small_file_comes_back_exactly(tmp_path):
+    _numbered(tmp_path, 3)
+    assert _read(tmp_path) == ("line 1\nline 2\nline 3\n", False)
+
+
+def test_a_large_file_is_cut_and_says_so(tmp_path):
+    _numbered(tmp_path, MAX_READ_LINES + 50)
+    content, is_error = _read(tmp_path)
+    assert not is_error
+    assert f"line {MAX_READ_LINES}\n" in content and f"line {MAX_READ_LINES + 1}\n" not in content
+    assert f"(showing lines 1-{MAX_READ_LINES} of {MAX_READ_LINES + 50}." in content
+
+
+def test_reads_a_line_range(tmp_path):
+    _numbered(tmp_path, 100)
+    content, _ = _read(tmp_path, start_line=10, end_line=12)
+    assert content == "line 10\nline 11\nline 12\n(showing lines 10-12 of 100. Set start_line to read further.)"
+
+
+def test_range_past_the_end_stops_at_the_end(tmp_path):
+    _numbered(tmp_path, 5)
+    content, _ = _read(tmp_path, start_line=4, end_line=99)
+    assert content.startswith("line 4\nline 5\n(showing lines 4-5 of 5.")
+
+
+def test_the_character_limit_cuts_at_a_whole_line(tmp_path):
+    (tmp_path / "big.py").write_text(("y" * 1000 + "\n") * 50)
+    content, _ = _read(tmp_path)
+    lines = content.split("\n")
+    assert len(content) < MAX_READ_CHARS + 100 and all(len(line) == 1000 for line in lines[:-2])
+    assert "(showing lines 1-11 of 50." in content
+
+
+def test_one_huge_line_is_cut_and_says_so(tmp_path):
+    (tmp_path / "big.py").write_text("x" * (MAX_READ_CHARS + 1))
+    content, is_error = _read(tmp_path)
+    assert not is_error and content.startswith("x" * MAX_READ_CHARS + "\n(line 1 of big.py was cut")
+
+
+def test_an_empty_file_is_fine(tmp_path):
+    (tmp_path / "big.py").write_text("")
+    assert _read(tmp_path) == ("", False)
+
+
+def test_a_huge_file_is_refused(tmp_path):
+    (tmp_path / "big.py").write_bytes(b"x" * (MAX_READABLE_BYTES + 1))
+    content, is_error = _read(tmp_path)
+    assert is_error and "too large" in content
+
+
+@pytest.mark.parametrize("args,expected", [
+    ({"start_line": 99}, "has 3 lines"),
+    ({"start_line": 3, "end_line": 2}, "before start_line"),
+    ({"start_line": 0}, "whole numbers"),
+    ({"start_line": "1"}, "whole numbers"),
+    ({"end_line": True}, "whole numbers"),
+    ({"start_line": 1.5}, "whole numbers"),
+])
+def test_bad_ranges_tell_the_model_what_went_wrong(tmp_path, args, expected):
+    _numbered(tmp_path, 3)
+    content, is_error = _read(tmp_path, **args)
+    assert is_error and expected in content
 
 
 def test_listing_skips_dependencies(tmp_path):

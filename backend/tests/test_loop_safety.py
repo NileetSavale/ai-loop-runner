@@ -37,7 +37,7 @@ def _agent(*edits, cost=0.01):
     return AgentResult(raw_output="", edits=list(edits), input_tokens=1, output_tokens=1, cost_usd=cost)
 
 
-def _run(repo, agent, verify, max_iterations=5, require_failing=False, command="true", max_cost_usd=None):
+def _run(repo, agent, verify, max_iterations=5, require_failing=False, command="true", max_cost_usd=None, use_map=False):
     sid = str(uuid.uuid4())
     with db_session() as db:
         db.add(Session(id=sid, name="t", repo_path=str(repo), verify_command=command,
@@ -55,7 +55,7 @@ def _run(repo, agent, verify, max_iterations=5, require_failing=False, command="
     with patch("core.loop.run_agent", agent), patch("core.loop.run_verify", verify), \
          patch("core.loop.git_commit", return_value="abc"), \
          patch("core.loop.invalidate_analytics", new_callable=AsyncMock):
-        asyncio.run(run_loop(sid, broadcast, require_failing=require_failing, max_cost_usd=max_cost_usd))
+        asyncio.run(run_loop(sid, broadcast, require_failing=require_failing, max_cost_usd=max_cost_usd, use_map=use_map))
     with db_session() as db:
         status = db.get(Session, sid).status
     return status, events[-1]["data"], events
@@ -202,6 +202,33 @@ def test_different_failures_keep_going_to_max_iterations(tmp_path):
     status, _, _ = _run(tmp_path, agent, verify, max_iterations=4)
     assert status == "failed"
     assert agent.call_count == 4
+
+
+def _failed(*names, note=""):
+    return VerifyResult(False, "".join(f"FAILED tests/test_a.py::{n} - boom {note}\n" for n in names), 1)
+
+
+def test_stops_when_only_tests_that_already_failed_still_fail(tmp_path):
+    verify = AsyncMock(side_effect=[_failed("test_old"), _failed("test_old", note="0.1s"), _failed("test_old", note="9.9s"), PASS])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    status, data, _ = _run(tmp_path, agent, verify, max_iterations=10, use_map=True)
+    assert status == "failed" and "already failing before any change" in data["error"]
+    assert agent.call_count == 2
+    assert "already failing before your changes: tests/test_a.py::test_old" in agent.call_args_list[1].args[0]
+
+
+def test_a_new_failure_alongside_old_ones_keeps_going(tmp_path):
+    verify = AsyncMock(side_effect=[_failed("test_old"), _failed("test_old", "test_new"), _failed("test_old"), PASS])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    status, _, _ = _run(tmp_path, agent, verify, max_iterations=10, use_map=True)
+    assert status == "passed" and agent.call_count == 3
+
+
+def test_failing_tests_are_the_job_when_the_task_is_to_fix_them(tmp_path):
+    verify = AsyncMock(side_effect=[_failed("test_x"), _failed("test_x", note="1"), _failed("test_x", note="2"), PASS])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    status, _, _ = _run(tmp_path, agent, verify, max_iterations=10, require_failing=True)
+    assert status == "passed" and agent.call_count == 3
 
 
 def test_per_session_cost_limit_overrides_default(tmp_path):

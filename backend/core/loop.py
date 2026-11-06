@@ -14,7 +14,7 @@ from core.agent import run_agent, AgentResult
 from core.edits import apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
 from core.repo_map import build_repo_map, locate_issue, map_for_prompt
 from core.tools import RepoTools
-from core.verifier import run_verify, VerifyResult
+from core.verifier import failing_tests, run_verify, VerifyResult
 from core.git_ops import git_commit
 from core.mutation import check_test_strength
 from routes.analytics import invalidate_analytics
@@ -26,6 +26,9 @@ BroadcastFn = Callable[[dict], Awaitable[None]]
 
 MAX_SESSION_COST_USD = float(os.getenv("MAX_SESSION_COST_USD", "5"))
 MAX_IDENTICAL_FAILURES = 3
+# Attempts in a row where every failing test was already failing before any change. On a repo with an unrelated
+# broken test, retrying can't make the run green, and it once spent $1.51 trying.
+MAX_ONLY_OLD_FAILURES = 2
 MIN_MUTATION_SCORE = float(os.getenv("MIN_MUTATION_SCORE", "0.7"))
 MAX_BASELINE_OUTPUT_CHARS = 1_500
 
@@ -144,6 +147,7 @@ async def run_loop(
     total_cost = 0.0
     last_failure: str | None = None
     identical_failures = 0
+    only_old_failures = 0
     cost_limit = MAX_SESSION_COST_USD if max_cost_usd is None else max_cost_usd
     added_tests: set[str] = set()
     touched: set[str] = set()
@@ -172,6 +176,8 @@ async def run_loop(
             focus = locate_issue(repo_map, spec, baseline.output if baseline and not baseline.passed else None, files, repo_path)
             guide = _build_guide(repo_map, focus, baseline)
             await emit("focus", {"files": focus, "tests_passing": baseline.passed})
+        # When the task is to make failing tests pass, those failures are the job, not someone else's breakage
+        old_failures = failing_tests(baseline.output) if baseline and not baseline.passed and not require_failing else set()
 
         while iteration <= max_iterations:
             if session_id not in _running:
@@ -225,11 +231,22 @@ async def run_loop(
             stop_reason = None
             if not verify_result.passed:
                 total_cost += agent_result.cost_usd
+                failing = failing_tests(verify_result.output)
                 failure = re.sub(r"\d+", "#", verify_result.output)  # ignore timings and line numbers
                 identical_failures = identical_failures + 1 if failure == last_failure else 1
                 last_failure = failure
+                only_old = changed and bool(failing) and failing <= old_failures
+                only_old_failures = only_old_failures + 1 if only_old else 0
+                if only_old:
+                    names = ", ".join(sorted(failing))
+                    last_verify_output += (
+                        f"\n\nEvery test still failing was already failing before your changes: {names}. "
+                        "Leave them alone unless the task is about them."
+                    )
                 if total_cost >= cost_limit:
                     stop_reason = f"Stopped: spent ${total_cost:.2f}, over the ${cost_limit:.2f} session limit."
+                elif only_old_failures >= MAX_ONLY_OLD_FAILURES:
+                    stop_reason = f"Stopped: the only failing tests were already failing before any change ({', '.join(sorted(failing))})."
                 elif identical_failures >= MAX_IDENTICAL_FAILURES:
                     stop_reason = f"Stopped: the same failure repeated {identical_failures} times in a row."
 

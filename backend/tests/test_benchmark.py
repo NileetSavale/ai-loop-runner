@@ -14,6 +14,7 @@ from benchmarks.run import (
     BenchTask, RunResult, apply_claude_output, changed_lines, claude_code_command, format_summary, format_table,
     hidden_tests_pass, load_tasks, prepare_repo, run_benchmark, run_loop_arm, run_one, spent_so_far, check_overall_cap, summarize,
 )
+from benchmarks.swe_run import test_command as swe_test_command, verify_command
 from core.agent import run_agent
 from core.verifier import run_verify
 from providers.base import LLMProvider, LLMResult
@@ -188,6 +189,16 @@ def test_loop_arm_passes_the_tests_setting_through():
     with patch("core.loop.start_loop", side_effect=lambda *a, **k: asyncio.ensure_future(fake_loop(*a, **k))):
         asyncio.run(run_benchmark([OFF_BY_ONE], "loop", MODEL, 1, 1.0, 1.0, arm_fn=partial(run_loop_arm, add_tests=True)))
     assert seen == [True]
+
+
+def test_swe_verify_command_runs_only_the_test_step_with_no_network():
+    script = "git apply - <<'EOF'\nhidden test patch\nEOF\n: '>>>>> Start Test Output'\nbin/test a.py\n: '>>>>> End Test Output'\ngit checkout a.py\n"
+    command = swe_test_command(script)
+    assert command == "bin/test a.py"
+    full = verify_command("img:latest", command)
+    assert "--network none" in full and '"$PWD":/testbed' in full and "hidden" not in full
+    with pytest.raises(ValueError):
+        swe_test_command("no markers")
 
 
 def test_overall_cap_counts_saved_results_and_refuses_to_go_over(tmp_path):

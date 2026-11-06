@@ -54,7 +54,7 @@ def build_prompt(spec: str, context: str, iteration: int, last_verify_output: st
     return f"## Task Spec\n{spec}{retry_note}\n\n{guide}## Current File Contents\n{context}"
 
 
-def _build_guide(repo_map: dict, focus: list[dict], baseline: VerifyResult | None) -> str:
+def _build_guide(repo_map: dict, focus: list[dict], baseline: VerifyResult | None, old_failures: set[str] = frozenset()) -> str:
     """Tell the agent where to look, so it doesn't pay to find out.
 
     Names only, not file contents. Measured on one bug, including two files cost more than this on both Haiku 5.5
@@ -66,6 +66,14 @@ def _build_guide(repo_map: dict, focus: list[dict], baseline: VerifyResult | Non
         parts.append(f"## Likely places to look\n{likely}")
     if repo_map["nodes"]:
         parts.append(f"## Repo map\n{map_for_prompt(repo_map, focus)}")
+    if old_failures:
+        # Said up front, since most of the spend happens inside the first attempt
+        names = "\n".join(f"- {n}" for n in sorted(old_failures))
+        parts.append(
+            f"## Tests already failing before your changes\n{names}\n"
+            "These fail before you change anything, so they are not part of your task unless it names them. "
+            "Don't try to make them pass; expect them to keep failing when you run the tests."
+        )
     if baseline and not baseline.passed:
         parts.append(f"## Test output before your changes\n```\n{baseline.output[-MAX_BASELINE_OUTPUT_CHARS:]}\n```")
     return "".join(f"{p}\n\n" for p in parts)
@@ -170,14 +178,15 @@ async def run_loop(
             await _fail_session(session_id, broadcast_fn, reason)
             return
 
+        # When the task is to make failing tests pass, those failures are the job, not someone else's breakage
+        old_failures = failing_tests(baseline.output) if baseline and not baseline.passed and not require_failing else set()
+
         if use_map:
             # No LLM here: this costs time, not tokens, and it's what saves them later
             repo_map = await asyncio.to_thread(build_repo_map, repo_path)
             focus = locate_issue(repo_map, spec, baseline.output if baseline and not baseline.passed else None, files, repo_path)
-            guide = _build_guide(repo_map, focus, baseline)
+            guide = _build_guide(repo_map, focus, baseline, old_failures)
             await emit("focus", {"files": focus, "tests_passing": baseline.passed})
-        # When the task is to make failing tests pass, those failures are the job, not someone else's breakage
-        old_failures = failing_tests(baseline.output) if baseline and not baseline.passed and not require_failing else set()
 
         while iteration <= max_iterations:
             if session_id not in _running:

@@ -11,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="bg-gray-50 min-h-screen">
         <Providers>
-          <nav className="bg-white border-b px-6 py-3 flex gap-6 items-center">
+          <nav className="bg-white border-b px-6 py-3 flex flex-wrap gap-x-6 gap-y-2 items-center">
             <Link href="/" className="font-semibold text-gray-900">Loop Runner</Link>
             <Link href="/chat" className="text-sm text-gray-500 hover:text-gray-900">Chat</Link>
             <Link href="/sessions" className="text-sm text-gray-500 hover:text-gray-900">Sessions</Link>
@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <NavUser />
             </div>
           </nav>
-          <main className="max-w-5xl mx-auto px-6 py-8">{children}</main>
+          <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">{children}</main>
         </Providers>
       </body>
     </html>

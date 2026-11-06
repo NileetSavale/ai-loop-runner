@@ -12,14 +12,14 @@ export default async function SessionPage({ params }: { params: { id: string } }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-gray-900">{session.name}</h1>
             <StatusBadge status={session.status} />
           </div>
-          <p className="text-sm text-gray-500 mt-1">{session.repo_path}</p>
-          <p className="text-xs text-gray-400 font-mono mt-0.5">{session.verify_command}</p>
+          <p className="text-sm text-gray-500 mt-1 break-all">{session.repo_path}</p>
+          <p className="text-xs text-gray-400 font-mono mt-0.5 break-all">{session.verify_command}</p>
         </div>
         {session.status === "running" && <StopButton sessionId={session.id} />}
       </div>

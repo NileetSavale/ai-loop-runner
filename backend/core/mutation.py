@@ -95,12 +95,10 @@ async def check_test_strength(repo_path: str, verify_command: str, files: list[s
     if len(mutants) > MAX_MUTANTS:
         mutants = [mutants[i * len(mutants) // MAX_MUTANTS] for i in range(MAX_MUTANTS)]
 
-    # A stale .pyc can hide a mutant that has the same size and timestamp as the file it replaced
-    command = f"PYTHONDONTWRITEBYTECODE=1 {verify_command}"
     with tempfile.TemporaryDirectory() as tmp:
         copy = os.path.join(tmp, "repo")
         await asyncio.to_thread(shutil.copytree, repo_path, copy, ignore=_NOT_COPIED, symlinks=True)
-        if not (await run_verify(command, copy)).passed:
+        if not (await run_verify(verify_command, copy)).passed:
             return MutationResult(skipped_reason="the tests don't pass in a copy of the repo without .git or virtualenvs")
 
         result = MutationResult()
@@ -113,7 +111,7 @@ async def check_test_strength(repo_path: str, verify_command: str, files: list[s
                 original = f.read()
             with open(path, "w") as f:
                 f.write(apply_mutant(original, index))
-            outcome = await run_verify(command, copy)
+            outcome = await run_verify(verify_command, copy)
             with open(path, "w") as f:
                 f.write(original)
             result.tested += 1

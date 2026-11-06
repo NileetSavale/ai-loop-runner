@@ -1,4 +1,4 @@
-import type { Session, SessionDetail, AnalyticsSummary, ChatSession, ChatSessionDetail } from "./types";
+import type { AgentEvent, RepoMap, Session, SessionDetail, AnalyticsSummary, ChatSession, ChatSessionDetail } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -45,6 +45,9 @@ export function createApi(base: string, getToken: () => Promise<string>) {
       create: (body: unknown) => post<{ id: string }>("/sessions", body),
       stop: (id: string) => post<void>(`/sessions/${id}/stop`, {}),
       delete: (id: string) => del(`/sessions/${id}`),
+      map: (id: string) => get<RepoMap>(`/sessions/${id}/map`),
+      events: (id: string) => get<AgentEvent[]>(`/sessions/${id}/events`),
+      repoMap: (repoPath: string) => get<RepoMap>(`/repo-map?repo_path=${encodeURIComponent(repoPath)}`),
     },
     analytics: {
       summary: () => get<AnalyticsSummary>("/analytics/summary"),

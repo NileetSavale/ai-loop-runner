@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from core.agent import resolve_in_repo
 from providers.router import get_provider
-from providers.base import TokenCallback
+from providers.base import TokenCallback, calculate_cost
 
 SYSTEM_PROMPT = """You are a senior test engineer who specialises in test-driven development.
 Your output IS the specification. The coding agent reads only your tests — nothing else.
@@ -72,6 +72,10 @@ class TestGenResult:
     verify_command: str
     implementation_spec: str
     raw_output: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    truncated: bool = False
 
 
 # ── stack detection ───────────────────────────────────────────────────────────
@@ -184,9 +188,6 @@ Generate the complete test suite now.
     provider = get_provider(model, user_api_key)
     result = await provider.complete(SYSTEM_PROMPT, prompt, model, on_token)
 
-    if result.truncated:
-        raise ValueError("The test suite was cut off by the output limit. Describe a smaller feature.")
-
     test_files = _parse_files(result.text)
     meta = _parse_meta(result.text)
 
@@ -195,6 +196,10 @@ Generate the complete test suite now.
         verify_command=meta.get("verify_command", "pytest tests/ -v"),
         implementation_spec=meta.get("implementation_spec", description),
         raw_output=result.text,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        cost_usd=calculate_cost(model, result.input_tokens, result.output_tokens),
+        truncated=result.truncated,
     )
 
 

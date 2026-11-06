@@ -8,9 +8,11 @@ from pydantic import BaseModel, Field
 from sqlmodel import select
 
 from agents.test_gen import generate_tests, apply_tests, detect_stack
-from models import Session, Task
+from models import Session, Task, UsageEvent
 from database import get_session as db_session
 from core.loop import start_loop
+from providers.router import _provider_for
+from routes.analytics import invalidate_analytics
 from routes.ws import broadcast
 from routes.keys import get_user_api_key
 from auth import get_optional_user, user_id
@@ -64,7 +66,28 @@ async def generate(body: GenerateRequest, user: dict | None = Depends(get_option
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Recorded even if the reply is unusable: the call was still paid for. No loop session exists yet.
+    if uid is not None:
+        with db_session() as db:
+            db.add(UsageEvent(
+                id=str(uuid.uuid4()),
+                user_id=uid,
+                session_id="test-generation",
+                provider=_provider_for(body.model),
+                model=body.model,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                cost_usd=result.cost_usd,
+                byok=api_key is not None,
+            ))
+            db.commit()
+        await invalidate_analytics()
+
+    if result.truncated:
+        raise HTTPException(status_code=400, detail="The test suite was cut off by the output limit. Describe a smaller feature.")
+
     return {
+        "cost_usd": result.cost_usd,
         "test_files": result.test_files,
         "verify_command": result.verify_command,
         "implementation_spec": result.implementation_spec,

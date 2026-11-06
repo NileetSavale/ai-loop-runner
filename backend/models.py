@@ -77,6 +77,15 @@ class UsageEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class SessionEvent(SQLModel, table=True):
+    """What the agent did, kept so the visual view survives a page reload."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: str = Field(index=True)
+    kind: str                              # focus | tool | file_changed
+    data: str = "{}"                       # JSON
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ChatSession(SQLModel, table=True):
     id: str = Field(primary_key=True)
     user_id: Optional[str] = None

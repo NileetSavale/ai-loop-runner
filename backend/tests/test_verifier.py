@@ -57,3 +57,9 @@ def test_repo_root_is_importable_and_existing_pythonpath_kept(tmp_path, monkeypa
     script.write_text("import sys, mymodule\nassert mymodule.VALUE == 42\nassert '/already/here' in sys.path\n")
     result = run(run_verify(f"{sys.executable} sub/check.py", str(tmp_path)))
     assert result.passed, result.output
+
+
+def test_verify_leaves_no_bytecode_to_commit(tmp_path):
+    (tmp_path / "m.py").write_text("X = 1")
+    assert run(run_verify(f"{sys.executable} -c 'import m'", str(tmp_path))).passed
+    assert not (tmp_path / "__pycache__").exists()

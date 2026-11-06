@@ -55,8 +55,46 @@ export interface AnalyticsSummary {
   correction_tax_avg_iterations: number;
 }
 
+export interface RepoNode {
+  path: string;
+  group: string;
+  is_test: boolean;
+  size: number;
+  symbols: { name: string; line: number }[];
+}
+
+export interface RepoMap {
+  nodes: RepoNode[];
+  edges: { from: string; to: string }[];
+  layers: Record<string, number>;
+  truncated: boolean;
+}
+
+export type AgentEventKind = "focus" | "tool" | "file_changed";
+
+export interface AgentEvent {
+  id: number;
+  kind: AgentEventKind;
+  iteration?: number;
+  // focus
+  files?: { path: string; reason: string }[];
+  tests_passing?: boolean;
+  // tool
+  tool?: string;
+  target?: string;
+  error?: string | null;
+  passed?: boolean | null;
+  // file_changed
+  path?: string;
+  is_new?: boolean;
+  added?: number;
+  removed?: number;
+  diff?: string;
+  diff_cut_off?: boolean;
+}
+
 export interface WsMessage {
-  event: "iteration_start" | "iteration_complete" | "verify_output" | "session_complete" | "agent_token" | "cancelled";
+  event: "iteration_start" | "iteration_complete" | "verify_output" | "session_complete" | "agent_token" | "cancelled" | AgentEventKind;
   data: Record<string, unknown>;
   message_id?: string;
 }

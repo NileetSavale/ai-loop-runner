@@ -279,6 +279,12 @@ async def run_benchmark(
     return results, 0
 
 
+def _cost_per_success(results: list[RunResult]) -> dict:
+    successes = sum(r.hidden_passed for r in results)
+    cost = sum(r.cost_usd for r in results)
+    return {"runs": len(results), "successes": successes, "cost_per_success_usd": cost / successes if successes else None}
+
+
 def summarize(results: list[RunResult]) -> dict:
     """Failed runs still count towards cost per success, because that money was spent getting the successes."""
     runs = len(results)
@@ -305,6 +311,9 @@ def summarize(results: list[RunResult]) -> dict:
         "avg_changed_code_lines": sum(r.changed_code_lines for r in results) / runs,
         "avg_changed_test_lines": sum(r.changed_test_lines for r in results) / runs,
         "avg_seconds": sum(r.duration_seconds for r in results) / runs,
+        # Repeats of a task can reuse the first run's prompt cache, so they cost less than a task seen for the first time
+        "first_runs": _cost_per_success([r for r in results if r.repeat == 1]),
+        "repeat_runs": _cost_per_success([r for r in results if r.repeat > 1]),
     }
 
 
@@ -320,13 +329,19 @@ def format_table(results: list[RunResult]) -> str:
     return "\n".join("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip() for row in rows)
 
 
+def _dollars(amount: float | None) -> str:
+    return "none succeeded" if amount is None else f"${amount:.4f}"
+
+
 def format_summary(summary: dict) -> str:
     if not summary["runs"]:
         return "No runs finished."
-    per_success = summary["cost_per_success_usd"]
+    first, repeat = summary["first_runs"], summary["repeat_runs"]
     return "\n".join([
         f"Hidden tests passed:  {summary['successes']} of {summary['runs']} ({summary['pass_rate']:.0%})",
-        f"Cost per success:     {'none succeeded' if per_success is None else f'${per_success:.4f}'}",
+        f"Cost per success:     {_dollars(summary['cost_per_success_usd'])}",
+        f"  First runs:         {_dollars(first['cost_per_success_usd'])} ({first['runs']} runs)",
+        f"  Repeat runs:        {_dollars(repeat['cost_per_success_usd'])} ({repeat['runs']} runs, can reuse the cache)",
         f"Total cost:           ${summary['total_cost_usd']:.4f}",
         f"Tokens per run:       {summary['avg_input_tokens']:.0f} input, {summary['avg_cache_read_tokens']:.0f} cache read, "
         f"{summary['avg_cache_write_tokens']:.0f} cache write, {summary['avg_output_tokens']:.0f} output",

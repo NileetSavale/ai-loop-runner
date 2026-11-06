@@ -134,6 +134,18 @@ def test_cost_per_success_includes_what_failed_runs_spent():
     assert "FAIL" in format_table(runs)
 
 
+def test_first_runs_and_repeats_are_reported_separately():
+    runs = [
+        RunResult("a", "loop", MODEL, 1, hidden_passed=True, cost_usd=0.08),
+        RunResult("a", "loop", MODEL, 2, hidden_passed=True, cost_usd=0.02),
+        RunResult("a", "loop", MODEL, 3, hidden_passed=False, cost_usd=0.04),
+    ]
+    summary = summarize(runs)
+    assert summary["first_runs"] == {"runs": 1, "successes": 1, "cost_per_success_usd": pytest.approx(0.08)}
+    assert summary["repeat_runs"] == {"runs": 2, "successes": 1, "cost_per_success_usd": pytest.approx(0.06)}
+    assert "First runs:         $0.0800" in format_summary(summary)
+
+
 def test_no_successes_has_no_cost_per_success():
     summary = summarize([RunResult("a", "loop", MODEL, 1, cost_usd=0.2)])
     assert summary["cost_per_success_usd"] is None

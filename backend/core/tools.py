@@ -8,7 +8,9 @@ import os
 from core.edits import FileEdit, apply_edits, describe_change, filter_edits, read_current, resolve_in_repo
 from core.verifier import run_verify
 
-MAX_READ_CHARS = 100_000
+MAX_READ_LINES = 300
+MAX_READ_CHARS = 12_000  # about 3,000 tokens, and every later turn in the attempt resends it
+MAX_READABLE_BYTES = 10_000_000
 MAX_LISTED_FILES = 500
 MAX_SEARCH_HITS = 100
 MAX_TEST_OUTPUT_CHARS = 8_000
@@ -29,7 +31,20 @@ def _tool(name: str, description: str, **params) -> dict:
 
 TOOL_SCHEMAS = [
     _tool("list_files", "List files in the repo, skipping dependency and build folders."),
-    _tool("read_file", "Read a text file from the repo.", path="Path relative to the repo root."),
+    {
+        "name": "read_file",
+        "description": f"Read part of a text file from the repo: up to {MAX_READ_LINES} lines from start_line. "
+                       "In a large file, use search_code to find the line first, then read around it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path relative to the repo root."},
+                "start_line": {"type": "integer", "description": "First line to read, counting from 1. Default 1."},
+                "end_line": {"type": "integer", "description": "Last line to read. Optional."},
+            },
+            "required": ["path"],
+        },
+    },
     _tool("search_code", "Find lines containing some text, ignoring case. Not a regex.", query="Text to look for."),
     _tool(
         "edit_file",
@@ -41,6 +56,7 @@ TOOL_SCHEMAS = [
     _tool("run_tests", "Run the project's verify command and return its output."),
 ]
 _REQUIRED = {t["name"]: t["input_schema"]["required"] for t in TOOL_SCHEMAS}
+_OPTIONAL_LINES = {"read_file": ("start_line", "end_line")}
 
 
 class ToolError(Exception):
@@ -63,8 +79,12 @@ class RepoTools:
         bad = [k for k in _REQUIRED[name] if not isinstance(args.get(k), str)]
         if bad:
             return f"{name} needs text for: {', '.join(bad)}", True
+        lines = {k: args[k] for k in _OPTIONAL_LINES.get(name, ()) if args.get(k) is not None}
+        # bool is an int in Python, and a model could send true
+        if any(type(v) is not int or v < 1 for v in lines.values()):
+            return f"{name} needs whole numbers of 1 or more for: {', '.join(lines)}", True
         try:
-            return await getattr(self, f"_{name}")(**{k: args[k] for k in _REQUIRED[name]}), False
+            return await getattr(self, f"_{name}")(**{k: args[k] for k in _REQUIRED[name]}, **lines), False
         except ToolError as e:
             return str(e), True
         except ValueError as e:  # a path outside the repo
@@ -81,12 +101,32 @@ class RepoTools:
         note = f"\n(showing {MAX_LISTED_FILES} of {len(found)} files)" if len(found) > MAX_LISTED_FILES else ""
         return "\n".join(found[:MAX_LISTED_FILES]) + note
 
-    async def _read_file(self, path: str) -> str:
-        with open(resolve_in_repo(self.repo_path, path)) as f:
-            content = f.read(MAX_READ_CHARS + 1)
-        if len(content) > MAX_READ_CHARS:
-            raise ToolError(f"{path} is over {MAX_READ_CHARS} characters, too large to read whole. Use search_code.")
-        return content
+    async def _read_file(self, path: str, start_line: int = 1, end_line: int | None = None) -> str:
+        full_path = resolve_in_repo(self.repo_path, path)
+        if os.path.getsize(full_path) > MAX_READABLE_BYTES:
+            raise ToolError(f"{path} is over {MAX_READABLE_BYTES} bytes, too large to read. Use search_code.")
+        if end_line is not None and end_line < start_line:
+            raise ToolError(f"end_line ({end_line}) is before start_line ({start_line}).")
+        with open(full_path) as f:
+            lines = f.readlines()
+        if not lines and start_line == 1:
+            return ""
+        if start_line > len(lines):
+            raise ToolError(f"{path} has {len(lines)} lines, so there is no line {start_line}.")
+
+        last = min(end_line or len(lines), len(lines), start_line + MAX_READ_LINES - 1)
+        content, shown = "", start_line - 1
+        for line in lines[start_line - 1:last]:
+            if content and len(content) + len(line) > MAX_READ_CHARS:
+                break
+            content += line
+            shown += 1
+        if len(content) > MAX_READ_CHARS:  # a single huge line, such as minified code
+            return f"{content[:MAX_READ_CHARS]}\n(line {start_line} of {path} was cut at {MAX_READ_CHARS} characters. Use search_code.)"
+        if start_line == 1 and shown == len(lines):
+            return content
+        ending = "" if content.endswith("\n") else "\n"
+        return f"{content}{ending}(showing lines {start_line}-{shown} of {len(lines)}. Set start_line to read further.)"
 
     async def _search_code(self, query: str) -> str:
         # ponytail: plain text, because a model-written regex can hang the server. Add regex with a timeout if needed.

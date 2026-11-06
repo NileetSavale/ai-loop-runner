@@ -193,8 +193,8 @@ def test_loop_arm_passes_the_tests_setting_through():
 
 def test_swe_verify_command_runs_only_the_test_step_with_no_network():
     script = "git apply - <<'EOF'\nhidden test patch\nEOF\n: '>>>>> Start Test Output'\nbin/test a.py\n: '>>>>> End Test Output'\ngit checkout a.py\n"
-    command = swe_test_command(script)
-    assert command == "bin/test a.py"
+    command = swe_test_command("#!/bin/bash\nset -ux\nexport LANG=C\ngit status\npython -m pip install -e .\ngit checkout abc a.py\n" + script)
+    assert command == "export LANG=C\nbin/test a.py"
     full = verify_command("img:latest", command)
     assert "--network none" in full and '"$PWD":/testbed' in full and "hidden" not in full
     with pytest.raises(ValueError):

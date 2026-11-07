@@ -519,6 +519,14 @@ def test_a_recorded_retry_starts_fresh_with_the_diff_and_what_was_tried(tmp_path
     assert "-old" in prompt and "+new" in prompt
 
 
+def test_a_retry_gets_only_the_end_of_long_test_output(tmp_path):
+    long = VerifyResult(False, "x" * 50_000 + "\nFAILED tests/test_a.py::test_a - boom\n", 1)
+    agent = AsyncMock(side_effect=[_agent(FileEdit("a.py", "new")), _agent(FileEdit("a.py", "newer"))])
+    _run(_git_repo(tmp_path), agent, AsyncMock(return_value=long), max_iterations=2)
+    prompt = agent.call_args_list[1].args[0]
+    assert "characters were cut" in prompt and "FAILED tests/test_a.py::test_a" in prompt and "x" * 10_000 not in prompt
+
+
 def test_the_diff_includes_new_files(tmp_path):
     repo = _git_repo(tmp_path)
     (repo / "b.py").write_text("brand new\n")

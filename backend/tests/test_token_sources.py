@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from core.agent import run_agent
-from core.loop import build_prompt
+from core.loop import build_prompt, continue_prompt
 from core.token_sources import EARLIER_REPLIES, SYSTEM, prompt_sources, reply_sources, turn_sources
 from core.tools import RepoTools
 from providers.base import ToolCall, ToolTurn
@@ -29,6 +29,11 @@ def test_retry_feedback_is_counted_apart_from_the_task():
     prompt = build_prompt("Fix f.", "", 2, "1 failed: test_f", GUIDE)
     sizes = prompt_sources(prompt)
     assert sizes["retry feedback"] > len("1 failed: test_f") and sum(sizes.values()) == len(prompt)
+
+
+def test_a_continued_retry_is_all_retry_feedback():
+    prompt = continue_prompt(2, "1 failed: test_f")
+    assert prompt_sources(prompt) == {"retry feedback": len(prompt)}
 
 
 def test_replies_are_sorted_into_text_edits_and_other_calls():

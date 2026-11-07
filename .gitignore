@@ -34,3 +34,6 @@ demo/
 
 # Benchmark output
 backend/benchmarks/results/
+
+# Exported Claude Code chats (may hold pasted keys or private notes)
+chat_logs/

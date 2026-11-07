@@ -24,10 +24,11 @@ def check_results(task, diff: str) -> dict[str, bool]:
         prepare_repo(task, repo)
         if diff.strip():
             subprocess.run(["git", "apply", "-"], input=diff.rstrip("\n") + "\n", cwd=repo, text=True, check=True, capture_output=True)
-        out = subprocess.run(
-            [sys.executable, "-m", "pytest", "-rA", "-q", "-p", "no:cacheprovider", "tests", str(task.path / "hidden")],
+        # Separate runs, since an agent's test file can share a name with a hidden one, and pytest won't load both
+        out = "".join(subprocess.run(
+            [sys.executable, "-m", "pytest", "-rA", "-q", "-p", "no:cacheprovider", folder],
             cwd=repo, capture_output=True, text=True, env={"PYTHONPATH": str(repo), "PATH": "/usr/bin:/bin"},
-        ).stdout
+        ).stdout for folder in ("tests", str(task.path / "hidden")))
     return {m.group(2).split("::")[-1]: m.group(1) == "PASSED" for m in re.finditer(r"^(PASSED|FAILED|ERROR) (\S+)", out, re.M)}
 
 
@@ -38,7 +39,8 @@ def main():
     names = sorted({n for _, checks in scored for n in checks})
     print("check".ljust(52) + "".join(f"{r['arm'].removeprefix('swe-')[:12]}#{r['repeat']}".rjust(16) for r, _ in scored))
     for name in names:
-        print(name[:52].ljust(52) + "".join(("pass" if checks.get(name) else "FAIL").rjust(16) for _, checks in scored))
+        cells = ("-" if name not in checks else "pass" if checks[name] else "FAIL" for _, checks in scored)  # - : not in that run
+        print(name[:52].ljust(52) + "".join(c.rjust(16) for c in cells))
     print("cost".ljust(52) + "".join(f"${r['cost_usd']:.3f}".rjust(16) for r, _ in scored))
 
 

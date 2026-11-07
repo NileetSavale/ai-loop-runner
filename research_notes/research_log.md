@@ -497,6 +497,31 @@ sent before, output to the reply. The total matches the API.
 - What may be open: memory built only from exploration tool calls, with hash-based invalidation, judged on dollar cost
   per task as memory grows. Baselines must include raw past trajectories and an upfront static index.
 
+**Offline localization on the 60 labelled bugs (no model calls, $0)**
+- Question: from the issue text alone, is a file the official fix changed in each method's top k? Script:
+  `benchmarks/localize_offline.py`; results `benchmarks/results/20261107-localize-offline-60.json`.
+
+| Method | top 1 | top 3 | top 5 | top 10 |
+|---|---|---|---|---|
+| Current locator (`locate_issue`), 400-file cap | 0% | 2% | 2% | 8% |
+| Current locator, no cap | 0% | 2% | 2% | 8% |
+| BM25 over files | 40% | 53% | 62% | 77% |
+| **BM25 over functions, rolled up to files** | **42%** | **68%** | **77%** | **87%** |
+| Traceback paths first, then BM25 | 37% | 53% | 62% | 77% |
+| Personalized PageRank over imports (BM25 + traceback seeds) | 13% | 40% | 58% | 68% |
+| Rank fusion of the three above | 40% | 60% | 70% | 83% |
+
+  Function level (BM25 over functions): the changed function is in the top 5 for 42%, top 10 for 53%.
+- **The current "likely places" list is almost useless**: 1 of 60 in the top 5. The 400-file cap isn't the cause
+  (no cap gives the same). Its keyword step takes the first file, alphabetically, whose name or top-level symbol
+  contains any issue word, so it fills up with things like `django/bin/django-admin.py` and locale files.
+  **ours:** agents still solve about 75% with it, so they find the code by searching; the open question is whether
+  a good pointer cuts that exploring cost (about 35% of a run).
+- PageRank over imports is worse than plain BM25 (hubs pull rank away from the seeds), and fusion is worse than the
+  best single method. Tracebacks add nothing here: few issues contain one with a repo path.
+- Caveats: offline the locator gets no failing-test output (in a real run it does when a visible test fails before
+  any change; most SWE-bench bugs have none). One gold-file definition (any changed non-test file).
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

@@ -22,6 +22,11 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
 
+if __name__ == "__main__":
+    # Before the imports below, because providers read their keys on import
+    from dotenv import load_dotenv
+    load_dotenv(BACKEND / ".env")
+
 from benchmarks.run import (OVERALL_CAP_USD, RESULTS_DIR, BenchTask, RunResult, _code_version, _git, check_overall_cap,
                             load_tasks, prepare_repo, run_loop_arm, spent_so_far, temp_database)
 
@@ -35,7 +40,8 @@ EDIT_PROMPT = (
 
 def steps() -> list[tuple[str, str, Path]]:
     """(name, prompt, hidden checks) for each task in order."""
-    sharing, attachments = load_tasks(["notes_sharing", "notes_attachments"])
+    tasks = {t.name: t for t in load_tasks(["notes_sharing", "notes_attachments"])}
+    sharing, attachments = tasks["notes_sharing"], tasks["notes_attachments"]
     return [
         ("sharing", sharing.prompt, sharing.path / "hidden"),
         ("attachments", attachments.prompt, attachments.path / "hidden"),
@@ -64,7 +70,7 @@ async def run_sequence(mode: str, repeat: int, model: str, budget: float, on_res
                                retry_context="continue", security_audit=True, audit_cache=cache)
             checks = hidden_checks(repo, hidden)
             result.hidden_passed = bool(checks) and all(checks.values())
-            result.note = json.dumps({"checks": checks})
+            result.note = json.dumps({"checks": checks, "error": result.note})
             _git(repo, "add", "-A")
             _git(repo, "-c", "user.name=benchmark", "-c", "user.email=benchmark@example.com", "commit", "-qm", name, "--allow-empty")
             on_result(result)

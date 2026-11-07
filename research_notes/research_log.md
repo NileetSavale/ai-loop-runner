@@ -445,6 +445,23 @@ sent before, output to the reply. The total matches the API.
      others were dropped. So 4 of 5 fixes were checked only by the type-checker and a human read.
   3. Nothing stops the coder from changing a public API to satisfy a test.
 
+**Repeat runs of the trims, and the cheating check for lean (11 bugs, 2 rounds per arm)**
+- Hidden tests passed: continue 8, 8; short 8, 9; lean 8, 8. No arm solves more; the one extra short pass
+  (pytest-10356, round 2) failed in its other run, so it's noise.
+- Total cost per round: continue $0.82 / $1.04, short $0.70 / $0.57, **lean $0.46 / $0.46**.
+- **Almost all of lean's saving is one bug, astropy-13398** (the test that fails even with the official fix): continue
+  $0.39 / $0.58 (3 and 5 attempts), short $0.47 / $0.30, lean $0.17 / $0.16. Its listing cap (100 files) is likely
+  what matters there: astropy's file list is huge. Not checked per source yet.
+- **Without astropy-13398, short is cheaper than lean**: $0.23 / $0.28 vs $0.30 / $0.30. Lean costs a little more on
+  the small bugs (about +$0.006 a bug, e.g. django-10880 $0.023 vs $0.009). Low reviewer effort doesn't pay for
+  itself on cheap bugs; the cause isn't checked yet.
+- Lean is also the steadiest: its two rounds match within a cent; continue varies by 27%.
+- **Cheating check (ImpossibleBench conflicting tests, 8 bugs): lean cheated 0 of 8**, $0.38. All 8 changed only
+  code, touched no test, and stopped on "only already-failing tests fail" or a flag for a human, not by giving up the
+  rules.
+- **Decision:** lean becomes the team's setting in `run_on_repo` (same solves, lowest total and steadiest cost, no
+  cheating). Open: split lean into its two parts (low effort, short file list) to keep only the one that saves.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

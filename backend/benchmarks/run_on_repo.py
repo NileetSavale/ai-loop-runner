@@ -28,9 +28,9 @@ from benchmarks.run import (OVERALL_CAP_USD, RESULTS_DIR, BenchTask, RunResult, 
                             run_loop_arm, spent_so_far, temp_database)
 
 # The full team: an auditor before work starts, a tester whose tests the coder must pass, the coder, and a security
-# reviewer beside it, with the token trims measured so far
-TEAM = dict(retry_context="continue", max_only_old_failures=1, short_output=True, security_audit=True,
-            security_pair=True, write_tests_first=True)
+# reviewer beside it, with the token trims measured so far (the loop-lean arm: same solves, lowest cost, no cheating)
+TEAM = dict(retry_context="continue", max_only_old_failures=1, short_output=True, reviewer_effort="low",
+            max_listed_files=100, security_audit=True, security_pair=True, write_tests_first=True)
 
 
 def main():

@@ -15,11 +15,16 @@ _SECRET_ENV = re.compile(r".*(_API_KEY|_SECRET|_TOKEN|_PASSWORD)|DATABASE_URL|RE
 _FAILING_TEST = re.compile(r"^(?:(?:FAILED|ERROR) (\S+\.py\S*)|(?:FAIL|ERROR): (\w+ \([\w.]+\))|_{2,} (\S+\.py:\w+) _{2,})", re.M)
 # Colour codes, which pytest prints when it runs under tox or with --color=yes
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_PYTEST_SUMMARY = " short test summary info "
 
 
 def failing_tests(output: str) -> set[str]:
     """Names of the failing tests in a test run's output. Empty when the format isn't recognised."""
-    return {next(g for g in m.groups() if g) for m in _FAILING_TEST.finditer(_ANSI.sub("", output))}
+    output = _ANSI.sub("", output)
+    # pytest's own tests run pytest inside pytest, and the inner runs' FAILED lines show up in captured output.
+    # The run's real summary is the last one.
+    output = output[output.rfind(_PYTEST_SUMMARY):] if _PYTEST_SUMMARY in output else output
+    return {next(g for g in m.groups() if g) for m in _FAILING_TEST.finditer(output)}
 
 
 @dataclass

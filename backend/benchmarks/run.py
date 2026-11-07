@@ -111,8 +111,9 @@ def load_tasks(names: list[str] | None = None) -> list[BenchTask]:
     return tasks
 
 
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+def _git(repo: Path, *args: str, strip: bool = True) -> str:
+    out = subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout
+    return out.strip() if strip else out
 
 
 def prepare_repo(task: BenchTask, dest: Path) -> str:
@@ -344,7 +345,8 @@ async def run_one(task: BenchTask, arm: str, model: str, repeat: int, budget: fl
         await (arm_fn or ARMS[arm])(task, repo, model, budget, result)
         result.duration_seconds = round(time.monotonic() - started, 1)
         result.changed_code_lines, result.changed_test_lines = changed_lines(repo, base)
-        result.diff = _git(repo, "diff", "--cached", base)
+        # Not stripped: a diff can end on a blank context line, and losing it corrupts the patch
+        result.diff = _git(repo, "diff", "--cached", base, strip=False)
         result.visible_passed = (await run_verify(task.verify, str(repo))).passed
         result.hidden_passed = await hidden_tests_pass(task, repo)
     return result

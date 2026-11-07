@@ -322,6 +322,9 @@ ARMS = {
     "loop-short": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1, short_output=True),
     "loop-slim": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1, short_output=True,
                          max_old_failure_names=10),
+    # The trims plus low-effort reviewers and a shorter file list
+    "loop-lean": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1, short_output=True,
+                         reviewer_effort="low", max_listed_files=100),
     # Security agents beside the coder (see core/security.py)
     "loop-pair": partial(run_loop_arm, retry_context="continue", security_pair=True),
     "loop-audit": partial(run_loop_arm, retry_context="continue", security_audit=True),

@@ -5,7 +5,8 @@ from .base import LLMProvider, LLMResult, MAX_OUTPUT_TOKENS, TokenCallback, Tool
 class AnthropicProvider(LLMProvider):
     supports_tools = True
 
-    async def complete(self, system: str, prompt: str, model: str, on_token: TokenCallback = None) -> LLMResult:
+    async def complete(self, system: str, prompt: str, model: str, on_token: TokenCallback = None,
+                       effort: str | None = None) -> LLMResult:
         client = sdk.AsyncAnthropic(api_key=self.api_key)
         full_text = ""
 
@@ -14,6 +15,7 @@ class AnthropicProvider(LLMProvider):
             max_tokens=MAX_OUTPUT_TOKENS,
             system=system,
             messages=[{"role": "user", "content": prompt}],
+            **({"output_config": {"effort": effort}} if effort else {}),
         ) as stream:
             async for chunk in stream.text_stream:
                 full_text += chunk

@@ -17,7 +17,7 @@ from core.repo_map import build_repo_map, locate_issue, map_for_prompt
 from core.security import (AUDIT_SYSTEM_PROMPT, PAIR_SYSTEM_PROMPT, audit_prompt, files_to_audit, findings_guide,
                            pair_prompt, parse_findings, parse_verdict)
 from core.tester import TEST_REVIEW_SYSTEM_PROMPT, TESTER_SYSTEM_PROMPT, test_review_prompt, tester_prompt, tests_guide
-from core.tools import MAX_TEST_OUTPUT_CHARS, RepoTools
+from core.tools import MAX_LISTED_FILES, MAX_TEST_OUTPUT_CHARS, RepoTools
 from core.verifier import failing_tests, run_verify, short_test_output, tail, VerifyResult
 from core.git_ops import git_commit
 from core.mutation import check_test_strength
@@ -216,6 +216,8 @@ async def run_loop(
     security_audit: bool = False,
     security_pair: bool = False,
     write_tests_first: bool = False,
+    reviewer_effort: str | None = None,
+    max_listed_files: int = MAX_LISTED_FILES,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
@@ -223,7 +225,10 @@ async def run_loop(
 
     security_audit: before work starts, an auditor reads the code the task touches and its findings go to the coder.
     security_pair: a reviewer checks the coder's changes each time it runs the tests, and again before it can finish.
-    write_tests_first: a tester writes tests for the task before the coder starts, checked by a reviewer."""
+    write_tests_first: a tester writes tests for the task before the coder starts, checked by a reviewer.
+    reviewer_effort: thinking effort for the yes-or-no reviewers (test changes, security pair, the tester's tests).
+    They think at the model's default otherwise, which was most of their output tokens.
+    max_listed_files: how many paths list_files returns."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -285,9 +290,9 @@ async def run_loop(
         review_spend = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
         flagged: list[str] = []  # tests the reviewer thinks a human should check
 
-        async def ask(system: str, prompt: str, step: str) -> str:
+        async def ask(system: str, prompt: str, step: str, effort: str | None = None) -> str:
             """A reviewer's model call. Its spend is added to the current attempt."""
-            result = await get_provider(model, user_api_key).complete(system, prompt, model, None)
+            result = await get_provider(model, user_api_key).complete(system, prompt, model, None, effort=effort)
             cost = calculate_cost(model, result.input_tokens, result.output_tokens)
             review_spend["cost_usd"] += cost
             review_spend["input_tokens"] += result.input_tokens
@@ -319,7 +324,7 @@ async def run_loop(
                            if is_test_path(e.path) and not read_current(repo_path, e.path)}
                 if not written:
                     break
-                approved, problems = parse_verdict(await ask(TEST_REVIEW_SYSTEM_PROMPT, test_review_prompt(spec, written), "test_check"))
+                approved, problems = parse_verdict(await ask(TEST_REVIEW_SYSTEM_PROMPT, test_review_prompt(spec, written), "test_check", reviewer_effort))
                 if approved:
                     break
             if written and approved:
@@ -348,7 +353,7 @@ async def run_loop(
             if not diff:
                 return []
             if diff not in security_reviews:
-                approved, problems = parse_verdict(await ask(PAIR_SYSTEM_PROMPT, pair_prompt(spec, findings, diff), "security_pair"))
+                approved, problems = parse_verdict(await ask(PAIR_SYSTEM_PROMPT, pair_prompt(spec, findings, diff), "security_pair", reviewer_effort))
                 security_reviews[diff] = (approved, problems)
                 await emit("security_review", {"approved": approved, "problems": problems})
             approved, problems = security_reviews[diff]
@@ -356,7 +361,7 @@ async def run_loop(
 
         async def review_test_change(path: str, diff: str, reason: str) -> tuple[bool, str]:
             """A separate model call that sees the task, the test diff and the reason, but not the coder's reasoning."""
-            text = await ask(REVIEW_SYSTEM_PROMPT, review_prompt(spec, diff, reason, baseline_failures), "test_review")
+            text = await ask(REVIEW_SYSTEM_PROMPT, review_prompt(spec, diff, reason, baseline_failures), "test_review", reviewer_effort)
             approved, why, escalate = parse_review(text)
             await emit("test_change_review", {
                 "path": path, "reason": reason, "approved": approved, "escalate": escalate, "why": why, "diff": diff,
@@ -391,7 +396,7 @@ async def run_loop(
             agent_result = await run_agent(
                 prompt, model, user_api_key=user_api_key, on_token=on_token,
                 tools=RepoTools(repo_path, verify_command, added_tests, review_test_change if allow_test_changes else None,
-                                short_output, old_failures, security_review if security_pair else None),
+                                short_output, old_failures, security_review if security_pair else None, max_listed_files),
                 max_cost_usd=cost_limit - total_cost,
                 on_event=emit,
                 add_tests=add_tests,

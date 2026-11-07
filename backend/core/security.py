@@ -84,8 +84,9 @@ def pair_prompt(spec: str, findings: list[dict], diff: str) -> str:
     return f"## Task\n{spec}\n\n## Auditor's findings\n{listed}\n\n## The developer's changes so far\n```diff\n{diff}\n```"
 
 
-def parse_pair(text: str) -> tuple[bool, list[str]]:
-    """(approved, problems). Anything unreadable counts as approved, so a garbled reply can't stall the coder."""
+def parse_verdict(text: str) -> tuple[bool, list[str]]:
+    """A reviewer's {"approve", "problems"} reply as (approved, problems). Anything unreadable counts as approved, so a
+    garbled reply can't stall the work."""
     reply = _json(text)
     problems = [str(p) for p in reply.get("problems") or [] if p]
     return reply.get("approve", True) is not False or not problems, problems

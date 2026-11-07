@@ -3,7 +3,7 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from core.edits import is_test_path
-from core.security import files_to_audit, findings_guide, parse_findings, parse_pair
+from core.security import files_to_audit, findings_guide, parse_findings, parse_verdict
 
 
 def test_the_auditor_reads_the_task_files_and_what_they_import():
@@ -22,11 +22,11 @@ def test_findings_are_read_from_json_and_listed_for_the_coder():
 
 
 def test_the_pair_sends_work_back_only_with_a_reason():
-    assert parse_pair('{"approve": false, "problems": ["search still uses an f-string"]}') == (
+    assert parse_verdict('{"approve": false, "problems": ["search still uses an f-string"]}') == (
         False, ["search still uses an f-string"])
-    assert parse_pair('{"approve": true, "problems": []}')[0]
-    assert parse_pair("garbled")[0]  # an unreadable reply mustn't stall the coder
-    assert parse_pair('{"approve": false, "problems": []}')[0]
+    assert parse_verdict('{"approve": true, "problems": []}')[0]
+    assert parse_verdict("garbled")[0]  # an unreadable reply mustn't stall the coder
+    assert parse_verdict('{"approve": false, "problems": []}')[0]
 
 
 def test_run_tests_shows_the_coder_what_the_security_pair_sent_back(tmp_path):

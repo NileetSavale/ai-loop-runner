@@ -609,3 +609,39 @@ def test_the_coder_cant_finish_with_changes_the_security_pair_sent_back(tmp_path
         status, _, _ = _run(repo, agent, AsyncMock(return_value=PASS), security_pair=True)
     assert status == "passed" and agent.call_count == 2
     assert "security reviewer sent your changes back:\n- a.py builds SQL from user input" in agent.call_args_list[1].args[0]
+
+
+_TESTER_REPLY = '<file path="tests/test_task.py">\ndef test_shares():\n    assert False\n</file>'
+_APPROVE = '{"approve": true, "problems": []}'
+
+
+def test_the_testers_tests_go_to_the_coder_and_dont_count_as_broken(tmp_path):
+    repo = _git_repo(tmp_path)
+    verify = AsyncMock(side_effect=[PASS, VerifyResult(False, "FAILED tests/test_task.py::test_shares - boom\n", 1),
+                                    VerifyResult(False, "FAILED tests/test_task.py::test_shares - boom\n", 1), PASS])
+    agent = AsyncMock(side_effect=[_agent(FileEdit("a.py", "new")), _agent(FileEdit("a.py", "newer"))])
+    with patch("core.loop.get_provider", return_value=_reviewer(_TESTER_REPLY, _APPROVE)):
+        status, _, events = _run(repo, agent, verify, use_map=True, write_tests_first=True)
+    assert status == "passed" and (repo / "tests" / "test_task.py").exists()
+    assert "## Tests written for this task" in agent.call_args_list[0].args[0]
+    assert "tests/test_task.py::test_shares" in agent.call_args_list[0].args[0]
+    assert "your changes broke them" not in agent.call_args_list[1].args[0]
+
+
+def test_tests_that_already_pass_are_dropped(tmp_path):
+    repo = _git_repo(tmp_path)
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "new")))
+    with patch("core.loop.get_provider", return_value=_reviewer(_TESTER_REPLY, _APPROVE)):
+        _, _, events = _run(repo, agent, AsyncMock(return_value=PASS), use_map=True, write_tests_first=True)
+    assert not (repo / "tests" / "test_task.py").exists()
+    assert "## Tests written for this task" not in agent.call_args_list[0].args[0]
+    assert any(e["event"] == "tests_written" and not e["data"]["kept"] for e in events)
+
+
+def test_tests_the_reviewer_rejects_twice_are_never_written(tmp_path):
+    repo = _git_repo(tmp_path)
+    reject = '{"approve": false, "problems": ["test_shares: asserts a message the task never states"]}'
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "new")))
+    with patch("core.loop.get_provider", return_value=_reviewer(_TESTER_REPLY, reject, _TESTER_REPLY, reject)):
+        _run(repo, agent, AsyncMock(return_value=PASS), use_map=True, write_tests_first=True)
+    assert not (repo / "tests" / "test_task.py").exists()

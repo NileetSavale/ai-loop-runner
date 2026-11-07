@@ -423,6 +423,28 @@ sent before, output to the reply. The total matches the API.
 - Precision on this sample: 7/8. Recall is unknown (no ground truth), and nothing high-severity was found. Details stay
   out of this log because it's the user's private code.
 
+**First real-code fixes: the full team on 5 confirmed findings in the user's startup repo (TypeScript monorepo)**
+- 5/5 passed and were committed (one commit each, on a branch), $1.60 in total. Each was reviewed by hand:
+  - **4 correct as asked**: an email disclosure, an AI route outside the daily budget, filter injection through a
+    pagination cursor, and raw error messages sent to the browser.
+  - **1 correct but with unrequested changes**: the invite-claim fix (3 attempts, $0.82) also made the checkout route
+    accept two extra field names and unlocked old plans for invite holders.
+- **Cause of those extras: the tester's test.** It posted `plan: "monthly"` / `plan_type`, which the task never
+  mentioned, and the coder changed the product to make it pass. The tester's reviewer approved it, because the test
+  didn't contradict the task; it assumed beyond it. This is the coder-follows-a-wrong-test failure from the
+  literature (Q6), seen in practice.
+- **The security pair earned its place for the first time**: in the same task the coder removed `import "server-only"`
+  from the Supabase admin client (it guards against bundling the service key into browser code), and the pair sent it
+  back. The final commit keeps it.
+- **Platform problems this exposed:**
+  1. On a large repo the auditor read the wrong files: the file locator's guesses (email layouts, demo-video
+     components) instead of the routes the tasks named. For the email-disclosure task it never read the route itself.
+     So the auditor added little here, and this run's cache numbers mean nothing.
+  2. The tester's tests were dropped in 4 of 5 tasks. Once it wrote a Python test for a TypeScript repo (the tester
+     prompt's example path is `tests/test_name.py`, and the repo had no tests to copy). The run doesn't record why the
+     others were dropped. So 4 of 5 fixes were checked only by the type-checker and a human read.
+  3. Nothing stops the coder from changing a public API to satisfy a test.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

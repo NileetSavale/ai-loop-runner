@@ -225,6 +225,17 @@ def test_can_stop_after_the_first_attempt_that_leaves_only_old_failures(tmp_path
     assert status == "failed" and "already failing before any change" in data["error"] and agent.call_count == 1
 
 
+def test_without_attribution_old_failures_count_as_the_agents(tmp_path):
+    verify = AsyncMock(side_effect=[_failed("test_old")] + [_failed("test_old", note=f"{i}s") for i in range(3)])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    status, data, _ = _run(tmp_path, agent, verify, max_iterations=10, use_map=True, max_only_old_failures=1,
+                           attribute_failures=False)
+    # Retries until the plain stop rules end it, and is never told the test failed before it started
+    assert status == "failed" and "repeated 3 times" in data["error"] and agent.call_count == 3
+    prompts = " ".join(c.args[0] for c in agent.call_args_list)
+    assert "already failing" not in prompts and "before your changes" not in prompts
+
+
 def test_the_guide_can_list_only_some_old_failures(tmp_path):
     verify = AsyncMock(side_effect=[_failed("test_a", "test_b", "test_c"), PASS])
     agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))

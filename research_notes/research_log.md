@@ -334,6 +334,26 @@ sent before, output to the reply. The total matches the API.
 - The pair added about $0.014 and caught nothing here, because this task's new code added no new hole. It still needs
   a task where the coder introduces one before we can judge it.
 
+**Token trims on 11 bugs (10 pilot + requests-5414), each added on top of the previous, continue mode, 1 run each**
+
+| Arm | Solved | Total | Per solve | astropy-13398 | requests-5414 |
+|---|---|---|---|---|---|
+| continue (earlier runs) | 8/11 | about $0.77 | about $0.096 | $0.39 | $0.131 |
+| + stop after 1 old-failures attempt | 9/11 | $1.23 | $0.136 | $0.88 (hit the limit) | $0.049 |
+| + short test output | 8/11 | **$0.56** | **$0.071** | $0.29 | $0.044 |
+| + slim guide | 8/11 | $0.64 | $0.080 | $0.34 | **$0.029** |
+| Claude Code (pilot run 2 + requests) | 9/11 | $0.40 | $0.044 | $0.11 | $0.032 |
+
+- Stopping after the first old-failures attempt cut requests-5414 by 63%. On astropy-13398, stop1 still ran to the
+  cost limit: that run's failures weren't only old ones, so the rule never fired.
+- Short test output was the biggest overall win: total $0.56, against about $0.77 for plain continue.
+- Without astropy-13398, short costs $0.27 for the other 10 bugs, against Claude Code's $0.29. Overall we're about 1.4x
+  Claude Code in total and 1.6x per solve, down from 2–4x. That's under the 1.5x "tuning, not architecture" line set
+  earlier for total cost, though not per solve.
+- The slim guide didn't help overall. Its one big win (requests at $0.029) is a single run.
+- Caveats: one run per bug, and solves flip between runs on pytest-10356, sympy-13615 and xarray-6992. The cost
+  ordering needs repeats before any trim becomes the default.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

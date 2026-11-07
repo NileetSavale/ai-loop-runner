@@ -23,7 +23,7 @@ def check_results(task, diff: str) -> dict[str, bool]:
         repo = Path(folder) / "repo"
         prepare_repo(task, repo)
         if diff.strip():
-            subprocess.run(["git", "apply", "-"], input=diff, cwd=repo, text=True, check=True, capture_output=True)
+            subprocess.run(["git", "apply", "-"], input=diff.rstrip("\n") + "\n", cwd=repo, text=True, check=True, capture_output=True)
         out = subprocess.run(
             [sys.executable, "-m", "pytest", "-rA", "-q", "-p", "no:cacheprovider", "tests", str(task.path / "hidden")],
             cwd=repo, capture_output=True, text=True, env={"PYTHONPATH": str(repo), "PATH": "/usr/bin:/bin"},

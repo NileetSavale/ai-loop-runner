@@ -11,11 +11,12 @@ from sqlmodel import select
 
 from models import Session, SessionEvent, Task, Iteration, UsageEvent
 from database import get_session as db_session
-from core.agent import run_agent, AgentResult
+from core.agent import run_agent, AgentResult, FileEdit, parse_file_blocks
 from core.edits import apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
 from core.repo_map import build_repo_map, locate_issue, map_for_prompt
 from core.security import (AUDIT_SYSTEM_PROMPT, PAIR_SYSTEM_PROMPT, audit_prompt, files_to_audit, findings_guide,
-                           pair_prompt, parse_findings, parse_pair)
+                           pair_prompt, parse_findings, parse_verdict)
+from core.tester import TEST_REVIEW_SYSTEM_PROMPT, TESTER_SYSTEM_PROMPT, test_review_prompt, tester_prompt, tests_guide
 from core.tools import MAX_TEST_OUTPUT_CHARS, RepoTools
 from core.verifier import failing_tests, run_verify, short_test_output, tail, VerifyResult
 from core.git_ops import git_commit
@@ -214,13 +215,15 @@ async def run_loop(
     max_old_failure_names: int | None = None,
     security_audit: bool = False,
     security_pair: bool = False,
+    write_tests_first: bool = False,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
     of it, and list at most this many already-failing tests up front.
 
     security_audit: before work starts, an auditor reads the code the task touches and its findings go to the coder.
-    security_pair: a reviewer checks the coder's changes each time it runs the tests, and again before it can finish."""
+    security_pair: a reviewer checks the coder's changes each time it runs the tests, and again before it can finish.
+    write_tests_first: a tester writes tests for the task before the coder starts, checked by a reviewer."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -298,10 +301,45 @@ async def run_loop(
         findings: list[dict] = []
         if security_audit:
             audited = files_to_audit(focus, repo_map["edges"], is_test_path) if use_map else [f for f in files if not is_test_path(f)]
-            contents = {p: c for p in audited if (c := read_current(repo_path, p)) is not None}
+            contents = {p: c for p in audited if (c := read_current(repo_path, p))}
             findings = parse_findings(await ask(AUDIT_SYSTEM_PROMPT, audit_prompt(spec, contents), "security_audit"))
             await emit("security_findings", {"files": list(contents), "findings": findings})
             guide += findings_guide(findings)
+
+        task_tests: set[str] = set()  # the tester's tests: the coder's job, never something it broke
+        if write_tests_first:
+            code_paths = files_to_audit(focus, repo_map["edges"], is_test_path) if use_map else [f for f in files if not is_test_path(f)]
+            test_paths = [n["path"] for n in repo_map["nodes"] if n["is_test"]] if use_map else []
+            code = {p: c for p in code_paths if (c := read_current(repo_path, p))}
+            existing_tests = {p: c for p in test_paths if (c := read_current(repo_path, p))}
+            written, problems, approved = {}, None, False
+            for _ in range(2):  # one rewrite if the reviewer sends the tests back
+                reply = await ask(TESTER_SYSTEM_PROMPT, tester_prompt(spec, code, existing_tests, problems), "tester")
+                written = {e.path: e.content for e in parse_file_blocks(reply)
+                           if is_test_path(e.path) and not read_current(repo_path, e.path)}
+                if not written:
+                    break
+                approved, problems = parse_verdict(await ask(TEST_REVIEW_SYSTEM_PROMPT, test_review_prompt(spec, written), "test_check"))
+                if approved:
+                    break
+            if written and approved:
+                apply_edits([FileEdit(path, content) for path, content in written.items()], repo_path)
+                check = await run_verify(verify_command, repo_path)
+                failing = failing_tests(check.output) - baseline_failures
+                ours = {n for n in failing if any(n.startswith(path) for path in written)}
+                # Only keep tests that fail for the right reason: a feature that's missing, not a file that won't load,
+                # and without breaking tests that passed before
+                if ours and failing == ours and not any(n in written for n in ours):
+                    task_tests = ours
+                    guide += tests_guide(sorted(written), task_tests)
+            if written and not task_tests:
+                for path in written:
+                    try:
+                        os.remove(resolve_in_repo(repo_path, path))
+                    except OSError:
+                        pass
+            await emit("tests_written", {"files": sorted(written), "tests": sorted(task_tests), "approved": approved,
+                                         "problems": problems or [], "kept": bool(task_tests)})
 
         security_reviews: dict[str, tuple[bool, list[str]]] = {}  # by diff, so an unchanged diff isn't paid for twice
 
@@ -310,7 +348,7 @@ async def run_loop(
             if not diff:
                 return []
             if diff not in security_reviews:
-                approved, problems = parse_pair(await ask(PAIR_SYSTEM_PROMPT, pair_prompt(spec, findings, diff), "security_pair"))
+                approved, problems = parse_verdict(await ask(PAIR_SYSTEM_PROMPT, pair_prompt(spec, findings, diff), "security_pair"))
                 security_reviews[diff] = (approved, problems)
                 await emit("security_review", {"approved": approved, "problems": problems})
             approved, problems = security_reviews[diff]
@@ -430,7 +468,7 @@ async def run_loop(
                         f"\n\nEvery test still failing was already failing before your changes: {names}. "
                         "Leave them alone unless the task is about them."
                     )
-                broken = failing - baseline_failures if baseline else set()
+                broken = failing - baseline_failures - task_tests if baseline else set()
                 if retry_context == "record":
                     records.append(attempt_record(iteration, agent_result, changed, failing, broken))
                 if broken:

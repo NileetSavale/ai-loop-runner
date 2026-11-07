@@ -89,6 +89,7 @@ class RunResult:
     attempt_failures: list[list[str]] | None = None  # failing tests after each attempt, to see why a run kept going
     test_reviews: list[dict] | None = None  # each proposed change to an existing test and the reviewer's verdict
     security: list[dict] | None = None  # the security auditor's findings and each security pair review
+    tests_written: dict | None = None  # what the tester wrote before the coder started, and whether it was kept
     # Estimated tokens and cost by where they came from: {source: {"written", "read", "output", "cost_usd"}}
     token_sources: dict[str, dict[str, float]] | None = None
     note: str = ""
@@ -213,8 +214,10 @@ async def run_loop_arm(
             result.cache_write_tokens += data["cache_write_tokens"]
     result.test_reviews = [data for kind, data in kinds if kind == "test_change_review"]
     result.security = [{"kind": kind, **data} for kind, data in kinds if kind in ("security_findings", "security_review")]
+    result.tests_written = next((data for kind, data in kinds if kind == "tests_written"), None)
     sources: dict[str, dict[str, float]] = {}
-    reviewers = {"test_review": "test reviewer", "security_audit": "security auditor", "security_pair": "security pair"}
+    reviewers = {"test_review": "test reviewer", "security_audit": "security auditor", "security_pair": "security pair",
+                 "tester": "tester", "test_check": "tester's reviewer"}
     for kind, data in kinds:
         if kind == "usage" and "sources" in data:
             merge(sources, data["sources"])
@@ -323,6 +326,8 @@ ARMS = {
     "loop-pair": partial(run_loop_arm, retry_context="continue", security_pair=True),
     "loop-audit": partial(run_loop_arm, retry_context="continue", security_audit=True),
     "loop-secteam": partial(run_loop_arm, retry_context="continue", security_audit=True, security_pair=True),
+    "loop-team": partial(run_loop_arm, retry_context="continue", security_audit=True, security_pair=True,
+                         write_tests_first=True),
     "claude-code": run_claude_code_arm,
 }
 

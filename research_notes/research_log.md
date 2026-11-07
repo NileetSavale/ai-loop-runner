@@ -315,6 +315,25 @@ sent before, output to the reply. The total matches the API.
   - Compare our stop rules with SpecRover's at the same budget.
   - Show the stop rule still works with generated tests that weren't checked against the official fix.
 
+**Demo: security agents on TeamNotes (sample app with planted holes, task: add note sharing; 3 runs each)**
+
+| Version | Sharing works | Others' notes protected | SQL injection closed | Not MD5 | Cost/run |
+|---|---|---|---|---|---|
+| A. Our loop alone | 3/3 | 3/3 | 1/3 | 0/3 | $0.037 |
+| A. Claude Code | 3/3 | 3/3 | 0/3 | 0/3 | $0.045 |
+| B. + security pair | 3/3 | 3/3 | 0/3 | 0/3 | $0.043 |
+| C. + security auditor | 3/3 | 3/3 | **3/3** | **3/3** | $0.081 |
+| D. + auditor + pair | 3/3 | 3/3 | **3/3** | **3/3** | $0.094 |
+
+- Single agents fixed the ownership holes (sharing needs them), but left the pre-existing SQL injection and MD5. Claude
+  Code noticed the injection in all 3 runs and left it on purpose ("noticed but didn't touch").
+- The pair approved every time: it reviews the coder's diff, and the remaining holes were in code the diff didn't
+  touch. As predicted, a diff-only reviewer misses holes already in the app.
+- The auditor (one call, about $0.018) read main.py plus its imports (auth.py, db.py), found 5 issues each run, and
+  the coder fixed all the high-severity ones. Total cost about doubled, since fixing them is extra work.
+- The pair added about $0.014 and caught nothing here, because this task's new code added no new hole. It still needs
+  a task where the coder introduces one before we can judge it.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

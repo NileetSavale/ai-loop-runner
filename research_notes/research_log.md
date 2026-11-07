@@ -269,6 +269,28 @@ sent before, output to the reply. The total matches the API.
   - Our rules refuse a needed official test change in 3/60 (5%).
 - The gate still passes clearly, with both kinds above 10% after the hand check.
 
+**Retry modes, final: continue wins (after capping retry test output at 8k characters, 58eb16a)**
+- The two pilot bugs that retry, 2 runs each per mode:
+
+  | Bug | Fresh | Continue | Record |
+  |---|---|---|---|
+  | requests-5414 (solved every run) | $0.196 | **$0.131** | $0.161 |
+  | astropy-13398 (unsolvable: a test fails with the official fix) | $0.658 | **$0.394** | $0.471 |
+
+- Continue was cheapest in all 6 head-to-head runs, with the same solves, so it's now the loop's default (the
+  benchmark's "loop" arm stays fresh so it remains comparable).
+- Capping the retry's test output alone took requests-5414 from $0.44-0.50 to $0.12-0.20.
+- **Claude Code on the same bugs:** requests-5414 $0.034 and $0.030 (solved), astropy-13398 $0.06 and $0.11. So our
+  best mode is still about 4x Claude Code on bugs that retry.
+- Why (from the run records on requests-5414):
+  - Claude Code made 5-6 tool calls and read 12-18k cached tokens, against our 10-11 calls and about 145k.
+  - It starts from the issue alone, and reads test output through `tail -5`.
+  - It stops by its own judgment, saying it saw failures it couldn't attribute. Our system re-checks the tests and
+    forces a second attempt; on requests-5414 that attempt is 37% of our cost and bought nothing.
+  - Its low cost partly comes from checking less: in one run it never confirmed its fix.
+- Next: three trims, each tested on top of the previous (dbca34b): stop after 1 attempt with only old failures, short
+  test output, and a slim list of old failures in the guide.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

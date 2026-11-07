@@ -1,0 +1,5 @@
+{
+ "prompt": "Add file attachments to notes. POST /notes/{note_id}/attachments with JSON {\"filename\": \"<name>\", \"content\": \"<text>\"} stores the file and returns 201. GET /notes/{note_id}/attachments lists the note's attachment filenames, and GET /notes/{note_id}/attachments/{filename} returns {\"filename\": ..., \"content\": ...}, or 404 if there's no such attachment. Anyone who can open the note (its owner, or someone it's shared with) can list and read its attachments; only the owner can upload. Store the files on disk under the folder named by the NOTES_FILES environment variable (default \"attachments\").",
+ "verify": "{python} -m pytest tests -q",
+ "visible_tests_pass_at_start": true
+}

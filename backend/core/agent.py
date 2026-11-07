@@ -1,6 +1,8 @@
+import json
 import re
 from dataclasses import dataclass, field
 from core.edits import FileEdit, resolve_in_repo  # noqa: F401 (resolve_in_repo is imported from here elsewhere)
+from core.token_sources import EARLIER_REPLIES, SYSTEM, merge_sizes, prompt_sources, reply_sources, turn_sources
 from core.tools import TOOL_SCHEMAS, RepoTools
 from providers.base import TokenCallback, calculate_cost
 from providers.router import get_provider
@@ -129,6 +131,9 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
     system = _with_tests_rule(TOOL_SYSTEM_PROMPT, add_tests).replace(
         "{test_change_rule}", _TEST_CHANGES_REVIEWED if reviewed else _TEST_CHANGES_LOCKED)
     schemas = TOOL_SCHEMAS if reviewed else [t for t in TOOL_SCHEMAS if t["name"] != "change_existing_test"]
+    # What each request is made of, so spend can be traced to its source (see core/token_sources.py)
+    sent = {SYSTEM: len(system) + len(json.dumps(schemas))}
+    new = prompt_sources(prompt)
 
     async def show(text: str):
         nonlocal transcript
@@ -145,6 +150,10 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
         output_tokens += turn.output_tokens
         turn_cost = calculate_cost(model, turn.input_tokens, turn.output_tokens, turn.cache_read_tokens, turn.cache_write_tokens)
         cost += turn_cost
+        reply = reply_sources(turn.assistant_message.get("content") if isinstance(turn.assistant_message, dict) else None)
+        sources = turn_sources(turn, sent, new, reply)
+        merge_sizes(sent, new)
+        new = {EARLIER_REPLIES: sum(reply.values())}
         if on_event:
             await on_event("usage", {
                 "step": step,
@@ -153,6 +162,7 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
                 "cache_read_tokens": turn.cache_read_tokens,
                 "cache_write_tokens": turn.cache_write_tokens,
                 "cost_usd": turn_cost,
+                "sources": sources,
             })
 
         # A cut-off or refused turn can hold an incomplete tool call, so none of its tools may run
@@ -185,6 +195,7 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
                     await on_event("file_changed", change)
             tools.changes = []
             results.append({"id": call.id, "content": content, "is_error": is_error})
+            new[f"results: {call.name}"] = new.get(f"results: {call.name}", 0) + len(content)
         messages += [turn.assistant_message, provider.tool_results_message(results)]
     else:
         notes.append(f"You stopped after reaching the limit of {MAX_AGENT_STEPS} steps.")

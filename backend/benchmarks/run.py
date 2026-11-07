@@ -36,6 +36,8 @@ from sqlmodel import SQLModel, create_engine, select
 import core.loop as loop
 import database
 from core.edits import is_test_path
+from core.token_sources import merge
+from providers.base import calculate_cost
 from core.verifier import _verify_env, failing_tests, run_verify
 from database import get_session as db_session
 from models import Iteration, Session, SessionEvent, Task
@@ -86,6 +88,8 @@ class RunResult:
     cheated_by_code: bool | None = None  # still passes with the original impossible tests put back
     attempt_failures: list[list[str]] | None = None  # failing tests after each attempt, to see why a run kept going
     test_reviews: list[dict] | None = None  # each proposed change to an existing test and the reviewer's verdict
+    # Estimated tokens and cost by where they came from: {source: {"written", "read", "output", "cost_usd"}}
+    token_sources: dict[str, dict[str, float]] | None = None
     note: str = ""
     final_message: str = ""
     diff: str = ""
@@ -206,6 +210,16 @@ async def run_loop_arm(
             result.cache_read_tokens += data["cache_read_tokens"]
             result.cache_write_tokens += data["cache_write_tokens"]
     result.test_reviews = [data for kind, data in kinds if kind == "test_change_review"]
+    sources: dict[str, dict[str, float]] = {}
+    for kind, data in kinds:
+        if kind == "usage" and "sources" in data:
+            merge(sources, data["sources"])
+        elif kind == "usage" and data.get("step") == "test_review":
+            merge(sources, {"test reviewer": {
+                "written": data["input_tokens"], "read": 0.0, "output": data["output_tokens"]}})
+    for counts in sources.values():
+        counts["cost_usd"] = calculate_cost(result.model, 0, counts["output"], counts["read"], counts["written"])
+    result.token_sources = sources
     tools = [data for kind, data in kinds if kind == "tool"]
     result.tool_calls = len(tools)
     result.tool_result_chars = sum(t["result_chars"] for t in tools)
@@ -379,6 +393,28 @@ def format_table(results: list[RunResult]) -> str:
     return "\n".join("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip() for row in rows)
 
 
+def format_sources(results: list[RunResult]) -> str:
+    """Where the tokens went, summed over runs, most expensive first. The split within each turn is estimated."""
+    total: dict[str, dict[str, float]] = {}
+    for r in results:
+        for label, counts in (r.token_sources or {}).items():
+            into = total.setdefault(label, {"written": 0.0, "read": 0.0, "output": 0.0, "cost_usd": 0.0})
+            for kind in into:
+                into[kind] += counts.get(kind, 0.0)
+    if not total:
+        return ""
+    spend = sum(c["cost_usd"] for c in total.values()) or 1.0
+    runs = len(results)
+    rows = [("Source (per run)", "Written", "Read", "Output", "Cost", "Share")]
+    for label, c in sorted(total.items(), key=lambda item: -item[1]["cost_usd"]):
+        rows.append((
+            label, f"{c['written'] / runs:,.0f}", f"{c['read'] / runs:,.0f}", f"{c['output'] / runs:,.0f}",
+            f"${c['cost_usd'] / runs:.4f}", f"{c['cost_usd'] / spend:.0%}",
+        ))
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+    return "\n".join("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip() for row in rows)
+
+
 def _dollars(amount: float | None) -> str:
     return "none succeeded" if amount is None else f"${amount:.4f}"
 
@@ -473,7 +509,7 @@ def main():
         arm_fn=partial(run_loop_arm, add_tests=True) if args.add_tests else None,
     ))
     save(skipped)
-    print(f"\n{format_table(finished)}\n\n{format_summary(summarize(finished))}")
+    print(f"\n{format_table(finished)}\n\n{format_summary(summarize(finished))}\n\n{format_sources(finished)}")
     if skipped:
         print(f"Skipped {skipped} runs: the remaining budget couldn't cover them.")
     if any(r.usage_matches is False for r in finished):

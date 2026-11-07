@@ -472,6 +472,20 @@ sent before, output to the reply. The total matches the API.
 - Two things needed handling: running `npm ci` inside a workspace member clobbers the root install, and Vitest writes
   its cache into `node_modules` (given a throwaway scratch space).
 
+**Main experiment, design written before results (started 2026-11-07)**
+- **Bugs:** the 60 labelled SWE-bench Verified bugs. Automatic labels: 38 clean, 14 with already-failing tests,
+  8 needing an old test changed (the hand check said 11 / 10; both splits will be reported).
+- **Setups, one run each, Sonnet 5.5, $1 cap per run:** `loop-lean` (with failure attribution), `loop-lean-noattr`
+  (identical, but every failing test counts as the agent's: no list of old failures, no stop on them, no "your change
+  broke these" from the baseline), and Claude Code. Order alternates per bug.
+- **Scoring:** SWE-bench's hidden tests only. Cost from provider-reported usage.
+- **Predictions:** (1) on the 38 clean bugs, lean and noattr solve and cost about the same, since there's nothing to
+  attribute; (2) on the 22 labelled bugs, noattr costs clearly more (it retries against failures it can't fix) and
+  solves no more; (3) Claude Code solves about as many as lean overall. If (2) fails, attribution doesn't save money
+  and the cost claim is dropped.
+- **Limits known in advance:** one run per bug and setup (noise up to 2x on cheap bugs, so cost is compared on
+  totals per group, not per bug); one model; Claude Code's cost includes its own tool loop, which we don't control.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

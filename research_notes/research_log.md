@@ -76,6 +76,7 @@ Full literature report: `reports/Failure attribution in agent retry loops.md`
 | 2026-11-06 | Loop + stop on already-failing only (`b3313df`) | 7/10 | $2.02 | Rule never fired on astropy: spend is inside attempts |
 | 2026-11-06 | Loop + name old failures before attempt 1 (`c4984a9`), astropy-13398 only | 0/1 | $0.54 | Was $1.51. Attempt 1 broke 5 tests; attempts 2–4 made no edits |
 | 2026-11-07 | Test-change check: fixed rules + blind reviewer (`6ea395d`), sympy-15809 only | 1/1 | $0.04 | Was $0.17–0.19 over 3–4 attempts. One attempt; changed exactly the two `raises(ValueError)` lines to `assert Min() == oo` / `Max() == -oo`, reviewer approved. Only shows legitimate changes get through; blocking cheating untested |
+| 2026-11-07 | No-edit attempts still see test results, broken tests named, stop after 2 no-edit attempts (`058b30e`), 10 bugs | 7/10 (same bugs) | $0.97 | $0.14 per solve (was $0.16). astropy-13398 $0.50 (3 attempts, 6 failures each; agent saw them but still didn't fix). Ran before the test-change check, so sympy-15809 still $0.18 |
 | 2026-11-07 | Same (`c4984a9`), all 10 bugs | 7/10 (same bugs) | $1.14 | −44% vs baseline; $0.16 per solve vs Claude Code $0.05. astropy-13398 $0.66 (same broke-then-no-edit pattern); sympy-15809 $0.17, still blocked by locked tests |
 
 **Observed failure modes worth naming in a paper**

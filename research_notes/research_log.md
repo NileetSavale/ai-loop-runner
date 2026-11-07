@@ -486,6 +486,17 @@ sent before, output to the reply. The total matches the API.
 - **Limits known in advance:** one run per bug and setup (noise up to 2x on cheap bugs, so cost is compared on
   totals per group, not per bug); one model; Claude Code's cost includes its own tool loop, which we don't control.
 
+**Literature check: repo memory built from agents' exploration (subagent, mostly abstract-only)**
+- Verdict: **partly covered.** Every part has prior work; no paper found combining them. Full note:
+  `research_notes/exploration_memory_litcheck.md` (items marked verified / unverified).
+- Closest: SWE-Bench-CL (2507.00014; time-ordered per-repo SWE-bench sequences, memory "on par or slightly worse",
+  no token cost), CodeNib (2607.25431; persistent incremental repo context, 50-87% fewer tokens, but built upfront by
+  static analysis), MemDev-Bench / VibeMemBench (2610.27524, 2609.23570; most memory systems don't beat no memory, raw
+  past trajectories beat compressed memory, steps not dollars), EA-Graph (2608.04278; content-anchored invalidation,
+  no efficiency claim), SkillForge (2608.18933; per-project skills built upfront from synthetic issues).
+- What may be open: memory built only from exploration tool calls, with hash-based invalidation, judged on dollar cost
+  per task as memory grows. Baselines must include raw past trajectories and an upfront static index.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

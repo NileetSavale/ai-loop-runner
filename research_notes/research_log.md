@@ -243,7 +243,36 @@ sent before, output to the reply. The total matches the API.
 - The loop uses the same parser to tell old failures from new ones, so on those repos it couldn't.
 - Fixed in 140eeae. The 7 bugs are being relabelled.
 
+**Relabel with the fixed parser, then every flagged label checked by hand**
+- Raw relabel (7 bugs redone; sphinx-8548 is still unreadable): already failing 15/60 (25%), must change 10/60 (17%),
+  any 23/60 (38%), unreadable 1/60.
+- Cross-checked each flagged test against SWE-bench's own FAIL_TO_PASS / PASS_TO_PASS lists and the official test
+  patch:
+  - **Must change: all 10 confirmed.** The official test patch changes every flagged test, and 6 of the 10 are in
+    FAIL_TO_PASS. Our fixed rules block 3 (pytest-6197, django-15268, django-15315); the other 7 go to the reviewer
+    or are allowed.
+  - **Already failing: 11 confirmed, 4 not.**
+    - Confirmed: SWE-bench leaves these tests out of its own lists, which means they fail in its environment too.
+      Bugs: matplotlib-26342, matplotlib-20676, sympy-13877 (37 tests), sympy-12096, sympy-11618, xarray-4094,
+      astropy-13033, astropy-14096 (leap-second file), sphinx-7440, sphinx-8621, requests-1142 (network).
+    - pytest-6197: **a parser false positive.** pytest's own tests run pytest inside pytest, and the inner runs print
+      `FAILED test_reportchars.py::test_1` lines. Those aren't real failures. This also affects the loop on pytest bugs.
+    - django-13837: the "failure" is a test module that the official test patch adds (`test_module/__main__`), so it
+      belongs to the "new file" category.
+    - django-16145 (umask) and sphinx-10435 (`test_latex_images`, which downloads an image): both are in
+      PASS_TO_PASS, so they pass in SWE-bench's setup. They fail in ours (an amd64 emulation umask, and
+      `--network none`). Agents in our runs do see these failures, but they aren't part of the benchmark itself.
+- **Checked figures:**
+  - Already failing in the benchmark itself: **11/60 (18%)**, or 13/60 (22%) in our no-network setup.
+  - Must change: **10/60 (17%)**.
+  - Either: **21/60 (35%)**; 22/60 (37%) including the 2 setup-only ones.
+  - Our rules refuse a needed official test change in 3/60 (5%).
+- The gate still passes clearly, with both kinds above 10% after the hand check.
+
 ## Open questions / to do
+- The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197). Fix
+  before relying on old-vs-new failures for pytest bugs.
+- sphinx-8548 is still unreadable: look at its output format.
 - Check the reviewer's two approved astropy-13398 test changes against the official test patch.
 - Log fixed-rule blocks too (they're refused before review, so they don't show in `test_reviews`).
 - Look for a legitimate SWE-bench fix that has to edit a test that was already failing, which the new reviewer rule

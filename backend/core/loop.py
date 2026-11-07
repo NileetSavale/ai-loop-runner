@@ -128,17 +128,17 @@ def build_prompt(spec: str, context: str, iteration: int, last_verify_output: st
 
 
 def _build_guide(repo_map: dict, focus: list[dict], baseline: VerifyResult | None, old_failures: set[str] = frozenset(),
-                 max_old_failure_names: int | None = None) -> str:
+                 max_old_failure_names: int | None = None, include_map: bool = True) -> str:
     """Tell the agent where to look, so it doesn't pay to find out.
 
     Names only, not file contents. Measured on one bug, including two files cost more than this on both Haiku 5.5
     and Sonnet 5.5, because reads later in the conversation are cheap once it's cached.
     """
     parts = []
-    if focus:
+    if focus and include_map:
         likely = "\n".join(f"- {f['path']} ({f['reason']})" for f in focus)
         parts.append(f"## Likely places to look\n{likely}")
-    if repo_map["nodes"]:
+    if repo_map["nodes"] and include_map:
         parts.append(f"## Repo map\n{map_for_prompt(repo_map, focus)}")
     if old_failures:
         # Said up front, since most of the spend happens inside the first attempt
@@ -226,6 +226,7 @@ async def run_loop(
     audit_cache: str | None = None,
     sandbox: Sandbox | None = None,
     attribute_failures: bool = True,
+    map_in_prompt: bool = True,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
@@ -242,7 +243,9 @@ async def run_loop(
     sandbox: run every check in a container (core/sandbox.py) rather than on this machine.
     attribute_failures: False is the ablation for the research question. Every failing test counts as the agent's,
     as in a plain verify-and-retry loop: it isn't told which tests failed before it started, isn't stopped when only
-    those still fail, and test changes are reviewed without that information."""
+    those still fail, and test changes are reviewed without that information.
+    map_in_prompt: False leaves the repo map and likely places out of the guide (the map ablation). The tests are
+    still run first, so failure attribution is unaffected."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -301,7 +304,7 @@ async def run_loop(
             repo_map = await asyncio.to_thread(build_repo_map, repo_path)
             focus = locate_issue(repo_map, spec, baseline.output if baseline and not baseline.passed else None, files, repo_path)
             guide = _build_guide(repo_map, focus, baseline if attribute_failures else None, old_failures,
-                                 max_old_failure_names)
+                                 max_old_failure_names, map_in_prompt)
             await emit("focus", {"files": focus, "tests_passing": baseline.passed})
 
         review_spend = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
@@ -506,6 +509,9 @@ async def run_loop(
                 broken = failing - baseline_failures - task_tests if baseline and attribute_failures else set()
                 if retry_context == "record":
                     records.append(attempt_record(iteration, agent_result, changed, failing, broken))
+                # What a stronger model taking over needs to hear about this attempt (core/scout.py)
+                await emit("attempt_checked", {"failing": sorted(failing), "broken": sorted(broken),
+                                               "final_text": (agent_result.final_text or "")[-600:]})
                 if broken:
                     last_verify_output += (
                         f"\n\nThese tests passed before your changes and fail now, so your changes broke them: "

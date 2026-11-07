@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -17,7 +18,7 @@ import tempfile
 import time
 import uuid
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from functools import partial
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,7 @@ from sqlmodel import SQLModel, create_engine, select
 import core.loop as loop
 import database
 from core.edits import is_test_path
+from core.scout import handover, run_scout, tried_summary
 from core.token_sources import merge
 from providers.base import calculate_cost
 from core.verifier import _verify_env, failing_tests, run_verify
@@ -166,7 +168,10 @@ async def run_loop_arm(
     task: BenchTask, repo: Path, model: str, budget: float, result: RunResult, add_tests: bool = False,
     allow_test_changes: bool = True, retry_context: str = "fresh", **trims,
 ):
-    """Run our agent the way POST /sessions does. trims: run_loop's token-trimming options."""
+    """Run our agent the way POST /sessions does. trims: run_loop's token-trimming options.
+
+    Returns what the last attempt left behind (its test output, failing and broken tests, and its own last words),
+    for a handover to another model."""
     session_id = str(uuid.uuid4())
     with db_session() as db:
         db.add(Session(
@@ -205,6 +210,7 @@ async def run_loop_arm(
             [] if a.status == "passed" else sorted(failing_tests(a.verify_output or "")) or [f"(unrecognised) {(a.verify_output or '')[-200:]}"]
             for a in attempts
         ]
+        last_output = attempts[-1].verify_output or "" if attempts else ""
 
     for kind, data in kinds:
         if kind == "usage":
@@ -233,6 +239,8 @@ async def run_loop_arm(
     result.tool_result_chars = sum(t["result_chars"] for t in tools)
     event_tokens = result.input_tokens + result.output_tokens + result.cache_read_tokens + result.cache_write_tokens
     result.usage_matches = event_tokens == recorded_tokens and abs(result.cost_usd - recorded_cost) < 1e-9
+    checked = [data for kind, data in kinds if kind == "attempt_checked"]
+    return {"verify_output": last_output, **(checked[-1] if checked else {"failing": [], "broken": [], "final_text": ""})}
 
 
 def apply_claude_output(stdout: str, result: RunResult, verify: str = ""):
@@ -311,6 +319,94 @@ async def run_claude_code_arm(task: BenchTask, repo: Path, model: str, budget: f
     apply_claude_output(stdout.decode(errors="replace"), result, task.verify)
 
 
+CHEAP_MODEL = "claude-haiku-5-5"
+# The lean arm's settings, shared by the arms that compare against it
+LEAN = dict(retry_context="continue", max_only_old_failures=1, short_output=True, reviewer_effort="low",
+            max_listed_files=100)
+SCOUT_BUDGET_USD = 0.10
+_HUNK_CONTEXT = re.compile(r"^@@ [^@]* @@.*?\b(?:def|class)\s+(\w+)", re.M)
+
+
+def changed_functions(diff: str) -> dict[str, list[str]]:
+    """file -> the functions or classes git names in its hunk headers."""
+    changed = {}
+    for block in re.split(r"^diff --git ", diff, flags=re.M)[1:]:
+        path = re.match(r"a/(\S+)", block).group(1)
+        changed[path] = list(dict.fromkeys(_HUNK_CONTEXT.findall(block)))
+    return changed
+
+
+def _add_usage(total: RunResult, part: RunResult, label: str):
+    for field in ("cost_usd", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "attempts"):
+        setattr(total, field, getattr(total, field) + getattr(part, field))
+    total.tool_calls = (total.tool_calls or 0) + (part.tool_calls or 0)
+    total.tool_result_chars = (total.tool_result_chars or 0) + (part.tool_result_chars or 0)
+    total.token_sources = {**(total.token_sources or {}),
+                           **{f"{label}: {k}": v for k, v in (part.token_sources or {}).items()}}
+
+
+async def _scout(task: BenchTask, repo: Path, result: RunResult) -> str:
+    notes, scouted = await run_scout(task.prompt, str(repo), CHEAP_MODEL, SCOUT_BUDGET_USD)
+    result.cost_usd += scouted.cost_usd
+    result.input_tokens += scouted.input_tokens
+    result.output_tokens += scouted.output_tokens
+    result.tool_calls = (result.tool_calls or 0) + len(scouted.actions)
+    result.token_sources = {**(result.token_sources or {}), "scout": {
+        "written": scouted.input_tokens, "read": 0.0, "output": scouted.output_tokens, "cost_usd": scouted.cost_usd}}
+    return notes
+
+
+async def run_cheap_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult):
+    """lean on the cheap model, whatever --model says."""
+    result.model = CHEAP_MODEL
+    await run_loop_arm(task, repo, CHEAP_MODEL, budget, result, **LEAN)
+
+
+async def run_scout_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult):
+    """The cheap model scouts, then the main model fixes the bug with its notes."""
+    notes = await _scout(task, repo, result)
+    solver = RunResult(task=result.task, arm=result.arm, model=model, repeat=result.repeat)
+    await run_loop_arm(replace(task, prompt=handover(task.prompt, notes)), repo, model, budget - result.cost_usd,
+                       solver, **LEAN)
+    _add_usage(result, solver, "solver")
+    result.agent_status, result.note, result.attempt_failures = solver.agent_status, solver.note, solver.attempt_failures
+
+
+def accepted(run: RunResult) -> bool:
+    """Whether the cheap attempt counts as done. With failure attribution, a run stopped because only tests that
+    failed before any change still fail is done too: a stronger model can't fix what was broken before."""
+    return run.agent_status == "passed" or "already failing before any change" in run.note
+
+
+async def run_cascade_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult,
+                          tell_tried: bool = False):
+    """The cheap model scouts and tries the fix with its notes. If that doesn't count as done, its changes are undone
+    and the main model starts over with the notes, plus what the attempt tried and what happened if tell_tried."""
+    base = _git(repo, "rev-parse", "HEAD")
+    notes = await _scout(task, repo, result)
+    cheap = RunResult(task=result.task, arm=result.arm, model=CHEAP_MODEL, repeat=result.repeat)
+    left = await run_loop_arm(replace(task, prompt=handover(task.prompt, notes)), repo, CHEAP_MODEL,
+                              budget - result.cost_usd, cheap, **LEAN)
+    _add_usage(result, cheap, "cheap")
+    if accepted(cheap):
+        result.agent_status, result.attempt_failures = cheap.agent_status, cheap.attempt_failures
+        result.note = f"Solved by {CHEAP_MODEL}. {cheap.note}".strip()
+        return
+    tried = None
+    if tell_tried:
+        _git(repo, "add", "-A")
+        tried = tried_summary(changed_functions(_git(repo, "diff", "--cached", base, strip=False)), left["failing"],
+                              left["broken"], left["verify_output"], left["final_text"])
+    _git(repo, "reset", "--hard", base)
+    _git(repo, "clean", "-fdq")
+    strong = RunResult(task=result.task, arm=result.arm, model=model, repeat=result.repeat)
+    await run_loop_arm(replace(task, prompt=handover(task.prompt, notes, tried)), repo, model,
+                       budget - result.cost_usd, strong, **LEAN)
+    _add_usage(result, strong, "escalated")
+    result.agent_status, result.attempt_failures = strong.agent_status, strong.attempt_failures
+    result.note = f"Escalated to {model} after {CHEAP_MODEL}: {cheap.agent_status} ({cheap.note or 'no note'}). {strong.note}".strip()
+
+
 ARMS = {
     "loop": run_loop_arm,
     "loop-locked": partial(run_loop_arm, allow_test_changes=False),  # existing tests can't change at all
@@ -324,11 +420,17 @@ ARMS = {
     "loop-slim": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1, short_output=True,
                          max_old_failure_names=10),
     # The trims plus low-effort reviewers and a shorter file list
-    "loop-lean": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1, short_output=True,
-                         reviewer_effort="low", max_listed_files=100),
+    "loop-lean": partial(run_loop_arm, **LEAN),
     # lean without failure attribution: the ablation for the research question
-    "loop-lean-noattr": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1, short_output=True,
-                                reviewer_effort="low", max_listed_files=100, attribute_failures=False),
+    "loop-lean-noattr": partial(run_loop_arm, **LEAN, attribute_failures=False),
+    # lean without the repo map and likely places in the guide: is the map worth anything?
+    "loop-lean-nomap": partial(run_loop_arm, **LEAN, map_in_prompt=False),
+    # The cheap model first (see core/scout.py): alone, as a scout for the main model, and as a cascade that hands
+    # the main model the scout's notes, or the notes plus what the cheap attempt tried
+    "cheap-lean": run_cheap_arm,
+    "scout-lean": run_scout_arm,
+    "cascade-notes": run_cascade_arm,
+    "cascade-tried": partial(run_cascade_arm, tell_tried=True),
     # Security agents beside the coder (see core/security.py)
     "loop-pair": partial(run_loop_arm, retry_context="continue", security_pair=True),
     "loop-audit": partial(run_loop_arm, retry_context="continue", security_audit=True),

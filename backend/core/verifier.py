@@ -10,13 +10,16 @@ _SECRET_ENV = re.compile(r".*(_API_KEY|_SECRET|_TOKEN|_PASSWORD)|DATABASE_URL|RE
 
 
 # pytest -rA ("FAILED a.py::test_x - ...", or "ERROR a.py" when collecting fails), unittest/Django
-# ("FAIL: test_x (mod.Class)"), and SymPy's bin/test ("____ sympy/a.py:test_x ____")
-_FAILING_TEST = re.compile(r"^(?:(?:FAILED|ERROR) (\S+\.py\S*)|(?:FAIL|ERROR): (\w+ \([\w.]+\))|_{3,} (\S+\.py:\w+) _{3,})", re.M)
+# ("FAIL: test_x (mod.Class)"), and SymPy's bin/test ("____ sympy/a.py:test_x ____", down to two underscores
+# around a long name)
+_FAILING_TEST = re.compile(r"^(?:(?:FAILED|ERROR) (\S+\.py\S*)|(?:FAIL|ERROR): (\w+ \([\w.]+\))|_{2,} (\S+\.py:\w+) _{2,})", re.M)
+# Colour codes, which pytest prints when it runs under tox or with --color=yes
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def failing_tests(output: str) -> set[str]:
     """Names of the failing tests in a test run's output. Empty when the format isn't recognised."""
-    return {next(g for g in m.groups() if g) for m in _FAILING_TEST.finditer(output)}
+    return {next(g for g in m.groups() if g) for m in _FAILING_TEST.finditer(_ANSI.sub("", output))}
 
 
 @dataclass

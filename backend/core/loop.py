@@ -12,7 +12,7 @@ from sqlmodel import select
 from models import Session, SessionEvent, Task, Iteration, UsageEvent
 from database import get_session as db_session
 from core.agent import run_agent, AgentResult, FileEdit, parse_file_blocks
-from core.edits import apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
+from core.edits import apply_edits, describe_change, filter_edits, is_locked_path, is_secret_path, is_test_path, read_current, resolve_in_repo
 from core.repo_map import build_repo_map, locate_issue, map_for_prompt
 from core.security import (AUDIT_SYSTEM_PROMPT, PAIR_SYSTEM_PROMPT, AuditCache, audit_prompt, files_to_audit,
                            findings_for, findings_guide, pair_prompt, parse_findings, parse_verdict)
@@ -55,6 +55,9 @@ MAX_RECORD_TESTS = 15
 def build_file_context(files: list[str], repo_path: str) -> str:
     parts = []
     for rel_path in files:
+        if is_secret_path(rel_path):
+            parts.append(f"### {rel_path}\n(holds credentials, not read)")
+            continue
         try:
             content = open(resolve_in_repo(repo_path, rel_path)).read()
             parts.append(f"### {rel_path}\n```\n{content}\n```")
@@ -309,7 +312,7 @@ async def run_loop(
         findings: list[dict] = []
         if security_audit:
             audited = files_to_audit(focus, repo_map["edges"], is_test_path) if use_map else [f for f in files if not is_test_path(f)]
-            contents = {p: c for p in audited if (c := read_current(repo_path, p))}
+            contents = {p: c for p in audited if not is_secret_path(p) and (c := read_current(repo_path, p))}
             cache = AuditCache(audit_cache, model) if audit_cache else None
             known = {p: found for p, c in contents.items() if cache and (found := cache.get(p, c)) is not None}
             todo = {p: c for p, c in contents.items() if p not in known}
@@ -330,8 +333,8 @@ async def run_loop(
         if write_tests_first:
             code_paths = files_to_audit(focus, repo_map["edges"], is_test_path) if use_map else [f for f in files if not is_test_path(f)]
             test_paths = [n["path"] for n in repo_map["nodes"] if n["is_test"]] if use_map else []
-            code = {p: c for p in code_paths if (c := read_current(repo_path, p))}
-            existing_tests = {p: c for p in test_paths if (c := read_current(repo_path, p))}
+            code = {p: c for p in code_paths if not is_secret_path(p) and (c := read_current(repo_path, p))}
+            existing_tests = {p: c for p in test_paths if not is_secret_path(p) and (c := read_current(repo_path, p))}
             written, problems, approved = {}, None, False
             for _ in range(2):  # one rewrite if the reviewer sends the tests back
                 reply = await ask(TESTER_SYSTEM_PROMPT, tester_prompt(spec, code, existing_tests, problems), "tester")

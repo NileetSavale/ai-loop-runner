@@ -413,3 +413,22 @@ def test_list_files_can_be_capped(tmp_path):
         (tmp_path / f"f{i}.py").write_text("")
     listed, _ = asyncio.run(RepoTools(str(tmp_path), "true", max_listed_files=2).run("list_files", {}))
     assert listed.splitlines()[:2] == ["f0.py", "f1.py"] and "showing 2 of 5 files" in listed
+
+
+def test_agents_never_see_files_holding_credentials(tmp_path):
+    import asyncio
+    from core.edits import is_secret_path
+    from core.tools import RepoTools
+    (tmp_path / ".env").write_text("STRIPE_KEY=sk_live_123\n")
+    (tmp_path / ".env.example").write_text("STRIPE_KEY=\n")
+    (tmp_path / "app.py").write_text("STRIPE_KEY = os.environ['STRIPE_KEY']\n")
+    tools = RepoTools(str(tmp_path), "true")
+    for name, args in (("read_file", {"path": ".env"}), ("write_file", {"path": "web/.env.local", "content": "x"})):
+        result, is_error = asyncio.run(tools.run(name, args))
+        assert is_error and "holds credentials" in result
+    found, _ = asyncio.run(tools.run("search_code", {"query": "STRIPE_KEY"}))
+    assert "sk_live_123" not in found and "app.py" in found and ".env.example" in found
+    listed, _ = asyncio.run(tools.run("list_files", {}))
+    assert ".env\n" not in listed + "\n" and ".env.example" in listed
+    assert all(is_secret_path(p) for p in ("api/.env", "certs/server.pem", "id_rsa", ".env.production"))
+    assert not any(is_secret_path(p) for p in ("lib/secret-auth.ts", ".env.example", "environment.ts", "keys.ts"))

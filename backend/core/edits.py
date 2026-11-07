@@ -29,6 +29,17 @@ def resolve_in_repo(repo_path: str, rel_path: str) -> str:
     return path
 
 
+# Files holding real credentials. Agents never read, write or search them, since their contents would go to the model
+# provider. Templates (.env.example and the like) hold no secrets and stay readable.
+_SECRET_FILES = re.compile(r"\.env(\..+)?|.*\.(pem|key|p12|pfx|keystore|jks)|id_(rsa|ed25519|ecdsa|dsa)(\.pub)?|\.netrc|\.npmrc|\.pypirc|credentials(\.json)?", re.IGNORECASE)
+_SECRET_TEMPLATES = re.compile(r".*\.(example|sample|template|dist)", re.IGNORECASE)
+
+
+def is_secret_path(rel_path: str) -> bool:
+    name = rel_path.replace(os.sep, "/").split("/")[-1]
+    return bool(_SECRET_FILES.fullmatch(name)) and not _SECRET_TEMPLATES.fullmatch(name)
+
+
 def is_test_path(rel_path: str) -> bool:
     *dirs, name = rel_path.replace(os.sep, "/").split("/")
     return any(d.lower() in _TEST_DIRS for d in dirs) or bool(_TEST_FILES.fullmatch(name))

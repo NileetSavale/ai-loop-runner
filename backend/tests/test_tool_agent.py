@@ -404,3 +404,12 @@ def test_continuing_a_conversation_adds_to_it_without_two_user_turns_in_a_row(tm
     assert len(sent) == 3 and sent[-1]["content"][-1] == {"type": "text", "text": "tests fail"}
     assert history[-1]["content"][-1]["type"] == "tool_result"  # the caller's list isn't changed
     assert result.messages[-1]["role"] == "assistant" and result.final_text == "done"
+
+
+def test_list_files_can_be_capped(tmp_path):
+    import asyncio
+    from core.tools import RepoTools
+    for i in range(5):
+        (tmp_path / f"f{i}.py").write_text("")
+    listed, _ = asyncio.run(RepoTools(str(tmp_path), "true", max_listed_files=2).run("list_files", {}))
+    assert listed.splitlines()[:2] == ["f0.py", "f1.py"] and "showing 2 of 5 files" in listed

@@ -74,8 +74,10 @@ class ToolError(Exception):
 
 class RepoTools:
     def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None, review_test_change=None,
-                 short_output: bool = False, old_failures: set[str] = frozenset(), review_changes=None):
+                 short_output: bool = False, old_failures: set[str] = frozenset(), review_changes=None,
+                 max_listed_files: int = MAX_LISTED_FILES):
         self.repo_path = repo_path
+        self.max_listed_files = max_listed_files
         # async (changed paths) -> problems. A security reviewer that sees the changes each time the tests run.
         self.review_changes = review_changes
         # Return failing names and the end of the output instead of up to MAX_TEST_OUTPUT_CHARS of it
@@ -115,8 +117,9 @@ class RepoTools:
         for folder, dirs, files in os.walk(root):
             dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRS)
             found += [os.path.relpath(os.path.join(folder, f), root) for f in sorted(files)]
-        note = f"\n(showing {MAX_LISTED_FILES} of {len(found)} files)" if len(found) > MAX_LISTED_FILES else ""
-        return "\n".join(found[:MAX_LISTED_FILES]) + note
+        limit = self.max_listed_files
+        note = f"\n(showing {limit} of {len(found)} files. Use search_code to find others.)" if len(found) > limit else ""
+        return "\n".join(found[:limit]) + note
 
     async def _read_file(self, path: str, start_line: int = 1, end_line: int | None = None) -> str:
         full_path = resolve_in_repo(self.repo_path, path)

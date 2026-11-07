@@ -4,7 +4,8 @@ from .base import LLMProvider, LLMResult, MAX_OUTPUT_TOKENS, TokenCallback
 
 
 class GeminiProvider(LLMProvider):
-    async def complete(self, system: str, prompt: str, model: str, on_token: TokenCallback = None) -> LLMResult:
+    async def complete(self, system: str, prompt: str, model: str, on_token: TokenCallback = None,
+                       effort: str | None = None) -> LLMResult:
         client = genai.Client(api_key=self.api_key)
         full_text = ""
         input_tokens = output_tokens = 0

@@ -59,7 +59,9 @@ class LLMProvider(ABC):
         prompt: str,
         model: str,
         on_token: TokenCallback = None,
-    ) -> LLMResult: ...
+        effort: str | None = None,
+    ) -> LLMResult:
+        """effort: how hard the model thinks ("low" to "max"), where the provider supports it. None keeps its default."""
 
 
 # Pricing per million tokens — update as providers change rates

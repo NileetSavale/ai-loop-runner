@@ -29,6 +29,8 @@ MAX_IDENTICAL_FAILURES = 3
 # Attempts in a row where every failing test was already failing before any change. On a repo with an unrelated
 # broken test, retrying can't make the run green, and it once spent $1.51 trying.
 MAX_ONLY_OLD_FAILURES = 2
+# Attempts in a row that changed nothing. Once the agent stops editing, more attempts only add cost.
+MAX_NO_EDIT_ATTEMPTS = 2
 MIN_MUTATION_SCORE = float(os.getenv("MIN_MUTATION_SCORE", "0.7"))
 MAX_BASELINE_OUTPUT_CHARS = 1_500
 
@@ -156,6 +158,7 @@ async def run_loop(
     last_failure: str | None = None
     identical_failures = 0
     only_old_failures = 0
+    no_edit_attempts = 0
     cost_limit = MAX_SESSION_COST_USD if max_cost_usd is None else max_cost_usd
     added_tests: set[str] = set()
     touched: set[str] = set()
@@ -180,6 +183,7 @@ async def run_loop(
 
         # When the task is to make failing tests pass, those failures are the job, not someone else's breakage
         old_failures = failing_tests(baseline.output) if baseline and not baseline.passed and not require_failing else set()
+        baseline_failures = failing_tests(baseline.output) if baseline and not baseline.passed else set()
 
         if use_map:
             # No LLM here: this costs time, not tokens, and it's what saves them later
@@ -222,9 +226,18 @@ async def run_loop(
             if agent_result.truncated:
                 rejected.append("Your reply hit the output limit, so any unfinished file was dropped. Change fewer or smaller files.")
 
-            # No change means nothing to verify. Already-green tests must not count as this attempt passing.
+            no_edit_attempts = 0 if changed else no_edit_attempts + 1
+            # No change can't make this attempt pass: already-green tests prove nothing new
             if changed:
                 verify_result = await run_verify(verify_command, repo_path)
+            elif touched:
+                # Earlier changes are still in place, so the agent needs to know what they still break
+                current = await run_verify(verify_command, repo_path)
+                verify_result = VerifyResult(
+                    passed=False,
+                    output=f"You made no changes in this attempt. With your earlier changes, the tests give:\n{current.output}",
+                    exit_code=current.exit_code if not current.passed else -1,
+                )
             else:
                 verify_result = VerifyResult(
                     passed=False,
@@ -252,8 +265,16 @@ async def run_loop(
                         f"\n\nEvery test still failing was already failing before your changes: {names}. "
                         "Leave them alone unless the task is about them."
                     )
+                broken = failing - baseline_failures if baseline else set()
+                if broken:
+                    last_verify_output += (
+                        f"\n\nThese tests passed before your changes and fail now, so your changes broke them: "
+                        f"{', '.join(sorted(broken))}."
+                    )
                 if total_cost >= cost_limit:
                     stop_reason = f"Stopped: spent ${total_cost:.2f}, over the ${cost_limit:.2f} session limit."
+                elif no_edit_attempts >= MAX_NO_EDIT_ATTEMPTS:
+                    stop_reason = f"Stopped: {no_edit_attempts} attempts in a row made no changes."
                 elif only_old_failures >= MAX_ONLY_OLD_FAILURES:
                     stop_reason = f"Stopped: the only failing tests were already failing before any change ({', '.join(sorted(failing))})."
                 elif identical_failures >= MAX_IDENTICAL_FAILURES:

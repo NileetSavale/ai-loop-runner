@@ -66,6 +66,8 @@ TOOL_SCHEMAS = [
     ),
 ]
 _REQUIRED = {t["name"]: t["input_schema"]["required"] for t in TOOL_SCHEMAS}
+# All a read-only agent (the scout in core/scout.py) is offered or allowed to run
+READ_ONLY_TOOLS = ("list_files", "read_file", "search_code")
 _OPTIONAL_LINES = {"read_file": ("start_line", "end_line")}
 
 
@@ -76,8 +78,9 @@ class ToolError(Exception):
 class RepoTools:
     def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None, review_test_change=None,
                  short_output: bool = False, old_failures: set[str] = frozenset(), review_changes=None,
-                 max_listed_files: int = MAX_LISTED_FILES, sandbox: Sandbox | None = None):
+                 max_listed_files: int = MAX_LISTED_FILES, sandbox: Sandbox | None = None, read_only: bool = False):
         self.repo_path = repo_path
+        self.read_only = read_only
         self.sandbox = sandbox
         self.max_listed_files = max_listed_files
         # async (changed paths) -> problems. A security reviewer that sees the changes each time the tests run.
@@ -96,6 +99,8 @@ class RepoTools:
         """Returns (result, is_error). Errors go back to the model rather than ending the run."""
         if name not in _REQUIRED:
             return f"Unknown tool: {name}", True
+        if self.read_only and name not in READ_ONLY_TOOLS:
+            return f"{name} isn't available: this agent can only read the repo.", True
         # Model output is untrusted, including its arguments
         bad = [k for k in _REQUIRED[name] if not isinstance(args.get(k), str)]
         if bad:

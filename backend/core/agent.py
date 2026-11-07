@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass, field
 from core.edits import FileEdit, resolve_in_repo  # noqa: F401 (resolve_in_repo is imported from here elsewhere)
 from core.token_sources import EARLIER_REPLIES, SYSTEM, merge_sizes, prompt_sources, reply_sources, turn_sources
-from core.tools import TOOL_SCHEMAS, RepoTools
+from core.tools import READ_ONLY_TOOLS, TOOL_SCHEMAS, RepoTools
 from providers.base import TokenCallback, calculate_cost
 from providers.router import get_provider
 
@@ -99,11 +99,14 @@ async def run_agent(
     on_event=None,
     add_tests: bool = False,
     history: list | None = None,
+    system_prompt: str | None = None,
 ) -> AgentResult:
-    """history: an earlier attempt's conversation to continue, with prompt added as the next user message."""
+    """history: an earlier attempt's conversation to continue, with prompt added as the next user message.
+    system_prompt: replaces the coder's, for agents with another job (the scout)."""
     provider = get_provider(model, user_api_key)
     if tools and provider.supports_tools:
-        return await _run_tool_agent(provider, prompt, model, tools, on_token, max_cost_usd, on_event, add_tests, history)
+        return await _run_tool_agent(provider, prompt, model, tools, on_token, max_cost_usd, on_event, add_tests, history,
+                                     system_prompt)
     result = await provider.complete(_with_tests_rule(SYSTEM_PROMPT, add_tests), prompt, model, on_token)
     cost = calculate_cost(model, result.input_tokens, result.output_tokens)
     if on_event:
@@ -137,7 +140,7 @@ def _add_user_text(messages: list, text: str) -> list:
     return messages
 
 
-async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, on_token, max_cost_usd: float, on_event=None, add_tests: bool = False, history: list | None = None) -> AgentResult:
+async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, on_token, max_cost_usd: float, on_event=None, add_tests: bool = False, history: list | None = None, system_prompt: str | None = None) -> AgentResult:
     """The agent loop: the model picks an action, our code runs it, the model sees the result."""
     messages = _add_user_text(history or [], prompt)
     transcript, notes, actions, final_text = "", [], [], ""
@@ -145,9 +148,11 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
     cost = 0.0
     tools.changed = []
     reviewed = tools.review_test_change is not None
-    system = _with_tests_rule(TOOL_SYSTEM_PROMPT, add_tests).replace(
+    system = system_prompt or _with_tests_rule(TOOL_SYSTEM_PROMPT, add_tests).replace(
         "{test_change_rule}", _TEST_CHANGES_REVIEWED if reviewed else _TEST_CHANGES_LOCKED)
     schemas = TOOL_SCHEMAS if reviewed else [t for t in TOOL_SCHEMAS if t["name"] != "change_existing_test"]
+    if tools.read_only:
+        schemas = [t for t in TOOL_SCHEMAS if t["name"] in READ_ONLY_TOOLS]
     # What each request is made of, so spend can be traced to its source (see core/token_sources.py)
     sent = {SYSTEM: len(system) + len(json.dumps(schemas))}
     if history:

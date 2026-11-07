@@ -291,6 +291,30 @@ sent before, output to the reply. The total matches the API.
 - Next: three trims, each tested on top of the previous (dbca34b): stop after 1 attempt with only old failures, short
   test output, and a slim list of old failures in the guide.
 
+**Literature check: tests written from the issue as the stop signal (agent-gathered; details in
+`issue_derived_tests_litcheck.md`; numbers not yet checked by us)**
+- Writing reproduction tests from issues is an established area: SWT-Bench (NeurIPS 2024), TDD-Bench Verified, Otter
+  (ICML 2025), Issue2Test, and newer agents reported at 63–82% valid tests (e-Otter++, ReProAgent, DPIAgent).
+  - Caution, SWEPatchTest (Oct 2026): 59% of generated tests reproduce the bug, but only 9.2% also accept correct
+    patches and reject wrong ones.
+- **Tests as the loop's stop signal is partly covered:**
+  - SpecRover (ICSE 2025) loops until a reviewer approves the patch against a reproduction test plus regression tests.
+    Its reviewer was right about 50% of the time.
+  - ExecCritic (Sep 2026) repairs against frozen tests from a separate test agent.
+  - TDFlow says accurate reproduction tests are the bottleneck.
+- **Appears open:**
+  - Telling apart failures that existed before any change, or tests pinning old behaviour, from failures the agent
+    caused.
+  - Measuring how many retries are false alarms.
+- SWE-bench's own tests:
+  - Too weak (they accept wrong fixes): UTBoost, PatchDiff, SWE-ABS.
+  - Too strict (they reject correct fixes, our 17% case): an OpenAI audit (Feb 2026) reportedly found 59.4% of
+    audited tasks reject correct fixes. Seen second-hand via Epoch AI, so verify before citing.
+- What would make our work new:
+  - Measure the false alarms.
+  - Compare our stop rules with SpecRover's at the same budget.
+  - Show the stop rule still works with generated tests that weren't checked against the official fix.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import uuid
 from datetime import datetime
 from typing import Callable, Awaitable
@@ -36,6 +37,15 @@ MAX_ONLY_OLD_FAILURES = 2
 MAX_NO_EDIT_ATTEMPTS = 2
 MIN_MUTATION_SCORE = float(os.getenv("MIN_MUTATION_SCORE", "0.7"))
 MAX_BASELINE_OUTPUT_CHARS = 1_500
+# How a retry learns about earlier attempts:
+#   fresh     a new conversation with the task, the last test output and the full files it changed
+#   continue  the same conversation, with the test output added as the next message
+#   record    a new conversation with the diff so far and a short record of each earlier attempt
+RETRY_CONTEXTS = ("fresh", "continue", "record")
+MAX_DIFF_CHARS = 8_000
+MAX_RECORD_ACTIONS = 20
+MAX_RECORD_SUMMARY_CHARS = 600
+MAX_RECORD_TESTS = 15
 
 
 def build_file_context(files: list[str], repo_path: str) -> str:
@@ -49,6 +59,56 @@ def build_file_context(files: list[str], repo_path: str) -> str:
         except ValueError:
             parts.append(f"### {rel_path}\n(outside the repo, not read)")
     return "\n\n".join(parts)
+
+
+def diff_so_far(repo_path: str, paths: list[str]) -> str:
+    """The agent's changes against the last commit, with new files in full."""
+    if not paths:
+        return ""
+    git = lambda *args: subprocess.run(["git", *args], cwd=repo_path, capture_output=True, text=True).stdout
+    diff = git("diff", "HEAD", "--", *paths)
+    for path in git("ls-files", "--others", "--exclude-standard", "--", *paths).split():
+        try:
+            diff += f"\n(new file) {path}\n{open(resolve_in_repo(repo_path, path)).read()}"
+        except (OSError, ValueError):
+            pass
+    if len(diff) > MAX_DIFF_CHARS:
+        diff = diff[:MAX_DIFF_CHARS] + "\n(diff cut here; read the files for the rest)"
+    return diff
+
+
+def attempt_record(iteration: int, result: AgentResult, changed: list[str], failing: set[str], broken: set[str]) -> str:
+    """A few lines on what one attempt did, so a fresh retry knows what was already tried."""
+    looked = list(dict.fromkeys(a for a in result.actions if not a.startswith(("edit_file", "write_file"))))
+    lines = [f"### Attempt {iteration}"]
+    lines.append(f"Looked at: {', '.join(looked[:MAX_RECORD_ACTIONS]) or 'nothing'}"
+                 + (f" and {len(looked) - MAX_RECORD_ACTIONS} more" if len(looked) > MAX_RECORD_ACTIONS else ""))
+    lines.append(f"Changed: {', '.join(changed) or 'nothing'}")
+    if result.final_text.strip():
+        lines.append(f"Its summary when it stopped: {result.final_text.strip()[-MAX_RECORD_SUMMARY_CHARS:]}")
+    names = sorted(failing)
+    lines.append(f"Tests failing after it: {', '.join(names[:MAX_RECORD_TESTS]) or 'none could be read from the output'}"
+                 + (f" and {len(names) - MAX_RECORD_TESTS} more" if len(names) > MAX_RECORD_TESTS else ""))
+    if broken:
+        lines.append(f"Of those, passing before any change: {', '.join(sorted(broken)[:MAX_RECORD_TESTS])}")
+    return "\n".join(lines)
+
+
+def record_guide(records: list[str], diff: str) -> str:
+    parts = ["## What earlier attempts did\n" + "\n\n".join(records)]
+    if diff:
+        parts.append(
+            "## Your changes so far\nThese are in the files now. Build on them, or undo the parts that don't help.\n"
+            f"```diff\n{diff}\n```"
+        )
+    return "".join(f"{p}\n\n" for p in parts)
+
+
+def continue_prompt(iteration: int, last_verify_output: str | None) -> str:
+    return (
+        f"> attempt #{iteration}. You stopped, and the system ran the tests: they still fail. Your changes are still in "
+        f"place. Fix the errors below.\n\n```\n{last_verify_output or ''}\n```"
+    )
 
 
 def build_prompt(spec: str, context: str, iteration: int, last_verify_output: str | None = None, guide: str = "") -> str:
@@ -141,7 +201,10 @@ async def run_loop(
     use_map: bool = False,
     add_tests: bool = False,
     allow_test_changes: bool = True,
+    retry_context: str = "fresh",
 ):
+    if retry_context not in RETRY_CONTEXTS:
+        raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
     with db_session() as db:
         session = db.get(Session, session_id)
@@ -167,6 +230,8 @@ async def run_loop(
     added_tests: set[str] = set()
     touched: set[str] = set()
     guide = ""
+    history: list | None = None  # the last attempt's conversation, for retry_context="continue"
+    records: list[str] = []      # what each attempt did, for retry_context="record"
 
     async def emit(kind: str, data: dict):
         """Save what happened and send it to the website. The id lets the page merge saved and live events."""
@@ -224,8 +289,15 @@ async def run_loop(
                 break
 
             # Files this session created have to be visible, or retries can't build on them
-            context = build_file_context(files + sorted(touched - set(files)), repo_path)
-            prompt = build_prompt(spec, context, iteration, last_verify_output, guide)
+            if retry_context == "continue" and history:
+                prompt = continue_prompt(iteration, last_verify_output)
+            elif retry_context == "record" and records:
+                # The changed files come as a diff, and the agent reads more if it needs to
+                prompt = build_prompt(spec, build_file_context(files, repo_path), iteration, last_verify_output,
+                                      guide + record_guide(records, diff_so_far(repo_path, sorted(touched))))
+            else:
+                context = build_file_context(files + sorted(touched - set(files)), repo_path)
+                prompt = build_prompt(spec, context, iteration, last_verify_output, guide)
 
             await broadcast_fn({"event": "iteration_start", "data": {"iteration": iteration}})
 
@@ -240,7 +312,9 @@ async def run_loop(
                 max_cost_usd=cost_limit - total_cost,
                 on_event=emit,
                 add_tests=add_tests,
+                history=history if retry_context == "continue" else None,
             )
+            history = agent_result.messages or None
             # The reviewer's spend belongs to this attempt, so limits and records include it
             agent_result.cost_usd += review_spend["cost_usd"]
             agent_result.input_tokens += review_spend["input_tokens"]
@@ -298,6 +372,8 @@ async def run_loop(
                         "Leave them alone unless the task is about them."
                     )
                 broken = failing - baseline_failures if baseline else set()
+                if retry_context == "record":
+                    records.append(attempt_record(iteration, agent_result, changed, failing, broken))
                 if broken:
                     last_verify_output += (
                         f"\n\nThese tests passed before your changes and fail now, so your changes broke them: "
@@ -418,9 +494,11 @@ def start_loop(
     use_map: bool = True,
     add_tests: bool = False,
     allow_test_changes: bool = True,
+    retry_context: str = "fresh",
 ):
     task = asyncio.create_task(run_loop(
         session_id, broadcast_fn, user_api_key, require_failing, max_cost_usd, use_map, add_tests, allow_test_changes,
+        retry_context,
     ))
     _running[session_id] = task
     return task

@@ -77,6 +77,9 @@ class AgentResult:
     truncated: bool = False
     applied: list[str] = field(default_factory=list)  # files a tool agent already wrote
     notes: list[str] = field(default_factory=list)    # why a tool agent stopped early
+    messages: list = field(default_factory=list)      # the conversation, so a retry can continue it
+    actions: list[str] = field(default_factory=list)  # each tool call, as "name target"
+    final_text: str = ""                              # what the agent said when it stopped
 
 
 def parse_file_blocks(text: str) -> list[FileEdit]:
@@ -95,10 +98,12 @@ async def run_agent(
     max_cost_usd: float = float("inf"),
     on_event=None,
     add_tests: bool = False,
+    history: list | None = None,
 ) -> AgentResult:
+    """history: an earlier attempt's conversation to continue, with prompt added as the next user message."""
     provider = get_provider(model, user_api_key)
     if tools and provider.supports_tools:
-        return await _run_tool_agent(provider, prompt, model, tools, on_token, max_cost_usd, on_event, add_tests)
+        return await _run_tool_agent(provider, prompt, model, tools, on_token, max_cost_usd, on_event, add_tests, history)
     result = await provider.complete(_with_tests_rule(SYSTEM_PROMPT, add_tests), prompt, model, on_token)
     cost = calculate_cost(model, result.input_tokens, result.output_tokens)
     if on_event:
@@ -120,10 +125,22 @@ async def run_agent(
     )
 
 
-async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, on_token, max_cost_usd: float, on_event=None, add_tests: bool = False) -> AgentResult:
+def _add_user_text(messages: list, text: str) -> list:
+    """Add text as the next user turn. An attempt can end on tool results, and two user turns in a row aren't allowed."""
+    messages = list(messages)
+    if messages and messages[-1]["role"] == "user":
+        content = messages[-1]["content"]
+        blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+        messages[-1] = {**messages[-1], "content": [*blocks, {"type": "text", "text": text}]}
+    else:
+        messages.append({"role": "user", "content": text})
+    return messages
+
+
+async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, on_token, max_cost_usd: float, on_event=None, add_tests: bool = False, history: list | None = None) -> AgentResult:
     """The agent loop: the model picks an action, our code runs it, the model sees the result."""
-    messages = [{"role": "user", "content": prompt}]
-    transcript, notes = "", []
+    messages = _add_user_text(history or [], prompt)
+    transcript, notes, actions, final_text = "", [], [], ""
     input_tokens = output_tokens = 0
     cost = 0.0
     tools.changed = []
@@ -133,6 +150,8 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
     schemas = TOOL_SCHEMAS if reviewed else [t for t in TOOL_SCHEMAS if t["name"] != "change_existing_test"]
     # What each request is made of, so spend can be traced to its source (see core/token_sources.py)
     sent = {SYSTEM: len(system) + len(json.dumps(schemas))}
+    if history:
+        sent["earlier attempts, resent"] = len(json.dumps(history, default=str))
     new = prompt_sources(prompt)
 
     async def show(text: str):
@@ -172,7 +191,10 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
         if turn.stop_reason == "max_tokens":
             notes.append("Your last reply hit the output limit and its actions were not run. Make smaller changes.")
             break
+        final_text = turn.text or final_text
         if not turn.tool_calls:
+            if turn.assistant_message.get("content") if isinstance(turn.assistant_message, dict) else turn.assistant_message:
+                messages.append(turn.assistant_message)  # so a retry that continues sees how this attempt ended
             break
         if cost >= max_cost_usd:
             notes.append(f"You stopped because this attempt reached its ${max_cost_usd:.2f} budget.")
@@ -182,6 +204,7 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
         for call in turn.tool_calls:
             target = call.input.get("path") or call.input.get("query") or ""
             await show(f"\n> {call.name} {target}\n")
+            actions.append(f"{call.name} {target}".strip())
             content, is_error = await tools.run(call.name, call.input)
             if on_event:
                 await on_event("tool", {
@@ -208,4 +231,7 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
         cost_usd=cost,
         applied=list(dict.fromkeys(tools.changed)),
         notes=notes,
+        messages=messages,
+        actions=actions,
+        final_text=final_text,
     )

@@ -37,7 +37,7 @@ def _agent(*edits, cost=0.01):
     return AgentResult(raw_output="", edits=list(edits), input_tokens=1, output_tokens=1, cost_usd=cost)
 
 
-def _run(repo, agent, verify, max_iterations=5, require_failing=False, command="true", max_cost_usd=None, use_map=False):
+def _run(repo, agent, verify, max_iterations=5, require_failing=False, command="true", max_cost_usd=None, use_map=False, **options):
     sid = str(uuid.uuid4())
     with db_session() as db:
         db.add(Session(id=sid, name="t", repo_path=str(repo), verify_command=command,
@@ -55,7 +55,7 @@ def _run(repo, agent, verify, max_iterations=5, require_failing=False, command="
     with patch("core.loop.run_agent", agent), patch("core.loop.run_verify", verify), \
          patch("core.loop.git_commit", return_value="abc"), \
          patch("core.loop.invalidate_analytics", new_callable=AsyncMock):
-        asyncio.run(run_loop(sid, broadcast, require_failing=require_failing, max_cost_usd=max_cost_usd, use_map=use_map))
+        asyncio.run(run_loop(sid, broadcast, require_failing=require_failing, max_cost_usd=max_cost_usd, use_map=use_map, **options))
     with db_session() as db:
         status = db.get(Session, sid).status
     return status, events[-1]["data"], events
@@ -481,3 +481,52 @@ def test_vague_test_on_string_code_no_longer_clears_the_bar(tmp_path):
     result = asyncio.run(check_test_strength(str(_repo(tmp_path, STRINGY, weak)), VERIFY, ["calc.py"]))
     assert result.tested >= 3
     assert result.caught / result.tested < loop.MIN_MUTATION_SCORE
+
+
+def _git_repo(path):
+    (path / "a.py").write_text("old\n")
+    for args in (["init", "-q"], ["add", "."], ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+        subprocess.run(["git", *args], cwd=path, check=True)
+    return path
+
+
+def _two_attempts(tmp_path, retry_context):
+    first = _agent(FileEdit("a.py", "new"))
+    first.messages = [{"role": "user", "content": "task"}, {"role": "assistant", "content": "done"}]
+    first.actions, first.final_text = ["read_file a.py", "edit_file a.py"], "Changed old to new."
+    agent = AsyncMock(side_effect=[first, _agent(FileEdit("a.py", "newer"))])
+    _run(_git_repo(tmp_path), agent, AsyncMock(return_value=_failed("test_a")), max_iterations=2, retry_context=retry_context)
+    return agent.call_args_list[1]
+
+
+def test_a_fresh_retry_gets_the_changed_files_in_full(tmp_path):
+    retry = _two_attempts(tmp_path, "fresh")
+    assert "### a.py" in retry.args[0] and retry.kwargs["history"] is None
+
+
+def test_a_continued_retry_adds_the_test_output_to_the_same_conversation(tmp_path):
+    retry = _two_attempts(tmp_path, "continue")
+    assert retry.kwargs["history"][-1] == {"role": "assistant", "content": "done"}
+    assert retry.args[0].startswith("> attempt #2") and "test_a" in retry.args[0] and "### a.py" not in retry.args[0]
+
+
+def test_a_recorded_retry_starts_fresh_with_the_diff_and_what_was_tried(tmp_path):
+    retry = _two_attempts(tmp_path, "record")
+    prompt = retry.args[0]
+    assert retry.kwargs["history"] is None and "### a.py" not in prompt
+    assert "### Attempt 1" in prompt and "Looked at: read_file a.py\n" in prompt and "Changed: a.py" in prompt
+    assert "Changed old to new." in prompt and "Tests failing after it: tests/test_a.py::test_a" in prompt
+    assert "-old" in prompt and "+new" in prompt
+
+
+def test_the_diff_includes_new_files(tmp_path):
+    repo = _git_repo(tmp_path)
+    (repo / "b.py").write_text("brand new\n")
+    (repo / "a.py").write_text("changed\n")
+    diff = loop.diff_so_far(str(repo), ["a.py", "b.py"])
+    assert "+changed" in diff and "(new file) b.py\nbrand new" in diff
+
+
+def test_an_unknown_retry_context_is_refused(tmp_path):
+    with pytest.raises(ValueError):
+        asyncio.run(run_loop("x", AsyncMock(), retry_context="sometimes"))

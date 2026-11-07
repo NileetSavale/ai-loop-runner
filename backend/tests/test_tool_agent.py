@@ -391,3 +391,16 @@ def test_the_test_change_tool_is_offered_only_when_a_reviewer_exists(tmp_path, r
     prompt, names = seen[0]
     assert ("change_existing_test" in names) is offered
     assert ("change_existing_test" in prompt) is offered and "{test_change_rule}" not in prompt
+
+
+def test_continuing_a_conversation_adds_to_it_without_two_user_turns_in_a_row(tmp_path):
+    (tmp_path / "a.py").write_text("x\n")
+    model = ScriptedModel([turn(text="done")])
+    history = [{"role": "user", "content": "task"}, {"role": "assistant", "content": "a"},
+               {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "1", "content": "ok"}]}]
+    with patch("core.agent.get_provider", return_value=model):
+        result = asyncio.run(run_agent("tests fail", MODEL, tools=RepoTools(str(tmp_path), "true"), history=history))
+    sent = model.seen[0]
+    assert len(sent) == 3 and sent[-1]["content"][-1] == {"type": "text", "text": "tests fail"}
+    assert history[-1]["content"][-1]["type"] == "tool_result"  # the caller's list isn't changed
+    assert result.messages[-1]["role"] == "assistant" and result.final_text == "done"

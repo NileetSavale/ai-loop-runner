@@ -398,6 +398,20 @@ sent before, output to the reply. The total matches the API.
   diffs (a lost final blank context line). SWE-bench's patch fallback applied them identically (checked on
   xarray-6992), so no score changes. Fixed in 4582310.
 
+**Cached security auditor: 3-task sequence on one TeamNotes repo (sharing, then attachments, then editing; 2 runs each)**
+- All 12 tasks passed their hidden checks in both modes.
+- Auditor cost over the 6 tasks: fresh every task $0.093; cached $0.091. Total: $0.351 vs $0.341. **No real saving
+  on this app.**
+- Why:
+  - Task 2 re-audited all 3 files, correctly, because task 1's coder changed all 3 (it fixed MD5 in auth.py, added the
+    shares table in db.py, and added sharing in main.py).
+  - Task 3 audited only main.py and took auth.py and db.py from the cache, but cost the same: the auditor's cost is
+    mostly its thinking, which goes into main.py, the biggest file, and every task changes it.
+- The cache works as designed (re-audits exactly the changed files), but a 3-file app where every task edits the same
+  main file can't show a saving. It needs a repo where tasks touch different files. On this app the lever is the
+  auditor's thinking effort.
+- Kept as an option (`audit_cache`), off by default.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

@@ -1,7 +1,7 @@
 import sys, os, asyncio
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core.verifier import run_verify
+from core.verifier import failing_tests, run_verify
 
 
 def run(coro):
@@ -66,7 +66,6 @@ def test_verify_leaves_no_bytecode_to_commit(tmp_path):
 
 
 def test_reads_failing_test_names_from_pytest_django_and_sympy_output():
-    from core.verifier import failing_tests
     pytest_out = "FAILED a/test_x.py::test_one - AssertionError\nERROR a/test_y.py - ImportError\nPASSED a/test_x.py::test_two\n"
     django_out = "FAIL: test_one (app.tests.Case)\n----\nERROR: test_two (app.tests.Case.test_two)\n"
     sympy_out = "____ sympy/core/tests/test_basic.py:test_one ____\n______ xpassed tests ______\n"
@@ -74,3 +73,10 @@ def test_reads_failing_test_names_from_pytest_django_and_sympy_output():
     assert failing_tests(django_out) == {"test_one (app.tests.Case)", "test_two (app.tests.Case.test_two)"}
     assert failing_tests(sympy_out) == {"sympy/core/tests/test_basic.py:test_one"}
     assert failing_tests("1 failed in 0.01s") == set()
+
+
+def test_failing_tests_are_read_through_colour_codes_and_short_sympy_rules():
+    coloured = "\x1b[31mFAILED\x1b[0m sklearn/a.py::\x1b[1mtest_roc\x1b[0m - AssertionError\n"
+    sympy_long = "__ sympy/codegen/tests/test_rewriting.py:test_create_expand_pow_optimization ___\n"
+    assert failing_tests(coloured) == {"sklearn/a.py::test_roc"}
+    assert failing_tests(sympy_long) == {"sympy/codegen/tests/test_rewriting.py:test_create_expand_pow_optimization"}

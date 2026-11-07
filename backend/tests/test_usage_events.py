@@ -157,13 +157,14 @@ def test_no_usage_event_for_unauthenticated_session():
     assert events == []
 
 
-def test_one_event_per_iteration():
+def test_one_event_per_iteration(tmp_path):
     """Two failed iterations + one final pass = 3 UsageEvents."""
+    from core.agent import FileEdit
     sid = str(uuid.uuid4())
     uid = str(uuid.uuid4())
     with db_session() as db:
         db.add(Session(
-            id=sid, user_id=uid, name="test", repo_path="/tmp",
+            id=sid, user_id=uid, name="test", repo_path=str(tmp_path),
             verify_command="true", model="claude-sonnet-4-6",
             max_iterations=3, status="running",
         ))
@@ -175,8 +176,11 @@ def test_one_event_per_iteration():
     fail = _fake_verify_fail()
     ok = _fake_verify_pass()
     verify_sequence = [fail, fail, ok]
+    # An edit each time, since attempts that change nothing stop the loop early
+    agent_result = _fake_agent_result()
+    agent_result.edits = [FileEdit("a.py", "x = 1\n")]
 
-    with patch("core.loop.run_agent", new_callable=AsyncMock, return_value=_fake_agent_result()), \
+    with patch("core.loop.run_agent", new_callable=AsyncMock, return_value=agent_result), \
          patch("core.loop.run_verify", new_callable=AsyncMock, side_effect=verify_sequence), \
          patch("core.loop.git_commit", return_value="abc"), \
          patch("core.loop.invalidate_analytics", new_callable=AsyncMock):

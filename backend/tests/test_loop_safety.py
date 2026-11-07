@@ -233,6 +233,24 @@ def test_failing_tests_are_the_job_when_the_task_is_to_fix_them(tmp_path):
     assert "Tests already failing" not in agent.call_args_list[0].args[0]
 
 
+def test_no_edit_attempt_still_reports_test_results_and_names_what_the_agent_broke(tmp_path):
+    verify = AsyncMock(side_effect=[_failed("test_old"), _failed("test_old", "test_mine"), _failed("test_old", "test_mine"), PASS])
+    agent = AsyncMock(side_effect=[_agent(FileEdit("a.py", "1")), _agent(), _agent(FileEdit("a.py", "2"))])
+    status, _, _ = _run(tmp_path, agent, verify, max_iterations=10, use_map=True)
+    assert status == "passed"
+    second, third = agent.call_args_list[1].args[0], agent.call_args_list[2].args[0]
+    assert "your changes broke them: tests/test_a.py::test_mine" in second
+    assert "You made no changes in this attempt" in third and "test_mine" in third
+
+
+def test_stops_after_two_attempts_in_a_row_with_no_changes(tmp_path):
+    verify = AsyncMock(return_value=_failed("test_mine"))
+    agent = AsyncMock(side_effect=[_agent(FileEdit("a.py", "1")), _agent(), _agent(), _agent()])
+    status, data, _ = _run(tmp_path, agent, verify, max_iterations=10)
+    assert status == "failed" and "2 attempts in a row made no changes" in data["error"]
+    assert agent.call_count == 3
+
+
 def test_per_session_cost_limit_overrides_default(tmp_path):
     agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1"), cost=0.6))
     verify = AsyncMock(side_effect=[VerifyResult(False, c, 1) for c in "abc"] + [PASS])

@@ -4,14 +4,17 @@ The auditor reads the code a task touches before work starts and lists the holes
 to its task and leaves those alone. The pair reviews the coder's changes each time it runs the tests and can send it
 back. Neither writes code; only the coder edits, so they never overwrite each other.
 """
+import hashlib
 import json
+import os
 import re
 
 MAX_AUDIT_CHARS = 40_000
 MAX_PAIR_DIFF_CHARS = 12_000
 
 AUDIT_SYSTEM_PROMPT = """You are the security auditor on a software team. Before a developer starts a task, you read the
-code the task touches and list the security holes already in it, so they get fixed as part of the work.
+code the task touches and list the security holes already in it, so they get fixed as part of the work. Files given
+as context are there so you can follow code across files: report only findings in the files under audit.
 
 Report only real, exploitable problems: injection (SQL, command, template), broken access control (users reaching
 other users' data), weak password storage, secrets in code, path traversal, unsafe deserialization, missing
@@ -39,15 +42,66 @@ def files_to_audit(focus: list[dict], edges: list[dict], is_test) -> list[str]:
     return [p for p in dict.fromkeys(paths) if not is_test(p)]
 
 
-def audit_prompt(spec: str, files: dict[str, str]) -> str:
-    parts, used = [], 0
-    for path, content in files.items():
-        if used + len(content) > MAX_AUDIT_CHARS:
-            parts.append(f"(skipped {path}: over the {MAX_AUDIT_CHARS} character limit)")
-            continue
-        used += len(content)
-        parts.append(f"### {path}\n```\n{content}\n```")
-    return f"## The task the developer will do\n{spec}\n\n## Code to audit\n" + "\n\n".join(parts)
+def audit_prompt(files: dict[str, str], context: dict[str, str] | None = None) -> str:
+    """No task in it, so the findings hold for any task and can be cached."""
+    used = 0
+
+    def section(heading: str, group: dict[str, str]) -> str:
+        nonlocal used
+        parts = []
+        for path, content in group.items():
+            if used + len(content) > MAX_AUDIT_CHARS:
+                parts.append(f"(skipped {path}: over the {MAX_AUDIT_CHARS} character limit)")
+                continue
+            used += len(content)
+            parts.append(f"### {path}\n```\n{content}\n```")
+        return f"## {heading}\n" + "\n\n".join(parts)
+
+    text = section("Code to audit", files)
+    if context:
+        text += "\n\n" + section("Context only (already audited, don't report on these)", context)
+    return text
+
+
+class AuditCache:
+    """The auditor's findings per file, kept while the file is unchanged.
+
+    A task usually touches a few files of a repo that many tasks work on, so each file is audited the first time a
+    task touches it and again only once its content changes. Entries are tied to the auditor's prompt and model too.
+    """
+
+    def __init__(self, path: str, model: str):
+        self.path = path
+        self.version = hashlib.sha256(f"{AUDIT_SYSTEM_PROMPT}\n{model}".encode()).hexdigest()[:16]
+        try:
+            with open(path) as f:
+                saved = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            saved = {}
+        self.files = saved.get("files", {}) if saved.get("version") == self.version else {}
+
+    @staticmethod
+    def _hash(content: str) -> str:
+        return hashlib.sha256(content.encode()).hexdigest()
+
+    def get(self, path: str, content: str) -> list[dict] | None:
+        entry = self.files.get(path)
+        return entry["findings"] if entry and entry["hash"] == self._hash(content) else None
+
+    def put(self, path: str, content: str, findings: list[dict]):
+        self.files[path] = {"hash": self._hash(content), "findings": findings}
+
+    def save(self):
+        os.makedirs(os.path.dirname(os.path.abspath(self.path)), exist_ok=True)
+        with open(self.path, "w") as f:
+            json.dump({"version": self.version, "files": self.files}, f, indent=1)
+
+
+def findings_for(path: str, findings: list[dict]) -> list[dict]:
+    """The findings about one file. The model sometimes writes a shorter or longer form of the path."""
+    def same(name: str) -> bool:
+        return bool(name) and (name == path or path.endswith("/" + name) or name.endswith("/" + path))
+    return [f for f in findings if same(str(f.get("file", "")))]
 
 
 def _json(text: str) -> dict:

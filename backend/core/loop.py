@@ -14,8 +14,8 @@ from database import get_session as db_session
 from core.agent import run_agent, AgentResult, FileEdit, parse_file_blocks
 from core.edits import apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
 from core.repo_map import build_repo_map, locate_issue, map_for_prompt
-from core.security import (AUDIT_SYSTEM_PROMPT, PAIR_SYSTEM_PROMPT, audit_prompt, files_to_audit, findings_guide,
-                           pair_prompt, parse_findings, parse_verdict)
+from core.security import (AUDIT_SYSTEM_PROMPT, PAIR_SYSTEM_PROMPT, AuditCache, audit_prompt, files_to_audit,
+                           findings_for, findings_guide, pair_prompt, parse_findings, parse_verdict)
 from core.tester import TEST_REVIEW_SYSTEM_PROMPT, TESTER_SYSTEM_PROMPT, test_review_prompt, tester_prompt, tests_guide
 from core.tools import MAX_LISTED_FILES, MAX_TEST_OUTPUT_CHARS, RepoTools
 from core.verifier import failing_tests, run_verify, short_test_output, tail, VerifyResult
@@ -218,6 +218,7 @@ async def run_loop(
     write_tests_first: bool = False,
     reviewer_effort: str | None = None,
     max_listed_files: int = MAX_LISTED_FILES,
+    audit_cache: str | None = None,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
@@ -228,7 +229,9 @@ async def run_loop(
     write_tests_first: a tester writes tests for the task before the coder starts, checked by a reviewer.
     reviewer_effort: thinking effort for the yes-or-no reviewers (test changes, security pair, the tester's tests).
     They think at the model's default otherwise, which was most of their output tokens.
-    max_listed_files: how many paths list_files returns."""
+    max_listed_files: how many paths list_files returns.
+    audit_cache: a file where the security auditor keeps findings per file, so later tasks on the same repo only pay
+    to audit files that are new or changed."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -307,8 +310,20 @@ async def run_loop(
         if security_audit:
             audited = files_to_audit(focus, repo_map["edges"], is_test_path) if use_map else [f for f in files if not is_test_path(f)]
             contents = {p: c for p in audited if (c := read_current(repo_path, p))}
-            findings = parse_findings(await ask(AUDIT_SYSTEM_PROMPT, audit_prompt(spec, contents), "security_audit"))
-            await emit("security_findings", {"files": list(contents), "findings": findings})
+            cache = AuditCache(audit_cache, model) if audit_cache else None
+            known = {p: found for p, c in contents.items() if cache and (found := cache.get(p, c)) is not None}
+            todo = {p: c for p, c in contents.items() if p not in known}
+            new: list[dict] = []
+            if todo:
+                context = {p: contents[p] for p in known}
+                new = parse_findings(await ask(AUDIT_SYSTEM_PROMPT, audit_prompt(todo, context), "security_audit"))
+                if cache:
+                    for p, c in todo.items():
+                        cache.put(p, c, findings_for(p, new))
+                    cache.save()
+            findings = new + [f for found in known.values() for f in found]
+            await emit("security_findings", {"files": list(contents), "audited": list(todo), "cached": list(known),
+                                             "findings": findings})
             guide += findings_guide(findings)
 
         task_tests: set[str] = set()  # the tester's tests: the coder's job, never something it broke

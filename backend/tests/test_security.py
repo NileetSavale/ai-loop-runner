@@ -3,7 +3,7 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from core.edits import is_test_path
-from core.security import files_to_audit, findings_guide, parse_findings, parse_verdict
+from core.security import AuditCache, files_to_audit, findings_for, findings_guide, parse_findings, parse_verdict
 
 
 def test_the_auditor_reads_the_task_files_and_what_they_import():
@@ -43,3 +43,19 @@ def test_run_tests_shows_the_coder_what_the_security_pair_sent_back(tmp_path):
     assert "SECURITY REVIEW: your changes were sent back" in report and "app/main.py reads a note" in report
     tools.changed = []
     assert "SECURITY REVIEW" not in asyncio.run(tools.run("run_tests", {}))[0]  # nothing changed, nothing to review
+
+
+def test_cached_findings_last_only_while_the_file_and_the_auditor_are_unchanged(tmp_path):
+    path = str(tmp_path / "audit.json")
+    cache = AuditCache(path, "model-a")
+    cache.put("app/main.py", "v1", [{"file": "app/main.py", "problem": "SQL injection"}])
+    cache.save()
+    assert AuditCache(path, "model-a").get("app/main.py", "v1")[0]["problem"] == "SQL injection"
+    assert AuditCache(path, "model-a").get("app/main.py", "v2") is None
+    assert AuditCache(path, "model-b").get("app/main.py", "v1") is None
+
+
+def test_findings_are_matched_to_files_by_path_suffix():
+    findings = [{"file": "main.py", "problem": "x"}, {"file": "app/db.py", "problem": "y"}, {"file": "", "problem": "z"}]
+    assert [f["problem"] for f in findings_for("app/main.py", findings)] == ["x"]
+    assert [f["problem"] for f in findings_for("db.py", findings)] == ["y"]

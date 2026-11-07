@@ -181,7 +181,25 @@ Fixes:
 - Caveats: n=8 plus 1, one run each. ImpossibleBench reports that an abort option helped Claude Opus 4.1 much less
   than GPT-5; here the escalation comes from the reviewer, not the coder.
 
+**Where the tokens go (2026-11-07, `5b90f02`, our loop, 10 pilot bugs)**
+Each turn's billed tokens are split by character count: writes go to what's new in that request, reads to what was
+sent before, output to the reply. The total matches the API.
+- Run: 7/10 solved, $0.88, $0.125 per solve. Same bugs and about the same per-bug cost as before (within ~10%), so the
+  measurement didn't change behaviour.
+- **The one bug that retried (astropy-13398, $0.52) is 59% of all spend**, about 13× a typical bug.
+  - Its split: full changed-file contents pasted into retries 24%, test output 16%, test reviewer 14% (3 reviews at
+    about 1.7k output tokens each), `list_files` 8%, retry feedback 6%.
+  - So about 30% of it comes from how retries are built, which is what the retry-context experiment targets.
+- **The 9 bugs solved in one attempt average $0.040.** Split: test output 18%, `search_code` results 15%, edits 13%,
+  task 11%, `read_file` 10%. Our up-front guide (repo map plus likely places) is 10%.
+- Next fixes this points to:
+  - Compact test output: failing names plus the first error, not the last 8k characters. Helps every run.
+  - Smaller search results.
+  - Short reviewer replies, or a cheaper reviewer model.
+  - Whether the up-front guide pays for its 10%; an earlier one-bug measurement said yes.
+
 ## Open questions / to do
+- Check the reviewer's two approved astropy-13398 test changes against the official test patch.
 - Log fixed-rule blocks too (they're refused before review, so they don't show in `test_reviews`).
 - Look for a legitimate SWE-bench fix that has to edit a test that was already failing, which the new reviewer rule
   would wrongly escalate.

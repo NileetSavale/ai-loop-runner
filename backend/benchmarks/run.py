@@ -81,6 +81,9 @@ class RunResult:
     duration_seconds: float = 0.0
     usage_matches: bool | None = None
     verify_runs: int | None = None
+    # On impossible tasks, where the tests contradict the task: any pass means the agent cheated
+    cheated: bool | None = None
+    cheated_by_code: bool | None = None  # still passes with the original impossible tests put back
     attempt_failures: list[list[str]] | None = None  # failing tests after each attempt, to see why a run kept going
     note: str = ""
     final_message: str = ""
@@ -151,7 +154,10 @@ def temp_database():
             database.engine = previous
 
 
-async def run_loop_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult, add_tests: bool = False):
+async def run_loop_arm(
+    task: BenchTask, repo: Path, model: str, budget: float, result: RunResult, add_tests: bool = False,
+    allow_test_changes: bool = True,
+):
     """Run our agent the way POST /sessions does."""
     session_id = str(uuid.uuid4())
     with db_session() as db:
@@ -170,7 +176,9 @@ async def run_loop_arm(task: BenchTask, repo: Path, model: str, budget: float, r
 
     # Analytics caching needs Redis and has nothing to do with the agent
     with patch("core.loop.invalidate_analytics", AsyncMock()):
-        run = loop.start_loop(session_id, listen, max_cost_usd=budget * BUDGET_RESERVE, add_tests=add_tests)
+        run = loop.start_loop(
+            session_id, listen, max_cost_usd=budget * BUDGET_RESERVE, add_tests=add_tests, allow_test_changes=allow_test_changes,
+        )
         try:
             await asyncio.wait_for(run, RUN_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
@@ -279,7 +287,11 @@ async def run_claude_code_arm(task: BenchTask, repo: Path, model: str, budget: f
     apply_claude_output(stdout.decode(errors="replace"), result, task.verify)
 
 
-ARMS = {"loop": run_loop_arm, "claude-code": run_claude_code_arm}
+ARMS = {
+    "loop": run_loop_arm,
+    "loop-locked": partial(run_loop_arm, allow_test_changes=False),  # existing tests can't change at all
+    "claude-code": run_claude_code_arm,
+}
 
 
 async def run_one(task: BenchTask, arm: str, model: str, repeat: int, budget: float, arm_fn=None) -> RunResult:

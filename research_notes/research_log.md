@@ -66,6 +66,32 @@ Full literature report: `reports/Failure attribution in agent retry loops.md`
   question. Focused list instead: LogAct, Agentless, "Breaking, Stale, or Missing?", "Verifying the Verifiers",
   ImpossibleBench, UTBoost, RIR, AgentRewind, Olausson et al., Gao & Peng, plus SWE-bench and Reflexion.
 
+### 2026-11-07
+
+**AI-suggested research gaps 1 and 3 (from the same thread as "Gap 2", pasted 2026-11-07): treat as unverified**
+- **Gap 1, mapping dependencies across repos**
+  - The claim: agents miss breakages where a change in repo A (a shared API, a proto file, infrastructure-as-code,
+    pub/sub contracts) breaks repo B. Proposed fix: one knowledge graph built from ASTs plus HTTP, gRPC and pub/sub
+    shapes across repos.
+  - Status: plausible but **not checked** against the literature.
+  - "Reduces tokens by up to 90%" is an invented number with no experiment behind it.
+  - Would need a new benchmark of breaking changes across repos first, so the cost is high and it's far from our
+    current setup.
+  - Possible later direction, after M4 (the agent team) works on single repos (**ours**).
+- **Gap 3, a firewall that checks what generated code means before it runs**
+  - The claim: parse generated code to an AST and check it against an organisation's security policy before it runs.
+  - Its statistic, "74% of agent research explores validation, under 3% of architectures reach deployment", seems to
+    come from the "Landscape of Agentic Validation (2000+ papers)" entry in list 1, which we couldn't verify. Don't
+    cite it.
+  - "Zero latency, absolute accuracy, formal proof" isn't achievable (**ours**): deciding whether arbitrary code is
+    dangerous is undecidable in general.
+  - Policy checks on ASTs before execution already exist in many tools, so it would need a much narrower angle.
+- **Gap 2** (rollback and time travel) was already ruled out on 2026-11-06 (RIR, AgentRewind).
+- Decision (**ours**): keep the current question. It comes from failures we observed, we can already measure it, and
+  it has a decision gate. Park Gap 1; drop Gaps 2 and 3 as stated.
+- The rest of the thread was general reading advice (tree-sitter and aider's repo map, event sourcing, the actor model,
+  Firecracker, E2B, Outlines, Llama Guard). It overlaps with list 1 and adds nothing to the research question.
+
 ## Experiments (SWE-bench Verified, 10 bugs, Sonnet 5.5, one run per bug unless noted)
 
 | Date | Run | Solved | Cost | Notes |

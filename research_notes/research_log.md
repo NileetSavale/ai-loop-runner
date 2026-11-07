@@ -333,6 +333,13 @@ sent before, output to the reply. The total matches the API.
   the coder fixed all the high-severity ones. Total cost about doubled, since fixing them is extra work.
 - The pair added about $0.014 and caught nothing here, because this task's new code added no new hole. It still needs
   a task where the coder introduces one before we can judge it.
+- **E. Full team (auditor + tester + pair), 3 runs:** every hidden check passed in all 3 runs, as did every test the
+  tester wrote. The tester wrote `tests/test_sharing.py` each time (reviewer approved first time; 3 tests kept as
+  failing-before), so the delivered change now ships with tests for the new feature, which no single agent did.
+  Cost $0.137–0.176 a run, against $0.094 for D. The tester ($0.026–0.059) and its reviewer ($0.007–0.019) are the
+  increase. As expected, the tester can't raise the score on a task the coder already gets right. Its value needs a
+  task where the coder gets the feature wrong.
+
 
 **Token trims on 11 bugs (10 pilot + requests-5414), each added on top of the previous, continue mode, 1 run each**
 

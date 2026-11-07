@@ -15,7 +15,7 @@ from core.agent import run_agent, AgentResult
 from core.edits import apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
 from core.repo_map import build_repo_map, locate_issue, map_for_prompt
 from core.tools import MAX_TEST_OUTPUT_CHARS, RepoTools
-from core.verifier import failing_tests, run_verify, VerifyResult
+from core.verifier import failing_tests, run_verify, short_test_output, tail, VerifyResult
 from core.git_ops import git_commit
 from core.mutation import check_test_strength
 from core.test_changes import REVIEW_SYSTEM_PROMPT, parse_review, review_prompt
@@ -104,12 +104,6 @@ def record_guide(records: list[str], diff: str) -> str:
     return "".join(f"{p}\n\n" for p in parts)
 
 
-def tail(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return f"(the first {len(text) - limit} characters were cut)\n{text[-limit:]}"
-
-
 def continue_prompt(iteration: int, last_verify_output: str | None) -> str:
     return (
         f"> attempt #{iteration}. You stopped, and the system ran the tests: they still fail. Your changes are still in "
@@ -125,7 +119,8 @@ def build_prompt(spec: str, context: str, iteration: int, last_verify_output: st
     return f"## Task Spec\n{spec}{retry_note}\n\n{guide}## Current File Contents\n{context}"
 
 
-def _build_guide(repo_map: dict, focus: list[dict], baseline: VerifyResult | None, old_failures: set[str] = frozenset()) -> str:
+def _build_guide(repo_map: dict, focus: list[dict], baseline: VerifyResult | None, old_failures: set[str] = frozenset(),
+                 max_old_failure_names: int | None = None) -> str:
     """Tell the agent where to look, so it doesn't pay to find out.
 
     Names only, not file contents. Measured on one bug, including two files cost more than this on both Haiku 5.5
@@ -139,7 +134,10 @@ def _build_guide(repo_map: dict, focus: list[dict], baseline: VerifyResult | Non
         parts.append(f"## Repo map\n{map_for_prompt(repo_map, focus)}")
     if old_failures:
         # Said up front, since most of the spend happens inside the first attempt
-        names = "\n".join(f"- {n}" for n in sorted(old_failures))
+        shown = sorted(old_failures)[:max_old_failure_names]
+        names = "\n".join(f"- {n}" for n in shown)
+        if len(shown) < len(old_failures):
+            names += f"\n- and {len(old_failures) - len(shown)} more"
         parts.append(
             f"## Tests already failing before your changes\n{names}\n"
             "These fail before you change anything, so they are not part of your task unless it names them. "
@@ -208,7 +206,13 @@ async def run_loop(
     add_tests: bool = False,
     allow_test_changes: bool = True,
     retry_context: str = "fresh",
+    max_only_old_failures: int = MAX_ONLY_OLD_FAILURES,
+    short_output: bool = False,
+    max_old_failure_names: int | None = None,
 ):
+    """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
+    before any change still fail, give the agent failing names and the end of test output rather than 8k characters
+    of it, and list at most this many already-failing tests up front."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -264,7 +268,7 @@ async def run_loop(
             # No LLM here: this costs time, not tokens, and it's what saves them later
             repo_map = await asyncio.to_thread(build_repo_map, repo_path)
             focus = locate_issue(repo_map, spec, baseline.output if baseline and not baseline.passed else None, files, repo_path)
-            guide = _build_guide(repo_map, focus, baseline, old_failures)
+            guide = _build_guide(repo_map, focus, baseline, old_failures, max_old_failure_names)
             await emit("focus", {"files": focus, "tests_passing": baseline.passed})
 
         review_spend = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
@@ -314,7 +318,8 @@ async def run_loop(
 
             agent_result = await run_agent(
                 prompt, model, user_api_key=user_api_key, on_token=on_token,
-                tools=RepoTools(repo_path, verify_command, added_tests, review_test_change if allow_test_changes else None),
+                tools=RepoTools(repo_path, verify_command, added_tests, review_test_change if allow_test_changes else None,
+                                short_output, old_failures),
                 max_cost_usd=cost_limit - total_cost,
                 on_event=emit,
                 add_tests=add_tests,
@@ -362,7 +367,9 @@ async def run_loop(
                 )
             # Fed into the next retry, so it is cut like run_tests output: the full output once cost $0.35 on a
             # single retry. The end is kept, since that is where test runners print the summary.
-            last_verify_output = "\n".join(rejected + [tail(verify_result.output, MAX_TEST_OUTPUT_CHARS)])
+            shown = (short_test_output(verify_result.output, old_failures) if short_output
+                     else tail(verify_result.output, MAX_TEST_OUTPUT_CHARS))
+            last_verify_output = "\n".join(rejected + [shown])
 
             stop_reason = None
             if not verify_result.passed:
@@ -394,7 +401,7 @@ async def run_loop(
                     stop_reason = f"Stopped: spent ${total_cost:.2f}, over the ${cost_limit:.2f} session limit."
                 elif no_edit_attempts >= MAX_NO_EDIT_ATTEMPTS:
                     stop_reason = f"Stopped: {no_edit_attempts} attempts in a row made no changes."
-                elif only_old_failures >= MAX_ONLY_OLD_FAILURES:
+                elif only_old_failures >= max_only_old_failures:
                     stop_reason = f"Stopped: the only failing tests were already failing before any change ({', '.join(sorted(failing))})."
                 elif identical_failures >= MAX_IDENTICAL_FAILURES:
                     stop_reason = f"Stopped: the same failure repeated {identical_failures} times in a row."
@@ -503,10 +510,12 @@ def start_loop(
     add_tests: bool = False,
     allow_test_changes: bool = True,
     retry_context: str = "fresh",
+    **trims,
 ):
+    """trims: run_loop's token-trimming options."""
     task = asyncio.create_task(run_loop(
         session_id, broadcast_fn, user_api_key, require_failing, max_cost_usd, use_map, add_tests, allow_test_changes,
-        retry_context,
+        retry_context, **trims,
     ))
     _running[session_id] = task
     return task

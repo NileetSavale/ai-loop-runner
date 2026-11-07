@@ -218,6 +218,50 @@ def test_stops_when_only_tests_that_already_failed_still_fail(tmp_path):
     assert "## Tests already failing before your changes\n- tests/test_a.py::test_old" in agent.call_args_list[0].args[0]
 
 
+def test_can_stop_after_the_first_attempt_that_leaves_only_old_failures(tmp_path):
+    verify = AsyncMock(side_effect=[_failed("test_old"), _failed("test_old", note="0.1s"), PASS])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    status, data, _ = _run(tmp_path, agent, verify, max_iterations=10, use_map=True, max_only_old_failures=1)
+    assert status == "failed" and "already failing before any change" in data["error"] and agent.call_count == 1
+
+
+def test_the_guide_can_list_only_some_old_failures(tmp_path):
+    verify = AsyncMock(side_effect=[_failed("test_a", "test_b", "test_c"), PASS])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    _run(tmp_path, agent, verify, use_map=True, max_old_failure_names=2)
+    assert "- tests/test_a.py::test_b\n- and 1 more" in agent.call_args_list[0].args[0]
+
+
+def test_short_output_names_the_failures_in_the_retry(tmp_path):
+    long = VerifyResult(False, "PASSED tests/test_a.py::test_ok\n" * 2_000 + "FAILED tests/test_a.py::test_new - boom\n", 1)
+    agent = AsyncMock(side_effect=[_agent(FileEdit("a.py", "1")), _agent(FileEdit("a.py", "2"))])
+    _run(tmp_path, agent, AsyncMock(return_value=long), max_iterations=2, short_output=True)
+    prompt = agent.call_args_list[1].args[0]
+    assert "Failing (1):\n- tests/test_a.py::test_new" in prompt and "test_ok" not in prompt
+
+
+def test_can_stop_after_the_first_attempt_that_leaves_only_old_failures(tmp_path):
+    verify = AsyncMock(side_effect=[_failed("test_old"), _failed("test_old", note="0.1s"), PASS])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    status, data, _ = _run(tmp_path, agent, verify, max_iterations=10, use_map=True, max_only_old_failures=1)
+    assert status == "failed" and "already failing before any change" in data["error"] and agent.call_count == 1
+
+
+def test_the_guide_can_list_only_some_old_failures(tmp_path):
+    verify = AsyncMock(side_effect=[_failed("test_a", "test_b", "test_c"), PASS])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    _run(tmp_path, agent, verify, use_map=True, max_old_failure_names=2)
+    assert "- tests/test_a.py::test_b\n- and 1 more" in agent.call_args_list[0].args[0]
+
+
+def test_short_output_names_the_failures_in_the_retry(tmp_path):
+    long = VerifyResult(False, "PASSED tests/test_a.py::test_ok\n" * 2_000 + "FAILED tests/test_a.py::test_new - boom\n", 1)
+    agent = AsyncMock(side_effect=[_agent(FileEdit("a.py", "1")), _agent(FileEdit("a.py", "2"))])
+    _run(tmp_path, agent, AsyncMock(return_value=long), max_iterations=2, short_output=True)
+    prompt = agent.call_args_list[1].args[0]
+    assert "Failing (1):\n- tests/test_a.py::test_new" in prompt and "test_ok" not in prompt
+
+
 def test_a_new_failure_alongside_old_ones_keeps_going(tmp_path):
     verify = AsyncMock(side_effect=[_failed("test_old"), _failed("test_old", "test_new"), _failed("test_old"), PASS])
     agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))

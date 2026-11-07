@@ -7,7 +7,7 @@ import os
 
 from core.edits import FileEdit, apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
 from core.test_changes import check_test_change, unified_diff
-from core.verifier import run_verify
+from core.verifier import run_verify, short_test_output
 
 MAX_READ_LINES = 300
 MAX_READ_CHARS = 12_000  # about 3,000 tokens, and every later turn in the attempt resends it
@@ -73,8 +73,12 @@ class ToolError(Exception):
 
 
 class RepoTools:
-    def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None, review_test_change=None):
+    def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None, review_test_change=None,
+                 short_output: bool = False, old_failures: set[str] = frozenset()):
         self.repo_path = repo_path
+        # Return failing names and the end of the output instead of up to MAX_TEST_OUTPUT_CHARS of it
+        self.short_output = short_output
+        self.old_failures = old_failures
         self.verify_command = verify_command
         self.added_tests = set() if added_tests is None else added_tests
         # async (path, diff, reason) -> (approved, why). None means existing tests stay read-only.
@@ -211,4 +215,6 @@ class RepoTools:
     async def _run_tests(self) -> str:
         result = await run_verify(self.verify_command, self.repo_path)
         status = "PASSED" if result.passed else "FAILED"
+        if self.short_output:
+            return f"{status}\n{short_test_output(result.output, self.old_failures)}"
         return f"{status}\n{result.output[-MAX_TEST_OUTPUT_CHARS:]}"

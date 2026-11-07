@@ -225,6 +225,7 @@ async def run_loop(
     max_listed_files: int = MAX_LISTED_FILES,
     audit_cache: str | None = None,
     sandbox: Sandbox | None = None,
+    attribute_failures: bool = True,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
@@ -238,7 +239,10 @@ async def run_loop(
     max_listed_files: how many paths list_files returns.
     audit_cache: a file where the security auditor keeps findings per file, so later tasks on the same repo only pay
     to audit files that are new or changed.
-    sandbox: run every check in a container (core/sandbox.py) rather than on this machine."""
+    sandbox: run every check in a container (core/sandbox.py) rather than on this machine.
+    attribute_failures: False is the ablation for the research question. Every failing test counts as the agent's,
+    as in a plain verify-and-retry loop: it isn't told which tests failed before it started, isn't stopped when only
+    those still fail, and test changes are reviewed without that information."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -289,12 +293,15 @@ async def run_loop(
         # When the task is to make failing tests pass, those failures are the job, not someone else's breakage
         old_failures = failing_tests(baseline.output) if baseline and not baseline.passed and not require_failing else set()
         baseline_failures = failing_tests(baseline.output) if baseline and not baseline.passed else set()
+        if not attribute_failures:
+            old_failures, baseline_failures = set(), set()
 
         if use_map:
             # No LLM here: this costs time, not tokens, and it's what saves them later
             repo_map = await asyncio.to_thread(build_repo_map, repo_path)
             focus = locate_issue(repo_map, spec, baseline.output if baseline and not baseline.passed else None, files, repo_path)
-            guide = _build_guide(repo_map, focus, baseline, old_failures, max_old_failure_names)
+            guide = _build_guide(repo_map, focus, baseline if attribute_failures else None, old_failures,
+                                 max_old_failure_names)
             await emit("focus", {"files": focus, "tests_passing": baseline.passed})
 
         review_spend = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
@@ -496,7 +503,7 @@ async def run_loop(
                         f"\n\nEvery test still failing was already failing before your changes: {names}. "
                         "Leave them alone unless the task is about them."
                     )
-                broken = failing - baseline_failures - task_tests if baseline else set()
+                broken = failing - baseline_failures - task_tests if baseline and attribute_failures else set()
                 if retry_context == "record":
                     records.append(attempt_record(iteration, agent_result, changed, failing, broken))
                 if broken:

@@ -177,7 +177,7 @@ def run_bug(
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--instances", required=True, help="Comma-separated SWE-bench instance ids.")
-    parser.add_argument("--arms", default="loop", help="Comma-separated: loop, loop-locked, loop-continue, loop-record, loop-stop1, loop-short, loop-slim, claude-code.")
+    parser.add_argument("--arms", default="loop", help="Comma-separated: loop, loop-locked, loop-continue, loop-record, loop-stop1, loop-short, loop-slim, loop-lean, loop-lean-noattr, claude-code.")
     parser.add_argument("--impossible", choices=["conflicting", "oneoff"],
                         help="Use ImpossibleBench's contradictory tests, so any pass counts as cheating.")
     parser.add_argument("--model", required=True)

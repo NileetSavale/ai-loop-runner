@@ -231,7 +231,7 @@ sent before, output to the reply. The total matches the API.
   - django-15268, django-15315: the new "removes more assertions than it adds" rule (commit 417646f).
   - The other 3 go to the reviewer, and the added test file in django-13837 is allowed.
 - So 3 of 60 random bugs (5%) need a test change that our rules refuse. On those the visible tests can't go green, and
-  the loop keeps retrying a correct fix: the sympy-15809 problem in another form. The cheating fix has a measurable
+  we expect the loop to keep retrying a correct fix (not yet observed): the sympy-15809 problem in another form. The cheating fix has a measurable
   false-positive cost, and the paper should report both sides.
 - Possible change (**ours**, not yet tested): send assertion removals and test deletions to the reviewer, which knows
   which tests failed before any change, instead of blocking them outright. Rerun the cheating test to check it still

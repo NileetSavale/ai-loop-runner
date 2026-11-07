@@ -161,9 +161,9 @@ def temp_database():
 
 async def run_loop_arm(
     task: BenchTask, repo: Path, model: str, budget: float, result: RunResult, add_tests: bool = False,
-    allow_test_changes: bool = True, retry_context: str = "fresh",
+    allow_test_changes: bool = True, retry_context: str = "fresh", **trims,
 ):
-    """Run our agent the way POST /sessions does."""
+    """Run our agent the way POST /sessions does. trims: run_loop's token-trimming options."""
     session_id = str(uuid.uuid4())
     with db_session() as db:
         db.add(Session(
@@ -183,7 +183,7 @@ async def run_loop_arm(
     with patch("core.loop.invalidate_analytics", AsyncMock()):
         run = loop.start_loop(
             session_id, listen, max_cost_usd=budget * BUDGET_RESERVE, add_tests=add_tests, allow_test_changes=allow_test_changes,
-            retry_context=retry_context,
+            retry_context=retry_context, **trims,
         )
         try:
             await asyncio.wait_for(run, RUN_TIMEOUT_SECONDS)
@@ -310,6 +310,11 @@ ARMS = {
     # How a retry learns about earlier attempts (see RETRY_CONTEXTS in core/loop.py). "loop" starts fresh.
     "loop-continue": partial(run_loop_arm, retry_context="continue"),
     "loop-record": partial(run_loop_arm, retry_context="record"),
+    # Token trims, added one at a time on top of continuing retries, so each one's effect shows
+    "loop-stop1": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1),
+    "loop-short": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1, short_output=True),
+    "loop-slim": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1, short_output=True,
+                         max_old_failure_names=10),
     "claude-code": run_claude_code_arm,
 }
 

@@ -1,7 +1,7 @@
 import sys, os, asyncio
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core.verifier import failing_tests, run_verify
+from core.verifier import failing_tests, run_verify, short_test_output, short_test_output
 
 
 def run(coro):
@@ -86,3 +86,19 @@ def test_failures_printed_by_nested_pytest_runs_are_not_counted():
     inner = "--- Captured stdout call ---\n=== short test summary info ===\nFAILED test_inner.py::test_1 - assert 0\n"
     outer = "=== short test summary info ===\nPASSED testing/a.py::test_x\nFAILED testing/b.py::test_y - boom\n"
     assert failing_tests(inner + outer) == {"testing/b.py::test_y"}
+
+
+def test_short_output_separates_new_failures_from_old_ones_and_drops_passes():
+    out = "PASSED a.py::test_ok\n" * 500 + "FAILED a.py::test_new - boom\nFAILED a.py::test_old - net\n1 failed\n"
+    short = short_test_output(out, {"a.py::test_old"})
+    assert "Failing (1):\n- a.py::test_new" in short
+    assert "already failing before any change (1):\n- a.py::test_old" in short
+    assert "test_ok" not in short and len(short) < 2_500
+
+
+def test_short_output_separates_new_failures_from_old_ones_and_drops_passes():
+    out = "PASSED a.py::test_ok\n" * 500 + "FAILED a.py::test_new - boom\nFAILED a.py::test_old - net\n1 failed\n"
+    short = short_test_output(out, {"a.py::test_old"})
+    assert "Failing (1):\n- a.py::test_new" in short
+    assert "already failing before any change (1):\n- a.py::test_old" in short
+    assert "test_ok" not in short and len(short) < 2_500

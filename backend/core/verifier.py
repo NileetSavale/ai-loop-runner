@@ -27,6 +27,37 @@ def failing_tests(output: str) -> set[str]:
     return {next(g for g in m.groups() if g) for m in _FAILING_TEST.finditer(output)}
 
 
+def tail(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return f"(the first {len(text) - limit} characters were cut)\n{text[-limit:]}"
+
+
+MAX_SHORT_OUTPUT_CHARS = 2_000
+MAX_SHORT_NAMES = 20
+# Lines for tests that passed: pytest -rA's summary, and unittest/Django's verbose " ... ok"
+_PASSED_LINE = re.compile(r"^PASSED |\.\.\. ok$|^test_\w+ ok\s")
+
+
+def short_test_output(output: str, old_failures: set[str] = frozenset()) -> str:
+    """A test run cut down to what an agent acts on: which tests fail, which of those failed before any change,
+    and the end of the output without the lines for tests that passed."""
+    failing = failing_tests(output)
+    parts = []
+    if failing:
+        new, old = sorted(failing - old_failures), sorted(failing & old_failures)
+        def listed(names):
+            more = f"\n- and {len(names) - MAX_SHORT_NAMES} more" if len(names) > MAX_SHORT_NAMES else ""
+            return "".join(f"\n- {n}" for n in names[:MAX_SHORT_NAMES]) + more
+        if new:
+            parts.append(f"Failing ({len(new)}):{listed(new)}")
+        if old:
+            parts.append(f"Also failing, but already failing before any change ({len(old)}):{listed(old)}")
+    kept = "\n".join(line for line in _ANSI.sub("", output).splitlines() if not _PASSED_LINE.search(line))
+    parts.append(f"End of the output:\n{tail(kept, MAX_SHORT_OUTPUT_CHARS)}")
+    return "\n\n".join(parts)
+
+
 @dataclass
 class VerifyResult:
     passed: bool

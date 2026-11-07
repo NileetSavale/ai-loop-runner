@@ -223,3 +223,18 @@ def test_overall_cap_counts_saved_results_and_refuses_to_go_over(tmp_path):
     check_overall_cap(5.0, 5.0, 10.0)
     with pytest.raises(SystemExit, match="overall cap"):
         check_overall_cap(5.01, 5.0, 10.0)
+
+
+def test_labels_already_failing_must_change_and_flaky_tests():
+    from benchmarks.swe_label import Run, label
+    base = [Run(False, {"old", "flip"}), Run(False, {"old"}), Run(False, {"old", "target"})]
+    gold = [Run(False, {"old", "pinned"}), Run(False, {"old", "pinned", "flip"}), Run(False, {"old", "pinned"})]
+    assert label(base, gold) == {
+        "already_failing": ["old"], "must_change": ["pinned"], "flaky": ["flip", "target"], "fixed_by_gold": [],
+    }
+
+
+def test_finds_test_files_the_hidden_patch_creates():
+    from benchmarks.swe_label import new_test_files
+    patch = "--- /dev/null\n+++ b/tests/test_new.py\n@@ -0,0 +1 @@\n+x\n--- a/tests/test_old.py\n+++ b/tests/test_old.py\n"
+    assert new_test_files(patch) == ["tests/test_new.py"]

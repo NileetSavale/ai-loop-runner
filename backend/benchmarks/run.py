@@ -161,7 +161,7 @@ def temp_database():
 
 async def run_loop_arm(
     task: BenchTask, repo: Path, model: str, budget: float, result: RunResult, add_tests: bool = False,
-    allow_test_changes: bool = True,
+    allow_test_changes: bool = True, retry_context: str = "fresh",
 ):
     """Run our agent the way POST /sessions does."""
     session_id = str(uuid.uuid4())
@@ -183,6 +183,7 @@ async def run_loop_arm(
     with patch("core.loop.invalidate_analytics", AsyncMock()):
         run = loop.start_loop(
             session_id, listen, max_cost_usd=budget * BUDGET_RESERVE, add_tests=add_tests, allow_test_changes=allow_test_changes,
+            retry_context=retry_context,
         )
         try:
             await asyncio.wait_for(run, RUN_TIMEOUT_SECONDS)
@@ -306,6 +307,9 @@ async def run_claude_code_arm(task: BenchTask, repo: Path, model: str, budget: f
 ARMS = {
     "loop": run_loop_arm,
     "loop-locked": partial(run_loop_arm, allow_test_changes=False),  # existing tests can't change at all
+    # How a retry learns about earlier attempts (see RETRY_CONTEXTS in core/loop.py). "loop" starts fresh.
+    "loop-continue": partial(run_loop_arm, retry_context="continue"),
+    "loop-record": partial(run_loop_arm, retry_context="record"),
     "claude-code": run_claude_code_arm,
 }
 

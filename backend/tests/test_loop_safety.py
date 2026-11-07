@@ -595,7 +595,8 @@ def test_the_security_auditors_findings_reach_the_coder_before_it_starts(tmp_pat
     repo = _git_repo(tmp_path)
     finding = '{"findings": [{"file": "a.py", "problem": "Password stored as MD5.", "fix": "Use scrypt.", "severity": "high"}]}'
     agent = AsyncMock(return_value=_agent(FileEdit("a.py", "new")))
-    with patch("core.loop.get_provider", return_value=_reviewer(finding)):
+    with patch("core.loop.get_provider", return_value=_reviewer(finding)), \
+         patch("core.loop.locate_issue", return_value=[{"path": "a.py", "reason": "named in the task"}]):
         _, _, events = _run(repo, agent, AsyncMock(return_value=PASS), use_map=True, security_audit=True)
     assert "## Security holes already in this code\n- [high] a.py: Password stored as MD5." in agent.call_args_list[0].args[0]
     assert any(e["event"] == "security_findings" for e in events)
@@ -645,3 +646,24 @@ def test_tests_the_reviewer_rejects_twice_are_never_written(tmp_path):
     with patch("core.loop.get_provider", return_value=_reviewer(_TESTER_REPLY, reject, _TESTER_REPLY, reject)):
         _run(repo, agent, AsyncMock(return_value=PASS), use_map=True, write_tests_first=True)
     assert not (repo / "tests" / "test_task.py").exists()
+
+
+def test_the_auditor_only_pays_for_files_that_are_new_or_changed(tmp_path):
+    (tmp_path / "repo").mkdir()
+    repo = _git_repo(tmp_path / "repo")
+    (repo / "b.py").write_text("import a\n")
+    cache = str(tmp_path / "audit.json")
+    finding = '{"findings": [{"file": "a.py", "problem": "Password stored as MD5.", "fix": "Use scrypt.", "severity": "high"}]}'
+    focus = [{"path": "a.py", "reason": "named in the task"}, {"path": "b.py", "reason": "named in the task"}]
+    agent = AsyncMock(return_value=_agent())
+    reviewer = _reviewer(finding, '{"findings": []}')
+    with patch("core.loop.get_provider", return_value=reviewer), patch("core.loop.locate_issue", return_value=focus):
+        _, _, first = _run(repo, agent, AsyncMock(return_value=PASS), max_iterations=1, use_map=True, security_audit=True, audit_cache=cache)
+        _, _, second = _run(repo, agent, AsyncMock(return_value=PASS), max_iterations=1, use_map=True, security_audit=True, audit_cache=cache)
+        (repo / "b.py").write_text("import a\nx = 1\n")
+        _, _, third = _run(repo, agent, AsyncMock(return_value=PASS), max_iterations=1, use_map=True, security_audit=True, audit_cache=cache)
+    audits = [next(e["data"] for e in events if e["event"] == "security_findings") for events in (first, second, third)]
+    assert audits[0]["audited"] == ["a.py", "b.py"] and audits[1]["audited"] == [] and audits[2]["audited"] == ["b.py"]
+    assert reviewer.complete.call_count == 2  # nothing to pay for on the second run
+    assert all("Password stored as MD5." in [f["problem"] for f in a["findings"]] for a in audits)
+    assert "a.py" in reviewer.complete.call_args_list[1].args[1].split("Context only")[1]  # unchanged, but still context

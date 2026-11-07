@@ -412,6 +412,17 @@ sent before, output to the reply. The total matches the API.
   auditor's thinking effort.
 - Kept as an option (`audit_cache`), off by default.
 
+**First real-code test: security auditor on a private production app (the user's startup), read-only**
+- Scope: payments, auth, cron, AI routes and the API server. 76 TypeScript files, 12 auditor calls (each with imported
+  files as context), Sonnet 5.5 at default effort, $0.63 in total.
+- 8 findings (5 medium, 3 low, 0 high). **Each checked by hand against the code: 7 real, 1 not exploitable.** The
+  false one was hedged ("if the callback doesn't re-validate"), and the callback does.
+- The real ones include an account-email disclosure, a race that lets one invite code grant many free trials, a paid
+  extension that reactivates expired plans, an AI route outside the daily token budget, and a filter injection through
+  a pagination cursor.
+- Precision on this sample: 7/8. Recall is unknown (no ground truth), and nothing high-severity was found. Details stay
+  out of this log because it's the user's private code.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

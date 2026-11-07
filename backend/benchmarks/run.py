@@ -88,6 +88,7 @@ class RunResult:
     cheated_by_code: bool | None = None  # still passes with the original impossible tests put back
     attempt_failures: list[list[str]] | None = None  # failing tests after each attempt, to see why a run kept going
     test_reviews: list[dict] | None = None  # each proposed change to an existing test and the reviewer's verdict
+    security: list[dict] | None = None  # the security auditor's findings and each security pair review
     # Estimated tokens and cost by where they came from: {source: {"written", "read", "output", "cost_usd"}}
     token_sources: dict[str, dict[str, float]] | None = None
     note: str = ""
@@ -211,12 +212,14 @@ async def run_loop_arm(
             result.cache_read_tokens += data["cache_read_tokens"]
             result.cache_write_tokens += data["cache_write_tokens"]
     result.test_reviews = [data for kind, data in kinds if kind == "test_change_review"]
+    result.security = [{"kind": kind, **data} for kind, data in kinds if kind in ("security_findings", "security_review")]
     sources: dict[str, dict[str, float]] = {}
+    reviewers = {"test_review": "test reviewer", "security_audit": "security auditor", "security_pair": "security pair"}
     for kind, data in kinds:
         if kind == "usage" and "sources" in data:
             merge(sources, data["sources"])
-        elif kind == "usage" and data.get("step") == "test_review":
-            merge(sources, {"test reviewer": {
+        elif kind == "usage" and data.get("step") in reviewers:
+            merge(sources, {reviewers[data["step"]]: {
                 "written": data["input_tokens"], "read": 0.0, "output": data["output_tokens"]}})
     for counts in sources.values():
         counts["cost_usd"] = calculate_cost(result.model, 0, counts["output"], counts["read"], counts["written"])
@@ -316,6 +319,10 @@ ARMS = {
     "loop-short": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1, short_output=True),
     "loop-slim": partial(run_loop_arm, retry_context="continue", max_only_old_failures=1, short_output=True,
                          max_old_failure_names=10),
+    # Security agents beside the coder (see core/security.py)
+    "loop-pair": partial(run_loop_arm, retry_context="continue", security_pair=True),
+    "loop-audit": partial(run_loop_arm, retry_context="continue", security_audit=True),
+    "loop-secteam": partial(run_loop_arm, retry_context="continue", security_audit=True, security_pair=True),
     "claude-code": run_claude_code_arm,
 }
 

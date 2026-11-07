@@ -74,8 +74,10 @@ class ToolError(Exception):
 
 class RepoTools:
     def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None, review_test_change=None,
-                 short_output: bool = False, old_failures: set[str] = frozenset()):
+                 short_output: bool = False, old_failures: set[str] = frozenset(), review_changes=None):
         self.repo_path = repo_path
+        # async (changed paths) -> problems. A security reviewer that sees the changes each time the tests run.
+        self.review_changes = review_changes
         # Return failing names and the end of the output instead of up to MAX_TEST_OUTPUT_CHARS of it
         self.short_output = short_output
         self.old_failures = old_failures
@@ -216,5 +218,12 @@ class RepoTools:
         result = await run_verify(self.verify_command, self.repo_path)
         status = "PASSED" if result.passed else "FAILED"
         if self.short_output:
-            return f"{status}\n{short_test_output(result.output, self.old_failures)}"
-        return f"{status}\n{result.output[-MAX_TEST_OUTPUT_CHARS:]}"
+            report = f"{status}\n{short_test_output(result.output, self.old_failures)}"
+        else:
+            report = f"{status}\n{result.output[-MAX_TEST_OUTPUT_CHARS:]}"
+        if self.review_changes and self.changed:
+            problems = await self.review_changes(list(self.changed))
+            if problems:
+                report += "\n\nSECURITY REVIEW: your changes were sent back. Fix these before you finish:\n" + "\n".join(
+                    f"- {p}" for p in problems)
+        return report

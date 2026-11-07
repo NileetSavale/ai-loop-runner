@@ -39,5 +39,5 @@ PYTHONPATH=. python -m pytest tests ../notes_api_checks
 - `notes_api_checks/test_sharing.py`: the feature (5 tests; 2 fail before the change).
 - `notes_api_checks/test_security.py`: the 4 attacks (all succeed before the change).
 
-A reference fix (parameterised queries, ownership checks, a shares table, salted scrypt) passes all 17. It isn't kept
-here, so it can't leak into an agent's workspace.
+A reference fix (parameterised queries, ownership checks, a shares table, salted scrypt) passes all 17. It's in
+`backend/benchmarks/tasks/notes_sharing/solution/`, which agents never see.

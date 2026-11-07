@@ -102,3 +102,10 @@ def test_short_output_separates_new_failures_from_old_ones_and_drops_passes():
     assert "Failing (1):\n- a.py::test_new" in short
     assert "already failing before any change (1):\n- a.py::test_old" in short
     assert "test_ok" not in short and len(short) < 2_500
+
+
+def test_failing_tests_are_read_from_vitest_output():
+    out = (" FAIL  web/lib/budget.test.ts [ web/lib/budget.test.ts ]\nError: Cannot find module\n"
+           " FAIL  api/src/routes/groups.test.ts > members > never returns the email\nAssertionError: x\n"
+           "   × members > never returns the email 3ms\n")
+    assert failing_tests(out) == {"web/lib/budget.test.ts", "api/src/routes/groups.test.ts > members > never returns the email"}

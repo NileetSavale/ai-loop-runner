@@ -12,7 +12,11 @@ _SECRET_ENV = re.compile(r".*(_API_KEY|_SECRET|_TOKEN|_PASSWORD)|DATABASE_URL|RE
 # pytest -rA ("FAILED a.py::test_x - ...", or "ERROR a.py" when collecting fails), unittest/Django
 # ("FAIL: test_x (mod.Class)"), and SymPy's bin/test ("____ sympy/a.py:test_x ____", down to two underscores
 # around a long name)
-_FAILING_TEST = re.compile(r"^(?:(?:FAILED|ERROR) (\S+\.py\S*)|(?:FAIL|ERROR): (\w+ \([\w.]+\))|_{2,} (\S+\.py:\w+) _{2,})", re.M)
+# Vitest/Jest-style runners print " FAIL  web/a.test.ts > suite > test", or " FAIL  web/a.test.ts [ web/a.test.ts ]" for a
+# file that won't load (the file path alone is then the name).
+_FAILING_TEST = re.compile(
+    r"^(?:(?:FAILED|ERROR) (\S+\.py\S*)|(?:FAIL|ERROR): (\w+ \([\w.]+\))|_{2,} (\S+\.py:\w+) _{2,}"
+    r"|\s*FAIL\s+(\S+\.(?:test|spec)\.[cm]?[jt]sx?(?: > .+?)?)(?:\s+\[ .+ \])?\s*$)", re.M)
 # Colour codes, which pytest prints when it runs under tox or with --color=yes
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _PYTEST_SUMMARY = " short test summary info "

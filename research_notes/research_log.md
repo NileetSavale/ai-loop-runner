@@ -375,6 +375,29 @@ sent before, output to the reply. The total matches the API.
   making short the default.
 
 
+**Demo task 2: TeamNotes v2, attachments (starts from the fixed app, so only new holes count; 3 runs each)**
+
+| Version | Feature (4 checks) | New holes (4 attacks) | Old hardcoded secret fixed | Cost/run |
+|---|---|---|---|---|
+| Our loop alone | 3/3 | none added | 0/3 | $0.034 |
+| Claude Code | 3/3 | none added | 0/3 | $0.047 |
+| + security pair | 3/3 | none added | 0/3 | $0.039 |
+| + security auditor | 3/3 | none added | **3/3** | $0.076 |
+| + auditor + pair | 3/3 | none added | **3/3** | $0.079 |
+| Full team (+ tester) | 3/3 | none added | **3/3** | $0.142 |
+
+- **No version added a hole.** A naive implementation fails 3 of the 4 attacks, but Sonnet 5.5 checked filenames and
+  ownership in all 18 runs, with or without help.
+- **The pair caught nothing in 12 runs across both tasks**, because the coder never added a hole. It costs about
+  $0.005–0.015 a run. Its value is unproven: with this model, holes come from code the coder doesn't touch, not code it
+  writes. A fair test would use a weaker coder (Haiku 5.5), where new holes are more likely; that also tests the
+  "cheap coder, strong reviewer" idea.
+- **The auditor's pattern held**: it flagged the remaining hardcoded secret in 9/9 runs and the coder fixed it every
+  time. Without an auditor, 0/9 fixed it.
+- Harness bug found on the way: saved diffs were stripped of trailing whitespace, which corrupted 25 of 201 SWE-bench
+  diffs (a lost final blank context line). SWE-bench's patch fallback applied them identically (checked on
+  xarray-6992), so no score changes. Fixed in 4582310.
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

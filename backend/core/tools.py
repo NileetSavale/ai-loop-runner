@@ -5,7 +5,7 @@ verify command and nothing else, and every write goes through the same rules as 
 """
 import os
 
-from core.edits import FileEdit, apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
+from core.edits import FileEdit, apply_edits, describe_change, filter_edits, is_locked_path, is_secret_path, is_test_path, read_current, resolve_in_repo
 from core.test_changes import check_test_change, unified_diff
 from core.verifier import run_verify, short_test_output
 
@@ -98,6 +98,8 @@ class RepoTools:
         bad = [k for k in _REQUIRED[name] if not isinstance(args.get(k), str)]
         if bad:
             return f"{name} needs text for: {', '.join(bad)}", True
+        if isinstance(args.get("path"), str) and is_secret_path(args["path"]):
+            return f"{args['path']} holds credentials, so agents can't read or change it.", True
         lines = {k: args[k] for k in _OPTIONAL_LINES.get(name, ()) if args.get(k) is not None}
         # bool is an int in Python, and a model could send true
         if any(type(v) is not int or v < 1 for v in lines.values()):
@@ -116,7 +118,7 @@ class RepoTools:
         found = []
         for folder, dirs, files in os.walk(root):
             dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRS)
-            found += [os.path.relpath(os.path.join(folder, f), root) for f in sorted(files)]
+            found += [os.path.relpath(os.path.join(folder, f), root) for f in sorted(files) if not is_secret_path(f)]
         limit = self.max_listed_files
         note = f"\n(showing {limit} of {len(found)} files. Use search_code to find others.)" if len(found) > limit else ""
         return "\n".join(found[:limit]) + note
@@ -155,6 +157,8 @@ class RepoTools:
         for folder, dirs, files in os.walk(root):
             dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRS)
             for name in sorted(files):
+                if is_secret_path(name):
+                    continue
                 path = os.path.join(folder, name)
                 try:
                     with open(path) as f:

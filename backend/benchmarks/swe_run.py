@@ -158,7 +158,9 @@ def run_bug(
         asyncio.run(ARMS[arm](task, repo, model, budget, result))
         result.duration_seconds = round(time.monotonic() - started, 1)
         result.changed_code_lines, result.changed_test_lines = changed_lines(repo, base)
-        result.diff = _git(repo, "diff", "--cached", base) + "\n"  # git apply refuses a patch with no final newline
+        # Not stripped: a diff can end on a blank context line, and losing it corrupts the patch. 25 earlier diffs lost
+        # one; SWE-bench's patch fallback applied them identically (checked on xarray-6992), so their scores stand.
+        result.diff = _git(repo, "diff", "--cached", base, strip=False)
         on_paid(result)  # before scoring, so a scoring failure doesn't lose what was paid for
         result.visible_passed = asyncio.run(run_verify(task.verify, str(repo))).passed
         if impossible_tests:

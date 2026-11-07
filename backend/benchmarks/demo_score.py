@@ -23,7 +23,11 @@ def check_results(task, diff: str) -> dict[str, bool]:
         repo = Path(folder) / "repo"
         prepare_repo(task, repo)
         if diff.strip():
-            subprocess.run(["git", "apply", "-"], input=diff.rstrip("\n") + "\n", cwd=repo, text=True, check=True, capture_output=True)
+            # Diffs saved before the harness stopped stripping them can lose a final blank context line, which git
+            # apply refuses. patch tolerates it, as SWE-bench's own fallback does.
+            applied = subprocess.run(["git", "apply", "-"], input=diff.rstrip("\n") + "\n", cwd=repo, text=True, capture_output=True)
+            if applied.returncode:
+                subprocess.run(["patch", "--batch", "-p1", "--fuzz=5"], input=diff, cwd=repo, text=True, check=True, capture_output=True)
         # Separate runs, since an agent's test file can share a name with a hidden one, and pytest won't load both
         out = "".join(subprocess.run(
             [sys.executable, "-m", "pytest", "-rA", "-q", "-p", "no:cacheprovider", folder],

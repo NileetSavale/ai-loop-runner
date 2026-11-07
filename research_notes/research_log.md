@@ -270,8 +270,10 @@ sent before, output to the reply. The total matches the API.
 - The gate still passes clearly, with both kinds above 10% after the hand check.
 
 ## Open questions / to do
-- The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197). Fix
-  before relying on old-vs-new failures for pytest bugs.
+- ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
+  in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the
+  automatic count of already-failing bugs is 14/60. The other 3 that differ from the hand check are setup or new-file
+  cases (django-13837, django-16145, sphinx-10435).
 - sphinx-8548 is still unreadable: look at its output format.
 - Check the reviewer's two approved astropy-13398 test changes against the official test patch.
 - Log fixed-rule blocks too (they're refused before review, so they don't show in `test_reviews`).

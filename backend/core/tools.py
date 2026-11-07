@@ -7,6 +7,7 @@ import os
 
 from core.edits import FileEdit, apply_edits, describe_change, filter_edits, is_locked_path, is_secret_path, is_test_path, read_current, resolve_in_repo
 from core.test_changes import check_test_change, unified_diff
+from core.sandbox import Sandbox
 from core.verifier import run_verify, short_test_output
 
 MAX_READ_LINES = 300
@@ -75,8 +76,9 @@ class ToolError(Exception):
 class RepoTools:
     def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None, review_test_change=None,
                  short_output: bool = False, old_failures: set[str] = frozenset(), review_changes=None,
-                 max_listed_files: int = MAX_LISTED_FILES):
+                 max_listed_files: int = MAX_LISTED_FILES, sandbox: Sandbox | None = None):
         self.repo_path = repo_path
+        self.sandbox = sandbox
         self.max_listed_files = max_listed_files
         # async (changed paths) -> problems. A security reviewer that sees the changes each time the tests run.
         self.review_changes = review_changes
@@ -222,7 +224,7 @@ class RepoTools:
         return self._apply(rel, after)
 
     async def _run_tests(self) -> str:
-        result = await run_verify(self.verify_command, self.repo_path)
+        result = await run_verify(self.verify_command, self.repo_path, self.sandbox)
         status = "PASSED" if result.passed else "FAILED"
         if self.short_output:
             report = f"{status}\n{short_test_output(result.output, self.old_failures)}"

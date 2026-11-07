@@ -3,6 +3,9 @@ from dataclasses import dataclass
 import os
 import re
 import signal
+import uuid
+
+from core.sandbox import Sandbox, kill
 
 MAX_TIMEOUT = int(os.getenv("MAX_VERIFY_TIMEOUT_SECONDS", "120"))
 
@@ -75,22 +78,32 @@ def _verify_env(cwd: str) -> dict[str, str]:
     The repo root is importable, so `pytest` and `python -m pytest` behave the same.
     """
     # ponytail: hides secrets from the environment only. That code can still read files such as backend/.env
-    # until loops are sandboxed (see plan.md).
+    # unless the checks run in a sandbox (run_verify's sandbox).
     env = {k: v for k, v in os.environ.items() if not _SECRET_ENV.fullmatch(k)}
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [cwd, env.get("PYTHONPATH")]))
     env["PYTHONDONTWRITEBYTECODE"] = "1"  # otherwise .pyc files get committed, and can hide mutants
     return env
 
 
-async def run_verify(command: str, cwd: str) -> VerifyResult:
-    proc = await asyncio.create_subprocess_shell(
-        command,
-        cwd=cwd,
-        env=_verify_env(cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        start_new_session=True,  # own process group, so everything it spawned can be killed with it
-    )
+async def run_verify(command: str, cwd: str, sandbox: Sandbox | None = None) -> VerifyResult:
+    """With a sandbox, the command runs in a container (see core/sandbox.py) instead of on this machine."""
+    name = f"loop-runner-check-{uuid.uuid4().hex[:12]}"
+    if sandbox:
+        proc = await asyncio.create_subprocess_exec(
+            *sandbox.argv(command, cwd, name=name),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,
+        )
+    else:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            cwd=cwd,
+            env=_verify_env(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,  # own process group, so everything it spawned can be killed with it
+        )
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=MAX_TIMEOUT)
         return VerifyResult(
@@ -99,6 +112,9 @@ async def run_verify(command: str, cwd: str) -> VerifyResult:
             exit_code=proc.returncode,
         )
     except asyncio.TimeoutError:
+        if sandbox:
+            # Killing the docker client leaves the container running
+            await asyncio.to_thread(kill, name)
         return VerifyResult(passed=False, output="TIMEOUT: verify command exceeded limit", exit_code=-1)
     finally:
         try:

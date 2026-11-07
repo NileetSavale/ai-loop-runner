@@ -6,12 +6,16 @@
 tasks.json is a list of {"name": ..., "prompt": ...}. Unlike the benchmarks, this changes the repo itself: work on a
 branch you can throw away. A task whose checks pass is committed by the loop, so each fix lands as its own commit.
 There are no hidden checks here: a person reviews the commits.
+
+The checks run in a container (core/sandbox.py): no network, no access to this machine, and the repo's credential
+files hidden. Its dependencies are installed into Docker volumes on the first run, which needs the network.
 """
 import argparse
 import asyncio
 import json
 import subprocess
 import sys
+import tempfile
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +30,7 @@ if __name__ == "__main__":
 
 from benchmarks.run import (OVERALL_CAP_USD, RESULTS_DIR, BenchTask, RunResult, _code_version, check_overall_cap,
                             run_loop_arm, spent_so_far, temp_database)
+from core.sandbox import node_sandbox
 
 # The full team: an auditor before work starts, a tester whose tests the coder must pass, the coder, and a security
 # reviewer beside it, with the token trims measured so far (the loop-lean arm: same solves, lowest cost, no cheating)
@@ -42,12 +47,20 @@ def main():
     parser.add_argument("--max-run-usd", type=float, default=1.5)
     parser.add_argument("--max-total-usd", type=float, required=True)
     parser.add_argument("--audit-cache", help="File for the auditor's findings, kept between tasks.")
+    parser.add_argument("--no-sandbox", action="store_true",
+                        help="Run the checks on this machine instead of in a container. Only for repos you trust "
+                             "the agents' code with: the checks run code they wrote.")
     args = parser.parse_args()
 
     tasks = json.loads(args.tasks.read_text())
     if subprocess.run(["git", "status", "--porcelain"], cwd=args.repo, capture_output=True, text=True).stdout.strip():
         raise SystemExit("The repo has uncommitted changes. Commit or stash them first, so every change here is revertible.")
     check_overall_cap(min(len(tasks) * args.max_run_usd, args.max_total_usd), spent_so_far(), OVERALL_CAP_USD)
+    sandbox = None
+    if not args.no_sandbox:
+        sandbox = node_sandbox(str(args.repo), tempfile.mkdtemp(prefix="loop-runner-sandbox-"))
+        print(f"Checks run in {sandbox.image}, with no network. Hidden from them: {', '.join(sandbox.secrets) or 'nothing found'}.")
+        sandbox.prepare()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     path = RESULTS_DIR / f"{stamp}-repo-{args.repo.name}.json"
     finished: list[RunResult] = []
@@ -60,7 +73,7 @@ def main():
                     break
                 result = RunResult(task=task["name"], arm="team", model=args.model, repeat=1)
                 await run_loop_arm(BenchTask(task["name"], args.repo, task["prompt"], args.verify), args.repo, args.model,
-                                   args.max_run_usd, result, audit_cache=args.audit_cache, **TEAM)
+                                   args.max_run_usd, result, audit_cache=args.audit_cache, sandbox=sandbox, **TEAM)
                 finished.append(result)
                 if subprocess.run(["git", "status", "--porcelain"], cwd=args.repo, capture_output=True, text=True).stdout.strip():
                     # A task that didn't pass leaves its changes uncommitted. Keep them, out of the next task's way.

@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 import git
 
 from core.agent import resolve_in_repo
+from core.sandbox import Sandbox
 from core.verifier import run_verify
 
 MAX_MUTANTS = 10
@@ -107,7 +108,8 @@ def apply_mutant(source: str, index: int) -> str:
 _NOT_COPIED = shutil.ignore_patterns(".git", "node_modules", "__pycache__", ".venv", "venv", ".next", "dist", "build")
 
 
-async def check_test_strength(repo_path: str, verify_command: str, files: list[str]) -> MutationResult:
+async def check_test_strength(repo_path: str, verify_command: str, files: list[str],
+                              sandbox: Sandbox | None = None) -> MutationResult:
     mutants = []  # (rel_path, index, description)
     for rel in files:
         try:
@@ -123,7 +125,7 @@ async def check_test_strength(repo_path: str, verify_command: str, files: list[s
     with tempfile.TemporaryDirectory() as tmp:
         copy = os.path.join(tmp, "repo")
         await asyncio.to_thread(shutil.copytree, repo_path, copy, ignore=_NOT_COPIED, symlinks=True)
-        if not (await run_verify(verify_command, copy)).passed:
+        if not (await run_verify(verify_command, copy, sandbox)).passed:
             return MutationResult(skipped_reason="the tests don't pass in a copy of the repo without .git or virtualenvs")
 
         result = MutationResult()
@@ -136,7 +138,7 @@ async def check_test_strength(repo_path: str, verify_command: str, files: list[s
                 original = f.read()
             with open(path, "w") as f:
                 f.write(apply_mutant(original, index))
-            outcome = await run_verify(verify_command, copy)
+            outcome = await run_verify(verify_command, copy, sandbox)
             with open(path, "w") as f:
                 f.write(original)
             result.tested += 1

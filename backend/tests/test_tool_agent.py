@@ -374,3 +374,20 @@ def test_the_setting_asks_for_tests(tmp_path):
 def test_one_shot_prompt_gets_the_rule_too():
     from core.agent import SYSTEM_PROMPT, _with_tests_rule
     assert "{tests_rule}" in SYSTEM_PROMPT and "{tests_rule}" not in _with_tests_rule(SYSTEM_PROMPT, False)
+
+
+@pytest.mark.parametrize("reviewer, offered", [(None, False), (AsyncMock(), True)])
+def test_the_test_change_tool_is_offered_only_when_a_reviewer_exists(tmp_path, reviewer, offered):
+    seen = []
+
+    class Spy(ScriptedModel):
+        async def complete_with_tools(self, sys_prompt, messages, tools, model, on_token=None):
+            seen.append((sys_prompt, [t["name"] for t in tools]))
+            return await super().complete_with_tools(sys_prompt, messages, tools, model, on_token)
+
+    tools = RepoTools(str(tmp_path), "true", review_test_change=reviewer)
+    with patch("core.agent.get_provider", return_value=Spy([turn()])):
+        asyncio.run(run_agent("do it", MODEL, tools=tools))
+    prompt, names = seen[0]
+    assert ("change_existing_test" in names) is offered
+    assert ("change_existing_test" in prompt) is offered and "{test_change_rule}" not in prompt

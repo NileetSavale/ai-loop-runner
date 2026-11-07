@@ -5,7 +5,8 @@ verify command and nothing else, and every write goes through the same rules as 
 """
 import os
 
-from core.edits import FileEdit, apply_edits, describe_change, filter_edits, read_current, resolve_in_repo
+from core.edits import FileEdit, apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
+from core.test_changes import check_test_change, unified_diff
 from core.verifier import run_verify
 
 MAX_READ_LINES = 300
@@ -54,6 +55,14 @@ TOOL_SCHEMAS = [
     ),
     _tool("write_file", "Create a file, or replace one completely.", path="Path relative to the repo root.", content="The full file contents."),
     _tool("run_tests", "Run the project's verify command and return its output."),
+    _tool(
+        "change_existing_test",
+        "Change what an existing test expects, only when the task itself requires that behaviour to change. Works "
+        "like edit_file. Adding lines is allowed; changing or removing them goes to a reviewer who sees the task, "
+        "the change and your reason. Skipping, deleting or emptying tests is always refused.",
+        path="Path of the existing test file.", old_text="The exact text to replace.", new_text="The replacement.",
+        reason="Why the task requires this change. Quote the part of the task that asks for the new behaviour.",
+    ),
 ]
 _REQUIRED = {t["name"]: t["input_schema"]["required"] for t in TOOL_SCHEMAS}
 _OPTIONAL_LINES = {"read_file": ("start_line", "end_line")}
@@ -64,10 +73,12 @@ class ToolError(Exception):
 
 
 class RepoTools:
-    def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None):
+    def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None, review_test_change=None):
         self.repo_path = repo_path
         self.verify_command = verify_command
         self.added_tests = set() if added_tests is None else added_tests
+        # async (path, diff, reason) -> (approved, why). None means existing tests stay read-only.
+        self.review_test_change = review_test_change
         self.changed: list[str] = []
         self.changes: list[dict] = []  # descriptions of writes not yet reported to the website
 
@@ -150,9 +161,14 @@ class RepoTools:
     def _write(self, path: str, content: str) -> str:
         allowed, rejected = filter_edits([FileEdit(path, content)], self.repo_path, self.added_tests)
         if rejected:
-            raise ToolError(rejected[0])
+            hint = " If the task requires changing what this test expects, use change_existing_test." if (
+                self.review_test_change and "existing tests are read-only" in rejected[0]) else ""
+            raise ToolError(rejected[0] + hint)
+        return self._apply(path, content)
+
+    def _apply(self, path: str, content: str) -> str:
         before = read_current(self.repo_path, path)
-        self.changed += apply_edits(allowed, self.repo_path)
+        self.changed += apply_edits([FileEdit(path, content)], self.repo_path)
         self.changes.append(describe_change(path, before, content))
         return f"Wrote {path}."
 
@@ -166,6 +182,31 @@ class RepoTools:
         if count != 1:
             raise ToolError(f"old_text must appear exactly once in {path}, but it appears {count} times. Read the file and try again.")
         return self._write(path, content.replace(old_text, new_text))
+
+    async def _change_existing_test(self, path: str, old_text: str, new_text: str, reason: str) -> str:
+        if not self.review_test_change:
+            raise ToolError("Changing existing tests isn't enabled for this task. Existing tests are read-only.")
+        full_path = resolve_in_repo(self.repo_path, path)
+        rel = os.path.relpath(full_path, os.path.realpath(self.repo_path))
+        if is_locked_path(rel):
+            raise ToolError(f"{path} is test config, which is always read-only.")
+        if not is_test_path(rel) or not os.path.exists(full_path):
+            raise ToolError(f"{path} isn't an existing test file. Use edit_file or write_file.")
+        with open(full_path) as f:
+            before = f.read()
+        count = before.count(old_text) if old_text else 0
+        if count != 1:
+            raise ToolError(f"old_text must appear exactly once in {path}, but it appears {count} times. Read the file and try again.")
+        after = before.replace(old_text, new_text)
+        check = check_test_change(before, after)
+        if check.verdict == "block":
+            raise ToolError(f"Refused: {check.reason}. Skipping, deleting or emptying tests is never allowed.")
+        if check.verdict == "review":
+            approved, why = await self.review_test_change(rel, unified_diff(rel, before, after), reason)
+            if not approved:
+                raise ToolError(f"The reviewer refused this test change: {why}")
+            return self._apply(rel, after) + f" The reviewer approved it: {why}"
+        return self._apply(rel, after)
 
     async def _run_tests(self) -> str:
         result = await run_verify(self.verify_command, self.repo_path)

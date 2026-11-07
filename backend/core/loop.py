@@ -17,6 +17,9 @@ from core.tools import RepoTools
 from core.verifier import failing_tests, run_verify, VerifyResult
 from core.git_ops import git_commit
 from core.mutation import check_test_strength
+from core.test_changes import REVIEW_SYSTEM_PROMPT, parse_review, review_prompt
+from providers.base import calculate_cost
+from providers.router import get_provider
 from routes.analytics import invalidate_analytics
 from providers.router import _provider_for
 
@@ -192,6 +195,23 @@ async def run_loop(
             guide = _build_guide(repo_map, focus, baseline, old_failures)
             await emit("focus", {"files": focus, "tests_passing": baseline.passed})
 
+        review_spend = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
+
+        async def review_test_change(path: str, diff: str, reason: str) -> tuple[bool, str]:
+            """A separate model call that sees the task, the test diff and the reason, but not the coder's reasoning."""
+            result = await get_provider(model, user_api_key).complete(REVIEW_SYSTEM_PROMPT, review_prompt(spec, diff, reason), model, None)
+            cost = calculate_cost(model, result.input_tokens, result.output_tokens)
+            review_spend["cost_usd"] += cost
+            review_spend["input_tokens"] += result.input_tokens
+            review_spend["output_tokens"] += result.output_tokens
+            await emit("usage", {
+                "step": "test_review", "input_tokens": result.input_tokens, "output_tokens": result.output_tokens,
+                "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_usd": cost,
+            })
+            approved, why = parse_review(result.text)
+            await emit("test_change_review", {"path": path, "reason": reason, "approved": approved, "why": why, "diff": diff})
+            return approved, why
+
         while iteration <= max_iterations:
             if session_id not in _running:
                 break
@@ -209,11 +229,16 @@ async def run_loop(
 
             agent_result = await run_agent(
                 prompt, model, user_api_key=user_api_key, on_token=on_token,
-                tools=RepoTools(repo_path, verify_command, added_tests),
+                tools=RepoTools(repo_path, verify_command, added_tests, review_test_change),
                 max_cost_usd=cost_limit - total_cost,
                 on_event=emit,
                 add_tests=add_tests,
             )
+            # The reviewer's spend belongs to this attempt, so limits and records include it
+            agent_result.cost_usd += review_spend["cost_usd"]
+            agent_result.input_tokens += review_spend["input_tokens"]
+            agent_result.output_tokens += review_spend["output_tokens"]
+            review_spend.update(cost_usd=0.0, input_tokens=0, output_tokens=0)
 
             allowed, rejected = filter_edits(agent_result.edits, repo_path, added_tests)
             # Tool agents report their own changes as they go. This is the one-shot path.

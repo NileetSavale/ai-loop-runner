@@ -9,7 +9,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import SQLModel, create_engine, select
 
 import core.loop as loop
 import database
@@ -249,6 +249,27 @@ def test_stops_after_two_attempts_in_a_row_with_no_changes(tmp_path):
     status, data, _ = _run(tmp_path, agent, verify, max_iterations=10)
     assert status == "failed" and "2 attempts in a row made no changes" in data["error"]
     assert agent.call_count == 3
+
+
+def test_test_change_reviews_are_paid_for_by_the_attempt_that_asked(tmp_path):
+    from providers.base import LLMResult
+    seen = []
+
+    async def agent(*args, **kwargs):
+        seen.append(await kwargs["tools"].review_test_change("tests/test_a.py", "-old\n+new", "the task says so"))
+        return _agent(FileEdit("a.py", "1"), cost=0.01)
+
+    provider = AsyncMock()
+    provider.complete.return_value = LLMResult(text='{"approve": true, "why": "Task asks for it."}', input_tokens=1000, output_tokens=100)
+    with patch("core.loop.get_provider", return_value=provider):
+        status, _, events = _run(tmp_path, AsyncMock(side_effect=agent), AsyncMock(return_value=PASS))
+    assert status == "passed" and seen == [(True, "Task asks for it.")]
+    review_prompt = provider.complete.call_args.args[1]
+    assert "do it" in review_prompt and "the task says so" in review_prompt
+    with db_session() as db:
+        session = db.exec(select(Session)).first()
+    assert session.total_cost_usd > 0.01  # the review's cost was added to the attempt's
+    assert any(e["event"] == "test_change_review" and e["data"]["approved"] for e in events)
 
 
 def test_per_session_cost_limit_overrides_default(tmp_path):

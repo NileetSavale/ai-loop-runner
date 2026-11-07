@@ -353,6 +353,20 @@ sent before, output to the reply. The total matches the API.
 - The slim guide didn't help overall. Its one big win (requests at $0.029) is a single run.
 - Caveats: one run per bug, and solves flip between runs on pytest-10356, sympy-13615 and xarray-6992. The cost
   ordering needs repeats before any trim becomes the default.
+- Closer look at the per-bug numbers:
+  - **Noise is large on cheap bugs.** short and slim are the same setup on bugs with few old failures, yet differ up
+    to 2x ($0.010 vs $0.022 on django-10880). Single-run differences under about 2x on $0.01–0.05 bugs mean little.
+  - **Short output's gain holds up anyway.** It was cheaper than plain continue on 7 of the 9 one-attempt bugs, often
+    by 30–45% (pytest-7432 $0.057 to $0.024, django-11299 $0.030 to $0.017). The exception is sympy-15809 ($0.043 to
+    $0.060).
+  - **The whole remaining gap to Claude Code is astropy-13398**: $0.29 vs $0.11. Without it we're level.
+  - **On astropy-13398 the waste is now inside one attempt, not across retries.** stop1's single attempt made 39 tool
+    calls, read 162k characters of results and hit the cost limit. With short output, which labels old failures in
+    every test run, the same bug took 20 calls. The test-change reviewer is 23–30% of the astropy cost (the agent keeps
+    proposing test edits), and list_files is 13–14%.
+- Next levers, in order: shorter test-reviewer replies; cap list_files output; repeat short vs continue (3 runs) before
+  making short the default.
+
 
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed

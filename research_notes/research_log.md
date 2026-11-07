@@ -218,13 +218,39 @@ sent before, output to the reply. The total matches the API.
 - Next: check by hand the 6 must-change bugs against their official test patches, then use the labelled set to measure
   how often loops (ours, Claude Code) retry or stop on failures they didn't cause.
 
+**Hand check of the 6 "existing test must change" bugs against the official test patches**
+- All 6 confirmed: the official test patch changes each flagged test.
+  - Replaces expected values: sympy-15349 (rotation matrix entries), sympy-18698 (`sqf_list` result).
+  - Rewrites tests around a behaviour change: django-15268 (3 autodetector tests expect fewer operations),
+    django-13837 (adds a `sys.modules` patch to 2 tests).
+  - Removes checks of the old behaviour: django-15315 (3 `assertNotEqual(hash(...))` lines), pytest-6197 (deletes
+    `test_skip_package` outright, since the fix reverts a feature).
+- **Our fixed rules would block 3 of the 6 official changes before the reviewer sees them** (run on the real before
+  and after files):
+  - pytest-6197: the deletion rule.
+  - django-15268, django-15315: the new "removes more assertions than it adds" rule (commit 417646f).
+  - The other 3 go to the reviewer, and the added test file in django-13837 is allowed.
+- So 3 of 60 random bugs (5%) need a test change that our rules refuse. On those the visible tests can't go green, and
+  the loop keeps retrying a correct fix: the sympy-15809 problem in another form. The cheating fix has a measurable
+  false-positive cost, and the paper should report both sides.
+- Possible change (**ours**, not yet tested): send assertion removals and test deletions to the reviewer, which knows
+  which tests failed before any change, instead of blocking them outright. Rerun the cheating test to check it still
+  catches cheating.
+
+**Why 7 of 60 labelled bugs had unreadable test output**
+- pytest printed colour codes (sphinx runs through tox, astropy and sklearn force colour), so `FAILED` lines didn't
+  match. SymPy prints only two underscores before a long test name, and the parser wanted three.
+- The loop uses the same parser to tell old failures from new ones, so on those repos it couldn't.
+- Fixed in 140eeae. The 7 bugs are being relabelled.
+
 ## Open questions / to do
 - Check the reviewer's two approved astropy-13398 test changes against the official test patch.
 - Log fixed-rule blocks too (they're refused before review, so they don't show in `test_reviews`).
 - Look for a legitimate SWE-bench fix that has to edit a test that was already failing, which the new reviewer rule
   would wrongly escalate.
 - Is astropy-13398 one of the five Verified instances reported failing with the gold patch (SWE-bench GitHub #267)?
-- Check the failing-test parser against more frameworks before relying on it (UTBoost warning).
+- Check the failing-test parser against more frameworks before relying on it (UTBoost warning). Colour codes
+  and short SymPy rules fixed 2026-11-07.
 - Find or rule out the four unverified "Gap 2" papers by title.
 - Read AgentRewind's full text: how does it treat retained context, and is MettleBench coding?
 - Design the labelled test set (run each instance's tests 5+ times on base and gold).

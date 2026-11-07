@@ -49,7 +49,9 @@ def test_every_task_starts_broken_and_its_solution_passes(task: BenchTask, tmp_p
     async def check():
         return (await run_verify(task.verify, str(repo))).passed, await hidden_tests_pass(task, repo)
 
-    assert asyncio.run(check()) == (False, False)
+    # A demo app can pass its own tests on purpose, so that only the hidden checks show what's wrong
+    healthy_looking = json.loads((task.path / "task.json").read_text()).get("visible_tests_pass_at_start", False)
+    assert asyncio.run(check()) == (healthy_looking, False)
     shutil.copytree(task.path / "solution", repo, dirs_exist_ok=True)
     assert asyncio.run(check()) == (True, True)
 

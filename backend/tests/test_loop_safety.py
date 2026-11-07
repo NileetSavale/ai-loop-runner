@@ -582,3 +582,30 @@ def test_the_diff_includes_new_files(tmp_path):
 def test_an_unknown_retry_context_is_refused(tmp_path):
     with pytest.raises(ValueError):
         asyncio.run(run_loop("x", AsyncMock(), retry_context="sometimes"))
+
+
+def _reviewer(*replies):
+    from providers.base import LLMResult
+    provider = AsyncMock()
+    provider.complete.side_effect = [LLMResult(text=r, input_tokens=10, output_tokens=10) for r in replies]
+    return provider
+
+
+def test_the_security_auditors_findings_reach_the_coder_before_it_starts(tmp_path):
+    repo = _git_repo(tmp_path)
+    finding = '{"findings": [{"file": "a.py", "problem": "Password stored as MD5.", "fix": "Use scrypt.", "severity": "high"}]}'
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "new")))
+    with patch("core.loop.get_provider", return_value=_reviewer(finding)):
+        _, _, events = _run(repo, agent, AsyncMock(return_value=PASS), use_map=True, security_audit=True)
+    assert "## Security holes already in this code\n- [high] a.py: Password stored as MD5." in agent.call_args_list[0].args[0]
+    assert any(e["event"] == "security_findings" for e in events)
+
+
+def test_the_coder_cant_finish_with_changes_the_security_pair_sent_back(tmp_path):
+    repo = _git_repo(tmp_path)
+    agent = AsyncMock(side_effect=[_agent(FileEdit("a.py", "new")), _agent(FileEdit("a.py", "newer"))])
+    reviews = _reviewer('{"approve": false, "problems": ["a.py builds SQL from user input"]}', '{"approve": true, "problems": []}')
+    with patch("core.loop.get_provider", return_value=reviews):
+        status, _, _ = _run(repo, agent, AsyncMock(return_value=PASS), security_pair=True)
+    assert status == "passed" and agent.call_count == 2
+    assert "security reviewer sent your changes back:\n- a.py builds SQL from user input" in agent.call_args_list[1].args[0]

@@ -14,6 +14,8 @@ from database import get_session as db_session
 from core.agent import run_agent, AgentResult
 from core.edits import apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
 from core.repo_map import build_repo_map, locate_issue, map_for_prompt
+from core.security import (AUDIT_SYSTEM_PROMPT, PAIR_SYSTEM_PROMPT, audit_prompt, files_to_audit, findings_guide,
+                           pair_prompt, parse_findings, parse_pair)
 from core.tools import MAX_TEST_OUTPUT_CHARS, RepoTools
 from core.verifier import failing_tests, run_verify, short_test_output, tail, VerifyResult
 from core.git_ops import git_commit
@@ -210,10 +212,15 @@ async def run_loop(
     max_only_old_failures: int = MAX_ONLY_OLD_FAILURES,
     short_output: bool = False,
     max_old_failure_names: int | None = None,
+    security_audit: bool = False,
+    security_pair: bool = False,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
-    of it, and list at most this many already-failing tests up front."""
+    of it, and list at most this many already-failing tests up front.
+
+    security_audit: before work starts, an auditor reads the code the task touches and its findings go to the coder.
+    security_pair: a reviewer checks the coder's changes each time it runs the tests, and again before it can finish."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -275,18 +282,44 @@ async def run_loop(
         review_spend = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
         flagged: list[str] = []  # tests the reviewer thinks a human should check
 
-        async def review_test_change(path: str, diff: str, reason: str) -> tuple[bool, str]:
-            """A separate model call that sees the task, the test diff and the reason, but not the coder's reasoning."""
-            result = await get_provider(model, user_api_key).complete(REVIEW_SYSTEM_PROMPT, review_prompt(spec, diff, reason, baseline_failures), model, None)
+        async def ask(system: str, prompt: str, step: str) -> str:
+            """A reviewer's model call. Its spend is added to the current attempt."""
+            result = await get_provider(model, user_api_key).complete(system, prompt, model, None)
             cost = calculate_cost(model, result.input_tokens, result.output_tokens)
             review_spend["cost_usd"] += cost
             review_spend["input_tokens"] += result.input_tokens
             review_spend["output_tokens"] += result.output_tokens
             await emit("usage", {
-                "step": "test_review", "input_tokens": result.input_tokens, "output_tokens": result.output_tokens,
+                "step": step, "input_tokens": result.input_tokens, "output_tokens": result.output_tokens,
                 "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_usd": cost,
             })
-            approved, why, escalate = parse_review(result.text)
+            return result.text
+
+        findings: list[dict] = []
+        if security_audit:
+            audited = files_to_audit(focus, repo_map["edges"], is_test_path) if use_map else [f for f in files if not is_test_path(f)]
+            contents = {p: c for p in audited if (c := read_current(repo_path, p)) is not None}
+            findings = parse_findings(await ask(AUDIT_SYSTEM_PROMPT, audit_prompt(spec, contents), "security_audit"))
+            await emit("security_findings", {"files": list(contents), "findings": findings})
+            guide += findings_guide(findings)
+
+        security_reviews: dict[str, tuple[bool, list[str]]] = {}  # by diff, so an unchanged diff isn't paid for twice
+
+        async def security_review(changed: list[str]) -> list[str]:
+            diff = diff_so_far(repo_path, sorted(touched | set(changed)))
+            if not diff:
+                return []
+            if diff not in security_reviews:
+                approved, problems = parse_pair(await ask(PAIR_SYSTEM_PROMPT, pair_prompt(spec, findings, diff), "security_pair"))
+                security_reviews[diff] = (approved, problems)
+                await emit("security_review", {"approved": approved, "problems": problems})
+            approved, problems = security_reviews[diff]
+            return [] if approved else problems
+
+        async def review_test_change(path: str, diff: str, reason: str) -> tuple[bool, str]:
+            """A separate model call that sees the task, the test diff and the reason, but not the coder's reasoning."""
+            text = await ask(REVIEW_SYSTEM_PROMPT, review_prompt(spec, diff, reason, baseline_failures), "test_review")
+            approved, why, escalate = parse_review(text)
             await emit("test_change_review", {
                 "path": path, "reason": reason, "approved": approved, "escalate": escalate, "why": why, "diff": diff,
             })
@@ -320,7 +353,7 @@ async def run_loop(
             agent_result = await run_agent(
                 prompt, model, user_api_key=user_api_key, on_token=on_token,
                 tools=RepoTools(repo_path, verify_command, added_tests, review_test_change if allow_test_changes else None,
-                                short_output, old_failures),
+                                short_output, old_failures, security_review if security_pair else None),
                 max_cost_usd=cost_limit - total_cost,
                 on_event=emit,
                 add_tests=add_tests,
@@ -366,6 +399,16 @@ async def run_loop(
                 verify_result = await _judge_test_strength(
                     verify_result, repo_path, verify_command, sorted(touched | set(files))
                 )
+            if verify_result.passed and security_pair:
+                # The agent can't finish with changes the security reviewer sent back
+                problems = await security_review(changed)
+                if problems:
+                    verify_result = VerifyResult(False, verify_result.output + "\n\nThe tests pass, but the security reviewer "
+                                                 "sent your changes back:\n" + "\n".join(f"- {p}" for p in problems), 1)
+                agent_result.cost_usd += review_spend["cost_usd"]
+                agent_result.input_tokens += review_spend["input_tokens"]
+                agent_result.output_tokens += review_spend["output_tokens"]
+                review_spend.update(cost_usd=0.0, input_tokens=0, output_tokens=0)
             # Fed into the next retry, so it is cut like run_tests output: the full output once cost $0.35 on a
             # single retry. The end is kept, since that is where test runners print the summary.
             shown = (short_test_output(verify_result.output, old_failures) if short_output

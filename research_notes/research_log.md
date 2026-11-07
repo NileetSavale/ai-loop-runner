@@ -198,6 +198,26 @@ sent before, output to the reply. The total matches the API.
   - Short reviewer replies, or a cheaper reviewer model.
   - Whether the up-front guide pays for its 10%; an earlier one-bug measurement said yes.
 
+**Labelling 60 random Verified bugs: the decision gate (seed 2026, tests run 3× on the base and 3× with the official fix)**
+- Results (`/Volumes/LoopRunnerDocker/swe/labels.jsonl`, no API cost):
+  - Some visible test fails before and after the official fix, every run: **12 of 60 (20%)**.
+  - Some existing test passes before but fails with the official fix (it pins the old behaviour and the official
+    test patch changes it): **6 of 60 (10%)**.
+  - Flaky (mixed results across runs): 0 of 60.
+  - Any of these, including one visible test naming a file that doesn't exist yet: **17 of 60 (28%)**.
+  - Official fix not resolved in our setup: 1 of 60 (django-16145, an umask test).
+- **Gate: passed.** We set "about 10%+ affected means a paper". Both categories reach it on their own.
+- Caveats:
+  - 7 of 60 (12%) had test output our parser couldn't read (mostly sphinx), so they count as unaffected. The true
+    share may be higher.
+  - Many "already failing" tests are environmental (requests-1142 needs network, django-16145 umask, deprecated-API
+    warnings), not old behaviour. For a retry loop that doesn't matter: the agent sees a failure it didn't cause either way.
+  - django-13837's "already failing" entry is a test-loader error (`unittest.loader._FailedTest`), which may be an
+    artifact of how the tests are named.
+  - 60 is a small sample: a 95% interval on 20% is roughly 11%–32%, and on 10% roughly 4%–21%.
+- Next: check by hand the 6 must-change bugs against their official test patches, then use the labelled set to measure
+  how often loops (ours, Claude Code) retry or stop on failures they didn't cause.
+
 ## Open questions / to do
 - Check the reviewer's two approved astropy-13398 test changes against the official test patch.
 - Log fixed-rule blocks too (they're refused before review, so they don't show in `test_reviews`).

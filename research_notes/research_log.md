@@ -462,6 +462,16 @@ sent before, output to the reply. The total matches the API.
 - **Decision:** lean becomes the team's setting in `run_on_repo` (same solves, lowest total and steadiest cost, no
   cheating). Open: split lean into its two parts (low effort, short file list) to keep only the one that saves.
 
+**Sandboxed checks for real repos (no model calls)**
+- Checks for a real repo now run in a container (`core/sandbox.py`): no network, no host files or environment, the
+  repo's credential files covered by empty files, and dependencies installed once for Linux into Docker volumes that
+  checks can only read. Installing needs the network; nothing else does.
+- On the startup repo: detected Node 20 from its Dockerfiles, npm workspaces (root installs `web` and `api`), and 2
+  credential files. Install took about a minute; the full check (Vitest + two type-checks) takes 16 s and passes.
+  Probes confirmed: no network, empty credential files, read-only dependencies, no host home folder, no host secrets.
+- Two things needed handling: running `npm ci` inside a workspace member clobbers the root install, and Vitest writes
+  its cache into `node_modules` (given a throwaway scratch space).
+
 ## Open questions / to do
 - ~~The parser counts `FAILED` lines printed by pytest runs nested inside pytest's own tests (pytest-6197).~~ Fixed
   in a3b9832 (only the last pytest summary is read). After relabelling, pytest-6197 is "must change" only, and the

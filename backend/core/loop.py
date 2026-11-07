@@ -21,6 +21,7 @@ from core.tools import MAX_LISTED_FILES, MAX_TEST_OUTPUT_CHARS, RepoTools
 from core.verifier import failing_tests, run_verify, short_test_output, tail, VerifyResult
 from core.git_ops import git_commit
 from core.mutation import check_test_strength
+from core.sandbox import Sandbox
 from core.test_changes import REVIEW_SYSTEM_PROMPT, parse_review, review_prompt
 from providers.base import calculate_cost
 from providers.router import get_provider
@@ -155,7 +156,8 @@ def _build_guide(repo_map: dict, focus: list[dict], baseline: VerifyResult | Non
     return "".join(f"{p}\n\n" for p in parts)
 
 
-async def _judge_test_strength(result: VerifyResult, repo_path: str, verify_command: str, files: list[str]) -> VerifyResult:
+async def _judge_test_strength(result: VerifyResult, repo_path: str, verify_command: str, files: list[str],
+                               sandbox: Sandbox | None = None) -> VerifyResult:
     """Decide whether a green test run should count, given how many planted bugs the tests catch."""
     code = [f for f in files if not is_test_path(f) and not is_locked_path(f)]
     if not code:
@@ -165,7 +167,7 @@ async def _judge_test_strength(result: VerifyResult, repo_path: str, verify_comm
             exit_code=1,
         )
     python = [f for f in code if f.endswith(".py")]
-    strength = await check_test_strength(repo_path, verify_command, python) if python else None
+    strength = await check_test_strength(repo_path, verify_command, python, sandbox) if python else None
     if strength is None or strength.skipped_reason:
         reason = strength.skipped_reason if strength else "it only supports Python so far"
         return VerifyResult(True, f"{result.output}\nTest strength NOT checked: {reason}.", result.exit_code)
@@ -222,6 +224,7 @@ async def run_loop(
     reviewer_effort: str | None = None,
     max_listed_files: int = MAX_LISTED_FILES,
     audit_cache: str | None = None,
+    sandbox: Sandbox | None = None,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
@@ -234,7 +237,8 @@ async def run_loop(
     They think at the model's default otherwise, which was most of their output tokens.
     max_listed_files: how many paths list_files returns.
     audit_cache: a file where the security auditor keeps findings per file, so later tasks on the same repo only pay
-    to audit files that are new or changed."""
+    to audit files that are new or changed.
+    sandbox: run every check in a container (core/sandbox.py) rather than on this machine."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -275,7 +279,7 @@ async def run_loop(
         await broadcast_fn({"event": kind, "data": {**data, "id": event_id, "iteration": iteration}})
 
     try:
-        baseline = await run_verify(verify_command, repo_path) if require_failing or use_map else None
+        baseline = await run_verify(verify_command, repo_path, sandbox) if require_failing or use_map else None
         if require_failing and baseline.passed:
             reason = "The tests already pass before any work, so a pass would prove nothing. Stopped without calling the LLM."
             _mark_session_failed(session_id, reason)
@@ -347,7 +351,7 @@ async def run_loop(
                     break
             if written and approved:
                 apply_edits([FileEdit(path, content) for path, content in written.items()], repo_path)
-                check = await run_verify(verify_command, repo_path)
+                check = await run_verify(verify_command, repo_path, sandbox)
                 failing = failing_tests(check.output) - baseline_failures
                 ours = {n for n in failing if any(n.startswith(path) for path in written)}
                 # Only keep tests that fail for the right reason: a feature that's missing, not a file that won't load,
@@ -414,7 +418,8 @@ async def run_loop(
             agent_result = await run_agent(
                 prompt, model, user_api_key=user_api_key, on_token=on_token,
                 tools=RepoTools(repo_path, verify_command, added_tests, review_test_change if allow_test_changes else None,
-                                short_output, old_failures, security_review if security_pair else None, max_listed_files),
+                                short_output, old_failures, security_review if security_pair else None, max_listed_files,
+                                sandbox),
                 max_cost_usd=cost_limit - total_cost,
                 on_event=emit,
                 add_tests=add_tests,
@@ -441,10 +446,10 @@ async def run_loop(
             no_edit_attempts = 0 if changed else no_edit_attempts + 1
             # No change can't make this attempt pass: already-green tests prove nothing new
             if changed:
-                verify_result = await run_verify(verify_command, repo_path)
+                verify_result = await run_verify(verify_command, repo_path, sandbox)
             elif touched:
                 # Earlier changes are still in place, so the agent needs to know what they still break
-                current = await run_verify(verify_command, repo_path)
+                current = await run_verify(verify_command, repo_path, sandbox)
                 verify_result = VerifyResult(
                     passed=False,
                     output=f"You made no changes in this attempt. With your earlier changes, the tests give:\n{current.output}",
@@ -458,7 +463,7 @@ async def run_loop(
                 )
             if verify_result.passed and (added_tests or require_failing):
                 verify_result = await _judge_test_strength(
-                    verify_result, repo_path, verify_command, sorted(touched | set(files))
+                    verify_result, repo_path, verify_command, sorted(touched | set(files)), sandbox
                 )
             if verify_result.passed and security_pair:
                 # The agent can't finish with changes the security reviewer sent back

@@ -80,3 +80,9 @@ def test_failing_tests_are_read_through_colour_codes_and_short_sympy_rules():
     sympy_long = "__ sympy/codegen/tests/test_rewriting.py:test_create_expand_pow_optimization ___\n"
     assert failing_tests(coloured) == {"sklearn/a.py::test_roc"}
     assert failing_tests(sympy_long) == {"sympy/codegen/tests/test_rewriting.py:test_create_expand_pow_optimization"}
+
+
+def test_failures_printed_by_nested_pytest_runs_are_not_counted():
+    inner = "--- Captured stdout call ---\n=== short test summary info ===\nFAILED test_inner.py::test_1 - assert 0\n"
+    outer = "=== short test summary info ===\nPASSED testing/a.py::test_x\nFAILED testing/b.py::test_y - boom\n"
+    assert failing_tests(inner + outer) == {"testing/b.py::test_y"}

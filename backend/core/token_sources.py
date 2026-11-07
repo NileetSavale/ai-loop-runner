@@ -31,6 +31,8 @@ def prompt_sources(prompt: str) -> dict[str, int]:
         if text:
             sizes[label] = sizes.get(label, 0) + len(text)
 
+    if prompt.startswith(_RETRY.lstrip()):
+        return {"retry feedback": len(prompt)}  # a retry that continues the conversation sends only this
     cuts = list(_SECTION.finditer(prompt))
     add("task", prompt[:cuts[0].start()] if cuts else prompt)
     for match, following in zip(cuts, cuts[1:] + [None]):

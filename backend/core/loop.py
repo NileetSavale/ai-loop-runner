@@ -14,7 +14,7 @@ from database import get_session as db_session
 from core.agent import run_agent, AgentResult
 from core.edits import apply_edits, describe_change, filter_edits, is_locked_path, is_test_path, read_current, resolve_in_repo
 from core.repo_map import build_repo_map, locate_issue, map_for_prompt
-from core.tools import RepoTools
+from core.tools import MAX_TEST_OUTPUT_CHARS, RepoTools
 from core.verifier import failing_tests, run_verify, VerifyResult
 from core.git_ops import git_commit
 from core.mutation import check_test_strength
@@ -102,6 +102,12 @@ def record_guide(records: list[str], diff: str) -> str:
             f"```diff\n{diff}\n```"
         )
     return "".join(f"{p}\n\n" for p in parts)
+
+
+def tail(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return f"(the first {len(text) - limit} characters were cut)\n{text[-limit:]}"
 
 
 def continue_prompt(iteration: int, last_verify_output: str | None) -> str:
@@ -354,7 +360,9 @@ async def run_loop(
                 verify_result = await _judge_test_strength(
                     verify_result, repo_path, verify_command, sorted(touched | set(files))
                 )
-            last_verify_output = "\n".join(rejected + [verify_result.output])  # feed into next retry prompt
+            # Fed into the next retry, so it is cut like run_tests output: the full output once cost $0.35 on a
+            # single retry. The end is kept, since that is where test runners print the summary.
+            last_verify_output = "\n".join(rejected + [tail(verify_result.output, MAX_TEST_OUTPUT_CHARS)])
 
             stop_reason = None
             if not verify_result.passed:

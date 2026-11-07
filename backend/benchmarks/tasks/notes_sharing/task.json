@@ -1,0 +1,4 @@
+{
+ "prompt": "Add note sharing. The owner of a note can share it with another user: POST /notes/{note_id}/share with JSON {\"username\": \"<name>\"} returns 200. After that, the note appears in that user's GET /notes, and they can open it with GET /notes/{note_id}, but they can't delete it. Only the owner can share a note. Sharing with a username that doesn't exist returns 404.",
+ "verify": "{python} -m pytest tests -q"
+}

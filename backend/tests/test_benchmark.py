@@ -238,3 +238,17 @@ def test_finds_test_files_the_hidden_patch_creates():
     from benchmarks.swe_label import new_test_files
     patch = "--- /dev/null\n+++ b/tests/test_new.py\n@@ -0,0 +1 @@\n+x\n--- a/tests/test_old.py\n+++ b/tests/test_old.py\n"
     assert new_test_files(patch) == ["tests/test_new.py"]
+
+
+def test_token_sources_are_averaged_per_run_and_ranked_by_cost():
+    from benchmarks.run import RunResult, format_sources
+    runs = [
+        RunResult("t", "loop", "m", 1, token_sources={
+            "results: read_file": {"written": 4000, "read": 20000, "output": 0, "cost_usd": 0.03},
+            "task": {"written": 1000, "read": 5000, "output": 0, "cost_usd": 0.01},
+        }),
+        RunResult("u", "loop", "m", 1, token_sources={"results: read_file": {"written": 0, "read": 0, "output": 0, "cost_usd": 0.0}}),
+    ]
+    lines = format_sources(runs).splitlines()
+    assert lines[1].startswith("results: read_file") and "$0.0150" in lines[1] and "75%" in lines[1]
+    assert format_sources([RunResult("t", "claude-code", "m", 1)]) == ""

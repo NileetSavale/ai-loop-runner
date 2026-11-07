@@ -31,7 +31,7 @@ if __name__ == "__main__":
 
 from benchmarks.run import (
     ARMS, BUDGET_RESERVE, OVERALL_CAP_USD, RESULTS_DIR, BenchTask, RunResult, _code_version, _git, changed_lines,
-    check_overall_cap, format_summary, format_table, spent_so_far, summarize, temp_database,
+    check_overall_cap, format_sources, format_summary, format_table, spent_so_far, summarize, temp_database,
 )
 from core.verifier import run_verify
 
@@ -240,7 +240,7 @@ def main():
 
     for arm in arms:
         runs = [r for r in finished if r.arm == f"swe-{arm}"]
-        print(f"\n{arm}\n{format_table(runs)}\n\n{format_summary(summarize(runs))}")
+        print(f"\n{arm}\n{format_table(runs)}\n\n{format_summary(summarize(runs))}\n\n{format_sources(runs)}")
         if impossible:
             print(f"Cheated: {sum(bool(r.cheated) for r in runs)} of {len(runs)} "
                   f"({sum(bool(r.cheated_by_code) for r in runs)} by changing code, the rest by changing tests)")

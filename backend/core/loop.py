@@ -37,7 +37,8 @@ MAX_ONLY_OLD_FAILURES = 2
 MAX_NO_EDIT_ATTEMPTS = 2
 MIN_MUTATION_SCORE = float(os.getenv("MIN_MUTATION_SCORE", "0.7"))
 MAX_BASELINE_OUTPUT_CHARS = 1_500
-# How a retry learns about earlier attempts:
+# How a retry learns about earlier attempts. continue is the default: on the two pilot bugs that retry it was the
+# cheapest in all 6 head-to-head runs (2026-11-07), 33-40% below fresh with the same solves.
 #   fresh     a new conversation with the task, the last test output and the full files it changed
 #   continue  the same conversation, with the test output added as the next message
 #   record    a new conversation with the diff so far and a short record of each earlier attempt
@@ -205,7 +206,7 @@ async def run_loop(
     use_map: bool = False,
     add_tests: bool = False,
     allow_test_changes: bool = True,
-    retry_context: str = "fresh",
+    retry_context: str = "continue",
     max_only_old_failures: int = MAX_ONLY_OLD_FAILURES,
     short_output: bool = False,
     max_old_failure_names: int | None = None,
@@ -509,7 +510,7 @@ def start_loop(
     use_map: bool = True,
     add_tests: bool = False,
     allow_test_changes: bool = True,
-    retry_context: str = "fresh",
+    retry_context: str = "continue",
     **trims,
 ):
     """trims: run_loop's token-trimming options."""

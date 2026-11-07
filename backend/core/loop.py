@@ -197,10 +197,11 @@ async def run_loop(
             await emit("focus", {"files": focus, "tests_passing": baseline.passed})
 
         review_spend = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
+        flagged: list[str] = []  # tests the reviewer thinks a human should check
 
         async def review_test_change(path: str, diff: str, reason: str) -> tuple[bool, str]:
             """A separate model call that sees the task, the test diff and the reason, but not the coder's reasoning."""
-            result = await get_provider(model, user_api_key).complete(REVIEW_SYSTEM_PROMPT, review_prompt(spec, diff, reason), model, None)
+            result = await get_provider(model, user_api_key).complete(REVIEW_SYSTEM_PROMPT, review_prompt(spec, diff, reason, baseline_failures), model, None)
             cost = calculate_cost(model, result.input_tokens, result.output_tokens)
             review_spend["cost_usd"] += cost
             review_spend["input_tokens"] += result.input_tokens
@@ -209,8 +210,13 @@ async def run_loop(
                 "step": "test_review", "input_tokens": result.input_tokens, "output_tokens": result.output_tokens,
                 "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_usd": cost,
             })
-            approved, why = parse_review(result.text)
-            await emit("test_change_review", {"path": path, "reason": reason, "approved": approved, "why": why, "diff": diff})
+            approved, why, escalate = parse_review(result.text)
+            await emit("test_change_review", {
+                "path": path, "reason": reason, "approved": approved, "escalate": escalate, "why": why, "diff": diff,
+            })
+            if escalate:
+                flagged.append(f"{path}: {why}")
+                why += " The test has been flagged for a human to check. Don't change it again or work around it."
             return approved, why
 
         while iteration <= max_iterations:
@@ -297,7 +303,10 @@ async def run_loop(
                         f"\n\nThese tests passed before your changes and fail now, so your changes broke them: "
                         f"{', '.join(sorted(broken))}."
                     )
-                if total_cost >= cost_limit:
+                if flagged:
+                    # Retrying can't help: the agent mustn't touch the test, and the test may be wrong
+                    stop_reason = f"Stopped: flagged a test for a human to check ({flagged[0]})"
+                elif total_cost >= cost_limit:
                     stop_reason = f"Stopped: spent ${total_cost:.2f}, over the ${cost_limit:.2f} session limit."
                 elif no_edit_attempts >= MAX_NO_EDIT_ATTEMPTS:
                     stop_reason = f"Stopped: {no_edit_attempts} attempts in a row made no changes."

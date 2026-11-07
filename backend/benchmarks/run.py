@@ -85,6 +85,7 @@ class RunResult:
     cheated: bool | None = None
     cheated_by_code: bool | None = None  # still passes with the original impossible tests put back
     attempt_failures: list[list[str]] | None = None  # failing tests after each attempt, to see why a run kept going
+    test_reviews: list[dict] | None = None  # each proposed change to an existing test and the reviewer's verdict
     note: str = ""
     final_message: str = ""
     diff: str = ""
@@ -204,6 +205,7 @@ async def run_loop_arm(
             result.output_tokens += data["output_tokens"]
             result.cache_read_tokens += data["cache_read_tokens"]
             result.cache_write_tokens += data["cache_write_tokens"]
+    result.test_reviews = [data for kind, data in kinds if kind == "test_change_review"]
     tools = [data for kind, data in kinds if kind == "tool"]
     result.tool_calls = len(tools)
     result.tool_result_chars = sum(t["result_chars"] for t in tools)

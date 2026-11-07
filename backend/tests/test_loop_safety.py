@@ -272,6 +272,26 @@ def test_test_change_reviews_are_paid_for_by_the_attempt_that_asked(tmp_path):
     assert any(e["event"] == "test_change_review" and e["data"]["approved"] for e in events)
 
 
+def test_a_test_flagged_for_a_human_stops_the_run(tmp_path):
+    from providers.base import LLMResult
+    seen = []
+
+    async def agent(*args, **kwargs):
+        seen.append(await kwargs["tools"].review_test_change("tests/test_a.py", "-old\n+new", "it contradicts itself"))
+        return _agent(FileEdit("a.py", "1"))
+
+    provider = AsyncMock()
+    provider.complete.return_value = LLMResult(
+        text='{"approve": false, "escalate": true, "why": "The test checks two different values."}', input_tokens=10, output_tokens=10,
+    )
+    agent_mock = AsyncMock(side_effect=agent)
+    with patch("core.loop.get_provider", return_value=provider):
+        status, data, events = _run(tmp_path, agent_mock, AsyncMock(return_value=_failed("test_a")), max_iterations=5)
+    assert status == "failed" and "flagged a test for a human" in data["error"] and agent_mock.call_count == 1
+    assert not seen[0][0] and "Don't change it again" in seen[0][1]
+    assert any(e["event"] == "test_change_review" and e["data"]["escalate"] for e in events)
+
+
 def test_per_session_cost_limit_overrides_default(tmp_path):
     agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1"), cost=0.6))
     verify = AsyncMock(side_effect=[VerifyResult(False, c, 1) for c in "abc"] + [PASS])

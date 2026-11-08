@@ -618,3 +618,25 @@ verified (titles we don't recognise). Don't cite anything here until it's marked
 | 50 | End-to-End Arguments in System Design (Saltzer, Reed & Clark, 1984) | ok |
 
 "ok" for items 5–50 comes from prior knowledge, not a fresh check. Groups 3–4 are mostly off the research question.
+
+**Main experiment results (2026-11-08): 60 labelled bugs, one run per bug and setup, Sonnet 5.5, $12.95**
+- Results: `backend/benchmarks/results/20261107-193001-swe-claude-sonnet-5-5.json`.
+
+| Setup | Clean (38) | Already failing (14) | Must change (8) | All 60 | Cost | Per bug |
+|---|---|---|---|---|---|---|
+| lean | 33 | 11 | 6 | 50 | $3.67 | $0.061 |
+| lean, no attribution | 33 | 12 | 7 | 52 | $6.82 | $0.114 |
+| Claude Code | 27 | 11 | 7 | 45 | $2.46 | $0.041 |
+
+- Cost by group, lean vs no attribution: clean $2.02 vs $2.40; already failing **$0.83 vs $3.67 (4.4x, 1.0 vs 2.8
+  attempts)**; must change $0.82 vs $0.75.
+- Prediction 1 (clean: same) held. Prediction 2 (labelled: noattr costs more, solves no more): **cost part held
+  (2.7x on the 22)**; solves 17 vs 19, so "no more" did not hold strictly. Of noattr's 3 extra solves, 2
+  (sympy-17655, sympy-18698) were single-attempt visible passes in both setups (sampling noise); 1 (django-13837) is a
+  real loss for lean: it stopped to flag a test for a human. Lean's only extra solve: sphinx-8548.
+- Old-failure stop rule: 12 lean runs stopped on "only already-failing tests left"; 11 of 12 solved the hidden tests.
+- Prediction 3 (Claude Code about as many as lean) roughly held: lean 50 vs 45 (discordant 7 vs 2, exact p 0.18);
+  noattr vs Claude Code 7 vs 0 (p 0.016) at 2.8x the cost.
+- No setup changed a test to pass (cheated 0 in all three). Lean: 7 visible passes failed hidden tests, 11 reported
+  failures passed them.
+- Limits: one run per bug; the solve differences between the loop setups are within noise (p 0.63).

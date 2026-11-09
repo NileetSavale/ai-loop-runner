@@ -690,3 +690,18 @@ def test_keyword_locator_fills_the_likely_places(tmp_path):
     assert locate.call_args.args[1] == "do it"
     assert next(e for e in events if e.get("event") == "focus")["data"]["files"] == found
     assert "- deep/b.py (task words match f)" in agent.call_args_list[0].args[0]
+
+
+def test_notes_turn_continues_the_coder_read_only_and_is_paid_for(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    verify = AsyncMock(side_effect=[FAIL, PASS])
+    coder = _agent(FileEdit("a.py", "1"))
+    coder.messages = [{"role": "user", "content": "task"}]
+    notes = AgentResult(raw_output="", edits=[], input_tokens=1, output_tokens=1, cost_usd=0.02,
+                        final_text="- a.py - holds x")
+    agent = AsyncMock(side_effect=[coder, notes])
+    _, _, events = _run(tmp_path, agent, verify, use_map=True, write_notes="write notes")
+    call = agent.call_args_list[1]
+    assert call.args[0] == "write notes" and call.kwargs["history"] == coder.messages
+    assert call.kwargs["tools"].read_only and call.kwargs["tools"].keep_schemas
+    assert next(e for e in events if e.get("event") == "repo_notes")["data"]["text"] == "- a.py - holds x"

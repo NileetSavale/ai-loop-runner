@@ -52,6 +52,7 @@ MAX_DIFF_CHARS = 8_000
 MAX_RECORD_ACTIONS = 20
 MAX_RECORD_SUMMARY_CHARS = 600
 MAX_RECORD_TESTS = 15
+NOTES_BUDGET_USD = 0.10  # writing notes for later tasks, after the run
 
 
 def build_file_context(files: list[str], repo_path: str) -> str:
@@ -230,6 +231,7 @@ async def run_loop(
     map_in_prompt: bool = True,
     locator: str = "names",
     coder_effort: str | None = None,
+    write_notes: str | None = None,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
@@ -252,7 +254,9 @@ async def run_loop(
     locator: how the likely places are picked after the files a test failure points at. "names" matches task words
     against file and symbol names (locate_issue); "keywords" ranks every function by keyword search over its code
     (core/keyword_locate.py).
-    coder_effort: thinking effort for the coder ("low" to "max"); None keeps the model's default."""
+    coder_effort: thinking effort for the coder ("low" to "max"); None keeps the model's default.
+    write_notes: a prompt. Once the run ends, the coder continues its last conversation with it, read-only, and its
+    reply goes out as a "repo_notes" event (core/repo_memory.py keeps it for later tasks)."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -625,6 +629,21 @@ async def run_loop(
                 iteration += 1
                 if iteration > max_iterations:
                     await broadcast_fn({"event": "session_complete", "data": {"status": "failed"}})
+
+        if write_notes and history:
+            notes_result = await run_agent(
+                write_notes, model, user_api_key=user_api_key,
+                tools=RepoTools(repo_path, verify_command, added_tests, review_test_change if allow_test_changes else None,
+                                short_output, old_failures, None, max_listed_files, sandbox, read_only=True,
+                                keep_schemas=True),
+                max_cost_usd=NOTES_BUDGET_USD, on_event=emit, add_tests=add_tests, history=history, effort=coder_effort,
+            )
+            await emit("repo_notes", {"text": notes_result.final_text or notes_result.raw_output})
+            with db_session() as db:
+                s = db.get(Session, session_id)
+                s.total_cost_usd += notes_result.cost_usd
+                db.add(s)
+                db.commit()
 
     except asyncio.CancelledError:
         _mark_session_failed(session_id, "cancelled")

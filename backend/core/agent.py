@@ -153,7 +153,7 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
     system = system_prompt or _with_tests_rule(TOOL_SYSTEM_PROMPT, add_tests).replace(
         "{test_change_rule}", _TEST_CHANGES_REVIEWED if reviewed else _TEST_CHANGES_LOCKED)
     schemas = TOOL_SCHEMAS if reviewed else [t for t in TOOL_SCHEMAS if t["name"] != "change_existing_test"]
-    if tools.read_only:
+    if tools.read_only and not tools.keep_schemas:
         schemas = [t for t in TOOL_SCHEMAS if t["name"] in READ_ONLY_TOOLS]
     # What each request is made of, so spend can be traced to its source (see core/token_sources.py)
     sent = {SYSTEM: len(system) + len(json.dumps(schemas))}

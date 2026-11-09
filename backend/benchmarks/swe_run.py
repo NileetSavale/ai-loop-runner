@@ -29,6 +29,7 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv(BACKEND / ".env")
 
+import benchmarks.run as bench
 from benchmarks.run import (
     ARMS, BUDGET_RESERVE, OVERALL_CAP_USD, RESULTS_DIR, BenchTask, RunResult, _code_version, _git, changed_lines,
     check_overall_cap, format_sources, format_summary, format_table, spent_so_far, summarize, temp_database,
@@ -184,11 +185,17 @@ def main():
     parser.add_argument("--max-run-usd", type=float, required=True)
     parser.add_argument("--max-total-usd", type=float, required=True, help="Stop starting runs this budget can't cover.")
     parser.add_argument("--yes", action="store_true", help="Skip the spending confirmation.")
+    parser.add_argument("--memory-dir", type=Path, help="Where the memory arms keep what they learn. Give a new folder "
+                        "per experiment, and the bugs in date order.")
     args = parser.parse_args()
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("ANTHROPIC_API_KEY isn't set.")
     instance_ids, arms = args.instances.split(","), args.arms.split(",")
+    if any("memory" in a or "transcripts" in a for a in arms):
+        if not args.memory_dir or args.memory_dir.exists():
+            raise SystemExit("Memory arms need --memory-dir pointing at a folder that doesn't exist yet.")
+        bench.MEMORY_DIR = args.memory_dir
     worst_case = min(len(instance_ids) * len(arms) * args.max_run_usd, args.max_total_usd)
     spent = spent_so_far()
     check_overall_cap(worst_case, spent, OVERALL_CAP_USD)

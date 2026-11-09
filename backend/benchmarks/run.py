@@ -37,6 +37,7 @@ from sqlmodel import SQLModel, create_engine, select
 import core.loop as loop
 import database
 from core.edits import is_test_path
+from core.repo_memory import NOTES_PROMPT, RepoMemory, memory_section, transcript_section
 from core.scout import handover, run_scout, tried_summary
 from core.token_sources import merge
 from providers.base import calculate_cost
@@ -94,6 +95,7 @@ class RunResult:
     tests_written: dict | None = None  # what the tester wrote before the coder started, and whether it was kept
     # Estimated tokens and cost by where they came from: {source: {"written", "read", "output", "cost_usd"}}
     token_sources: dict[str, dict[str, float]] | None = None
+    memory: dict | None = None  # repo memory arms: notes stored, stale and used going in, and kept coming out
     note: str = ""
     final_message: str = ""
     diff: str = ""
@@ -240,7 +242,9 @@ async def run_loop_arm(
     event_tokens = result.input_tokens + result.output_tokens + result.cache_read_tokens + result.cache_write_tokens
     result.usage_matches = event_tokens == recorded_tokens and abs(result.cost_usd - recorded_cost) < 1e-9
     checked = [data for kind, data in kinds if kind == "attempt_checked"]
-    return {"verify_output": last_output, **(checked[-1] if checked else {"failing": [], "broken": [], "final_text": ""})}
+    notes = [data["text"] for kind, data in kinds if kind == "repo_notes"]
+    return {"verify_output": last_output, **(checked[-1] if checked else {"failing": [], "broken": [], "final_text": ""}),
+            "actions": [f"{t['tool']} {t['target']}".strip() for t in tools], "notes": notes[-1] if notes else ""}
 
 
 def apply_claude_output(stdout: str, result: RunResult, verify: str = ""):
@@ -324,6 +328,9 @@ CHEAP_MODEL = "claude-haiku-5-5"
 LEAN = dict(retry_context="continue", max_only_old_failures=1, short_output=True, reviewer_effort="low",
             max_listed_files=100)
 SCOUT_BUDGET_USD = 0.10
+# Where the repo memory arms keep what they learn, one file per arm and repo. swe_run sets it per experiment, so
+# every experiment starts with no memory.
+MEMORY_DIR: Path | None = None
 _HUNK_CONTEXT = re.compile(r"^@@ [^@]* @@.*?\b(?:def|class)\s+(\w+)", re.M)
 
 
@@ -415,6 +422,33 @@ async def run_cascade_arm(task: BenchTask, repo: Path, model: str, budget: float
     result.note = f"Escalated to {model} after {cheap_name}: {cheap.agent_status} ({cheap.note or 'no note'}). {strong.note}".strip()
 
 
+async def run_memory_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult,
+                         keep: str = "notes", **settings):
+    """lean with what earlier tasks on the same repo left behind. Bugs must run in date order.
+
+    keep: "notes" has the coder write notes on the code it read once each task ends, and gives later tasks the notes
+    whose code is unchanged (core/repo_memory.py); "transcripts" gives later tasks the most similar earlier task's
+    tool calls and last words instead, the baseline prior work found hard to beat."""
+    if MEMORY_DIR is None:
+        raise RuntimeError("Set benchmarks.run.MEMORY_DIR (swe_run --memory-dir) for the memory arms")
+    memory = RepoMemory(MEMORY_DIR / f"{result.arm}-{task.name.rsplit('-', 1)[0]}.json")
+    base = _git(repo, "rev-parse", "HEAD")
+    if keep == "notes":
+        notes, counts = memory.relevant(str(repo), task.prompt)
+        prompt = task.prompt + memory_section(notes)
+    else:
+        past = memory.similar_transcript(task.prompt)
+        prompt, counts = task.prompt + transcript_section(past), {"stored": len(memory.transcripts), "used": int(bool(past))}
+    left = await run_loop_arm(replace(task, prompt=prompt), repo, model, budget, result, **LEAN, **settings,
+                              **({"write_notes": NOTES_PROMPT} if keep == "notes" else {}))
+    if keep == "notes":
+        counts["kept"] = memory.add_notes(left["notes"], str(repo), base, task.name)
+    else:
+        memory.add_transcript(task.prompt, left["actions"], left["final_text"], result.agent_status)
+    memory.save()
+    result.memory = counts
+
+
 ARMS = {
     "loop": run_loop_arm,
     "loop-locked": partial(run_loop_arm, allow_test_changes=False),  # existing tests can't change at all
@@ -446,6 +480,9 @@ ARMS = {
     "loop-lean-low": partial(run_loop_arm, **LEAN, coder_effort="low"),
     "loop-lean-medium": partial(run_loop_arm, **LEAN, coder_effort="medium"),
     "cascade-effort": partial(run_cascade_arm, tell_tried=True, cheap_effort="low"),
+    # Research step 3: what earlier tasks on the same repo learned (run bugs in date order, with --memory-dir)
+    "loop-lean-memory": run_memory_arm,
+    "loop-lean-transcripts": partial(run_memory_arm, keep="transcripts"),
     # Security agents beside the coder (see core/security.py)
     "loop-pair": partial(run_loop_arm, retry_context="continue", security_pair=True),
     "loop-audit": partial(run_loop_arm, retry_context="continue", security_audit=True),

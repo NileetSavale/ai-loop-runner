@@ -78,9 +78,12 @@ class ToolError(Exception):
 class RepoTools:
     def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None, review_test_change=None,
                  short_output: bool = False, old_failures: set[str] = frozenset(), review_changes=None,
-                 max_listed_files: int = MAX_LISTED_FILES, sandbox: Sandbox | None = None, read_only: bool = False):
+                 max_listed_files: int = MAX_LISTED_FILES, sandbox: Sandbox | None = None, read_only: bool = False,
+                 keep_schemas: bool = False):
         self.repo_path = repo_path
         self.read_only = read_only
+        # Read-only, but still offering every tool, so a continued conversation keeps its cache
+        self.keep_schemas = keep_schemas
         self.sandbox = sandbox
         self.max_listed_files = max_listed_files
         # async (changed paths) -> problems. A security reviewer that sees the changes each time the tests run.

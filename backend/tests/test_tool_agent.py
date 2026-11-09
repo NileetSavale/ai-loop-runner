@@ -432,3 +432,54 @@ def test_agents_never_see_files_holding_credentials(tmp_path):
     assert ".env\n" not in listed + "\n" and ".env.example" in listed
     assert all(is_secret_path(p) for p in ("api/.env", "certs/server.pem", "id_rsa", ".env.production"))
     assert not any(is_secret_path(p) for p in ("lib/secret-auth.ts", ".env.example", "environment.ts", "keys.ts"))
+
+
+def test_compact_search_groups_by_file_and_points_to_the_busiest_files(tmp_path):
+    (tmp_path / "a.py").write_text("hit\n" * 25)
+    (tmp_path / "b.py").write_text("hit\n" * 10)
+    out, err = asyncio.run(RepoTools(str(tmp_path), "true", compact=True).run("search_code", {"query": "hit"}))
+    assert not err and out.count("a.py") == 2 and "b.py\n  1: hit" in out  # each path once, plus once in the summary
+    assert "(35 matches in 2 files, showing the first 30. Most matches: a.py (25), b.py (10)." in out
+    plain, _ = asyncio.run(RepoTools(str(tmp_path), "true").run("search_code", {"query": "hit"}))
+    assert plain.startswith("a.py:1: hit") and plain.count("\n") == 34  # unchanged without compact
+
+
+def test_compact_reads_default_to_a_shorter_window(tmp_path):
+    (tmp_path / "a.py").write_text("".join(f"line {i}\n" for i in range(1, 201)))
+    out, _ = asyncio.run(RepoTools(str(tmp_path), "true", compact=True).run("read_file", {"path": "a.py"}))
+    assert "line 80\n" in out and "line 81\n" not in out and "showing lines 1-80 of 200. Set start_line or end_line" in out
+    out, _ = asyncio.run(RepoTools(str(tmp_path), "true", compact=True).run("read_file", {"path": "a.py", "end_line": 150}))
+    assert "line 150\n" in out  # asking for a range still gets it
+
+
+def test_explore_budget_nudges_once_and_edits_reset_the_count(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    reads = [("read_file", {"path": "a.py"})] * 3
+    model = ScriptedModel([turn(*reads), turn(*reads), turn(text="done")])
+    tools = RepoTools(str(tmp_path), "true")
+    with patch("core.agent.get_provider", return_value=model):
+        asyncio.run(run_agent("do it", MODEL, tools=tools, explore_budget=4))
+    results = [r["content"] for m in model.seen[-1] if m["role"] == "user" and isinstance(m["content"], list)
+               for r in m["content"]]
+    nudges = [i for i, c in enumerate(results) if "Decide on a fix now" in c]
+    assert nudges == [3]  # the 4th read, once
+
+    model = ScriptedModel([turn(*reads), turn(("edit_file", {"path": "a.py", "old_text": "1", "new_text": "2"}), *reads),
+                           turn(text="done")])
+    with patch("core.agent.get_provider", return_value=model):
+        asyncio.run(run_agent("do it", MODEL, tools=RepoTools(str(tmp_path), "true"), explore_budget=4))
+    assert not any("Decide on a fix" in str(m) for m in model.seen[-1])
+
+
+def test_clearing_old_results_is_asked_for_only_when_set(tmp_path):
+    seen = []
+
+    class Model(ScriptedModel):
+        async def complete_with_tools(self, system, messages, tools, model, on_token=None, **kw):
+            seen.append(kw)
+            return await super().complete_with_tools(system, messages, tools, model, on_token)
+
+    for clear in (True, False):
+        with patch("core.agent.get_provider", return_value=Model([turn(text="done")])):
+            asyncio.run(run_agent("do it", MODEL, tools=RepoTools(str(tmp_path), "true"), clear_old_results=clear))
+    assert seen[0]["context_editing"]["edits"][0]["type"] == "clear_tool_uses_20250919" and seen[1] == {}

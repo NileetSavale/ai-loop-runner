@@ -233,6 +233,9 @@ async def run_loop(
     coder_effort: str | None = None,
     write_notes: str | None = None,
     knowledge=None,
+    compact_tools: bool = False,
+    clear_old_results: bool = False,
+    explore_budget: int | None = None,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
@@ -258,7 +261,10 @@ async def run_loop(
     coder_effort: thinking effort for the coder ("low" to "max"); None keeps the model's default.
     write_notes: a prompt. Once the run ends, the coder continues its last conversation with it, read-only, and its
     reply goes out as a "repo_notes" event (core/repo_memory.py keeps it for later tasks).
-    knowledge: a CodeGraph (core/code_graph.py). The coder gets the lookup_code tool to query it."""
+    knowledge: a CodeGraph (core/code_graph.py). The coder gets the lookup_code tool to query it.
+    compact_tools, clear_old_results, explore_budget: exploring trims, off until measured. Fewer, grouped search hits
+    and shorter default reads (core/tools.py); old tool results cleared by the API once a request is long; and one
+    nudge to commit to a fix after this many reads and searches with no change (core/agent.py)."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -450,12 +456,14 @@ async def run_loop(
                 prompt, model, user_api_key=user_api_key, on_token=on_token,
                 tools=RepoTools(repo_path, verify_command, added_tests, review_test_change if allow_test_changes else None,
                                 short_output, old_failures, security_review if security_pair else None, max_listed_files,
-                                sandbox, knowledge=knowledge),
+                                sandbox, knowledge=knowledge, compact=compact_tools),
                 max_cost_usd=cost_limit - total_cost,
                 on_event=emit,
                 add_tests=add_tests,
                 history=history if retry_context == "continue" else None,
                 effort=coder_effort,
+                clear_old_results=clear_old_results,
+                explore_budget=explore_budget,
             )
             history = agent_result.messages or None
             # The reviewer's spend belongs to this attempt, so limits and records include it
@@ -637,8 +645,9 @@ async def run_loop(
                 write_notes, model, user_api_key=user_api_key,
                 tools=RepoTools(repo_path, verify_command, added_tests, review_test_change if allow_test_changes else None,
                                 short_output, old_failures, None, max_listed_files, sandbox, read_only=True,
-                                keep_schemas=True, knowledge=knowledge),
+                                keep_schemas=True, knowledge=knowledge, compact=compact_tools),
                 max_cost_usd=NOTES_BUDGET_USD, on_event=emit, add_tests=add_tests, history=history, effort=coder_effort,
+                clear_old_results=clear_old_results,
             )
             await emit("repo_notes", {"text": notes_result.final_text or notes_result.raw_output})
             with db_session() as db:

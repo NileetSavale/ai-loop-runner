@@ -332,6 +332,9 @@ SCOUT_BUDGET_USD = 0.10
 # Where the repo memory arms keep what they learn, one file per arm and repo. swe_run sets it per experiment, so
 # every experiment starts with no memory.
 MEMORY_DIR: Path | None = None
+# In the main run, lean's median run made 6 tool calls, its 5 costliest 21-41, and 12 of 60 runs reached 15
+EXPLORE_BUDGET = 15
+TRIMS = dict(compact_tools=True, clear_old_results=True, explore_budget=EXPLORE_BUDGET)
 _HUNK_CONTEXT = re.compile(r"^@@ [^@]* @@.*?\b(?:def|class)\s+(\w+)", re.M)
 
 
@@ -492,6 +495,11 @@ ARMS = {
     "loop-lean-low": partial(run_loop_arm, **LEAN, coder_effort="low"),
     "loop-lean-medium": partial(run_loop_arm, **LEAN, coder_effort="medium"),
     "cascade-effort": partial(run_cascade_arm, tell_tried=True, cheap_effort="low"),
+    # Exploring trims (methods 6-9): one at a time on top of lean, then all four together
+    "loop-lean-compact": partial(run_loop_arm, **LEAN, compact_tools=True),
+    "loop-lean-clear": partial(run_loop_arm, **LEAN, clear_old_results=True),
+    "loop-lean-budget": partial(run_loop_arm, **LEAN, explore_budget=EXPLORE_BUDGET),
+    "loop-lean-trim": partial(run_loop_arm, **LEAN, **TRIMS),
     # Research step 3: what earlier tasks on the same repo learned (run bugs in date order, with --memory-dir)
     "loop-lean-memory": run_memory_arm,
     "loop-lean-transcripts": partial(run_memory_arm, keep="transcripts"),

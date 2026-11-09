@@ -7,14 +7,12 @@ from the issue text alone, and check whether the official fix's files and functi
 fail before any change aren't used, since most SWE-bench bugs have none (the failing test is hidden).
 """
 import argparse
-import ast
 import json
-import math
 import re
 import sys
 import tempfile
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 from unittest.mock import patch
 
@@ -24,72 +22,10 @@ sys.path.insert(0, str(BACKEND))
 import core.repo_map as repo_map
 from benchmarks.swe_run import checkout, load_instance
 from core.edits import is_test_path
+from core.keyword_locate import BM25, functions, locate_by_keywords, tokens
 
 TOP_K = (1, 3, 5, 10)
-_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_CAMEL = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
-_STOP = {
-    "the", "and", "for", "with", "this", "that", "from", "not", "but", "are", "was", "has", "have", "can", "will",
-    "would", "should", "could", "when", "then", "than", "into", "use", "used", "using", "def", "self", "return",
-    "import", "class", "none", "true", "false", "if", "else", "elif", "in", "is", "of", "to", "it", "be", "as", "or",
-    "on", "an", "at", "by", "we", "you", "my", "so", "do", "does", "there", "which", "what", "also", "one", "get",
-}
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@", re.M)
-
-
-def tokens(text: str) -> list[str]:
-    """Identifiers split at underscores and case changes, so get_unitFormat matches 'unit' and 'format'."""
-    out = []
-    for ident in _IDENT.findall(text):
-        for part in ident.split("_"):
-            out += [w.lower() for w in _CAMEL.findall(part)]
-    return [w for w in out if len(w) > 1 and w not in _STOP]
-
-
-class BM25:
-    def __init__(self, docs: dict[str, list[str]], k1: float = 1.2, b: float = 0.75):
-        self.k1, self.b = k1, b
-        self.tf = {d: Counter(t) for d, t in docs.items()}
-        self.len = {d: len(t) for d, t in docs.items()}
-        self.avg = sum(self.len.values()) / max(len(docs), 1)
-        df = Counter(w for c in self.tf.values() for w in c)
-        n = len(docs)
-        self.idf = {w: math.log(1 + (n - f + 0.5) / (f + 0.5)) for w, f in df.items()}
-
-    def scores(self, query: list[str]) -> dict[str, float]:
-        q = Counter(query)
-        out = {}
-        for d, tf in self.tf.items():
-            s = 0.0
-            norm = self.k1 * (1 - self.b + self.b * self.len[d] / self.avg)
-            for w, qn in q.items():
-                if w in tf:
-                    s += self.idf[w] * tf[w] * (self.k1 + 1) / (tf[w] + norm)
-            if s:
-                out[d] = s
-        return out
-
-
-def functions(path: str, source: str) -> list[dict]:
-    """Every function and class, nested ones included, as path::Qual.name with its line span and text."""
-    try:
-        tree = ast.parse(source)
-    except (SyntaxError, ValueError):
-        return []
-    lines = source.splitlines()
-    found = []
-
-    def visit(node, prefix):
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                name = f"{prefix}{child.name}"
-                end = getattr(child, "end_lineno", child.lineno)
-                found.append({"id": f"{path}::{name}", "path": path, "start": child.lineno, "end": end,
-                              "text": "\n".join(lines[child.lineno - 1:end]), "name": child.name})
-                visit(child, f"{name}.")
-
-    visit(tree, "")
-    return found
 
 
 def gold_targets(fix: str, sources: dict[str, str]) -> tuple[set[str], set[str]]:
@@ -209,6 +145,9 @@ def localize(repo: Path, issue: str) -> tuple[dict[str, list[str]], dict[str, li
         seed[p] = seed.get(p, 0) + max(bm25_files.values(), default=1)
     ppr = timed("pagerank", lambda: personalized_pagerank(nodes, edges, seed))
     files["pagerank (bm25 + traceback seeds)"] = [p for p in ranked(ppr) if p in code]
+    # The loop's own locator (core/keyword_locate.py), which also reads non-Python files: should match the line above
+    files["keyword locator (loop)"] = [f["path"] for f in timed("keyword locator (loop)",
+                                                                  lambda: locate_by_keywords(str(repo), issue, 10))]
     files["fusion"] = fuse(files["traceback, then bm25"], files["bm25 functions -> files"],
                            files["pagerank (bm25 + traceback seeds)"])
     return files, funcs, seconds, sources

@@ -30,7 +30,7 @@ class AnthropicProvider(LLMProvider):
             truncated=final.stop_reason == "max_tokens",
         )
 
-    async def complete_with_tools(self, system, messages, tools, model, on_token=None) -> ToolTurn:
+    async def complete_with_tools(self, system, messages, tools, model, on_token=None, effort=None) -> ToolTurn:
         client = sdk.AsyncAnthropic(api_key=self.api_key)
         text = ""
 
@@ -42,6 +42,7 @@ class AnthropicProvider(LLMProvider):
             messages=messages,
             tools=tools,
             cache_control={"type": "ephemeral"},
+            **({"output_config": {"effort": effort}} if effort else {}),
         ) as stream:
             async for chunk in stream.text_stream:
                 text += chunk

@@ -100,14 +100,14 @@ def _repo(tmp_path) -> Path:
     return repo
 
 
-def _cascade(tmp_path, cheap_status, cheap_note="", tell_tried=False):
+def _cascade(tmp_path, cheap_status, cheap_note="", tell_tried=False, **options):
     repo = _repo(tmp_path)
-    calls = []
+    calls, scouts = [], []
 
     async def fake_loop(task, repo_path, model, budget, result, **settings):
-        calls.append((model, task.prompt, (repo_path / "a.py").read_text()))
+        calls.append((model, task.prompt, (repo_path / "a.py").read_text(), settings.get("coder_effort")))
         result.cost_usd += 0.01
-        if model == bench.CHEAP_MODEL:
+        if len(calls) == 1:
             (repo_path / "a.py").write_text(BASE.replace("x + 2", "x + 1  # cheap attempt"))
             (repo_path / "new.py").write_text("junk\n")
             result.agent_status, result.note = cheap_status, cheap_note
@@ -115,7 +115,9 @@ def _cascade(tmp_path, cheap_status, cheap_note="", tell_tried=False):
         result.agent_status = "passed"
         return {"verify_output": "", "failing": [], "broken": [], "final_text": ""}
 
-    async def fake_scout(prompt, repo_path, model, budget):
+    async def fake_scout(prompt, repo_path, model, budget, effort=None):
+        scouts.append((model, effort))
+
         class R:
             cost_usd, input_tokens, output_tokens, actions = 0.001, 10, 5, ["read_file a.py"]
         return NOTES, R()
@@ -123,7 +125,8 @@ def _cascade(tmp_path, cheap_status, cheap_note="", tell_tried=False):
     result = RunResult("t", "cascade", "claude-sonnet-5-5", 1)
     with patch.object(bench, "run_loop_arm", fake_loop), patch.object(bench, "run_scout", fake_scout):
         asyncio.run(run_cascade_arm(BenchTask("t", repo, "Fix f.", "true"), repo, "claude-sonnet-5-5", 1.0, result,
-                                    tell_tried=tell_tried))
+                                    tell_tried=tell_tried, **options))
+    result.scouts = scouts
     return repo, calls, result
 
 
@@ -140,7 +143,7 @@ def test_cascade_keeps_a_cheap_attempt_stopped_on_old_failures(tmp_path):
 
 def test_escalation_undoes_the_cheap_attempt_and_hands_over_notes_only(tmp_path):
     repo, calls, result = _cascade(tmp_path, "failed", "Stopped: the same failure repeated 3 times in a row.")
-    model, prompt, code_seen = calls[1]
+    model, prompt, code_seen, _ = calls[1]
     assert model == "claude-sonnet-5-5" and code_seen == BASE
     assert not (repo / "new.py").exists()
     assert NOTES in prompt and "earlier attempt" not in prompt and "cheap attempt" not in prompt
@@ -161,3 +164,26 @@ def test_guide_can_leave_the_map_out():
     assert "Repo map" in _build_guide(repo_map, focus, None)
     without = _build_guide(repo_map, focus, None, {"t::old"}, include_map=False)
     assert "Repo map" not in without and "Likely places" not in without and "t::old" in without
+
+
+def test_effort_cascade_escalates_to_more_thinking_on_the_same_model(tmp_path):
+    _, calls, result = _cascade(tmp_path, "failed", "Stopped: the same failure repeated 3 times in a row.",
+                                cheap_effort="low")
+    assert result.scouts == [("claude-sonnet-5-5", "low")]
+    assert [(c[0], c[3]) for c in calls] == [("claude-sonnet-5-5", "low"), ("claude-sonnet-5-5", None)]
+    assert "at low effort" in result.note
+
+
+def test_effort_reaches_the_provider_only_when_set(tmp_path):
+    seen = []
+
+    class Model(_Model):
+        async def complete_with_tools(self, system, messages, tools, model, on_token=None, **kw):
+            seen.append(kw)
+            return await super().complete_with_tools(system, messages, tools, model, on_token)
+
+    (tmp_path / "a.py").write_text("x = 1\n")
+    for effort in ("low", None):
+        with patch("core.agent.get_provider", return_value=Model([_turn(text=NOTES)])):
+            asyncio.run(run_scout("f", str(tmp_path), "claude-sonnet-5-5", 1.0, effort=effort))
+    assert seen == [{"effort": "low"}, {}]

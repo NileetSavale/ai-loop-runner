@@ -34,7 +34,7 @@ from benchmarks.run import (
     ARMS, BUDGET_RESERVE, OVERALL_CAP_USD, RESULTS_DIR, BenchTask, RunResult, _code_version, _git, changed_lines,
     check_overall_cap, format_sources, format_summary, format_table, spent_so_far, summarize, temp_database,
 )
-from core.verifier import run_verify
+from core.verifier import MAX_TIMEOUT as MAX_VERIFY_TIMEOUT, run_verify
 
 SWE_DIR = Path(os.getenv("SWEBENCH_DIR", "/Volumes/LoopRunnerDocker/swe"))
 DATASET = "SWE-bench/SWE-bench_Verified"
@@ -89,10 +89,13 @@ def verify_command(image: str, command: str) -> str:
     """$PWD rather than a fixed path, so it tests whichever copy of the repo it runs in.
 
     PYTHONPATH because the setup's pip install is skipped, and a non-editable install would hide the agent's changes.
+    The time limit runs inside the container: when run_verify gives up it kills the docker client, not the container,
+    and two hung sympy tests kept running at full CPU for two days that way.
     """
     return (
         'docker run --rm --network none --platform linux/amd64 -e PYTHONDONTWRITEBYTECODE=1 -e PYTHONPATH=/testbed '
-        f'-v "$PWD":/testbed -w /testbed {shlex.quote(image)} bash -c {shlex.quote(command)}'
+        f'-v "$PWD":/testbed -w /testbed {shlex.quote(image)} '
+        f'timeout -s KILL {MAX_VERIFY_TIMEOUT + 30} bash -c {shlex.quote(command)}'
     )
 
 

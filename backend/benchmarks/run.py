@@ -345,8 +345,11 @@ def _add_usage(total: RunResult, part: RunResult, label: str):
                            **{f"{label}: {k}": v for k, v in (part.token_sources or {}).items()}}
 
 
-async def _scout(task: BenchTask, repo: Path, result: RunResult) -> str:
-    notes, scouted = await run_scout(task.prompt, str(repo), CHEAP_MODEL, SCOUT_BUDGET_USD)
+async def _scout(task: BenchTask, repo: Path, result: RunResult, model: str = CHEAP_MODEL, effort: str | None = None) -> str:
+    # The main model costs 20x the cheap one per token, so it gets more room to look around
+    budget = SCOUT_BUDGET_USD if model == CHEAP_MODEL else SCOUT_BUDGET_USD * 5
+    notes, scouted = await run_scout(task.prompt, str(repo), model, budget,
+                                     **({"effort": effort} if effort else {}))
     result.cost_usd += scouted.cost_usd
     result.input_tokens += scouted.input_tokens
     result.output_tokens += scouted.output_tokens
@@ -379,18 +382,23 @@ def accepted(run: RunResult) -> bool:
 
 
 async def run_cascade_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult,
-                          tell_tried: bool = False):
+                          tell_tried: bool = False, cheap_effort: str | None = None):
     """The cheap model scouts and tries the fix with its notes. If that doesn't count as done, its changes are undone
-    and the main model starts over with the notes, plus what the attempt tried and what happened if tell_tried."""
+    and the main model starts over with the notes, plus what the attempt tried and what happened if tell_tried.
+
+    cheap_effort: set, the "cheap" step is the main model thinking at that effort rather than the cheap model, so
+    the escalation is to more thinking rather than to a bigger model."""
+    cheap_model = model if cheap_effort else CHEAP_MODEL
+    cheap_name = f"{model} at {cheap_effort} effort" if cheap_effort else CHEAP_MODEL
     base = _git(repo, "rev-parse", "HEAD")
-    notes = await _scout(task, repo, result)
-    cheap = RunResult(task=result.task, arm=result.arm, model=CHEAP_MODEL, repeat=result.repeat)
-    left = await run_loop_arm(replace(task, prompt=handover(task.prompt, notes)), repo, CHEAP_MODEL,
-                              budget - result.cost_usd, cheap, **LEAN)
+    notes = await _scout(task, repo, result, cheap_model, cheap_effort)
+    cheap = RunResult(task=result.task, arm=result.arm, model=cheap_model, repeat=result.repeat)
+    left = await run_loop_arm(replace(task, prompt=handover(task.prompt, notes)), repo, cheap_model,
+                              budget - result.cost_usd, cheap, **LEAN, **({"coder_effort": cheap_effort} if cheap_effort else {}))
     _add_usage(result, cheap, "cheap")
     if accepted(cheap):
         result.agent_status, result.attempt_failures = cheap.agent_status, cheap.attempt_failures
-        result.note = f"Solved by {CHEAP_MODEL}. {cheap.note}".strip()
+        result.note = f"Solved by {cheap_name}. {cheap.note}".strip()
         return
     tried = None
     if tell_tried:
@@ -404,7 +412,7 @@ async def run_cascade_arm(task: BenchTask, repo: Path, model: str, budget: float
                        budget - result.cost_usd, strong, **LEAN)
     _add_usage(result, strong, "escalated")
     result.agent_status, result.attempt_failures = strong.agent_status, strong.attempt_failures
-    result.note = f"Escalated to {model} after {CHEAP_MODEL}: {cheap.agent_status} ({cheap.note or 'no note'}). {strong.note}".strip()
+    result.note = f"Escalated to {model} after {cheap_name}: {cheap.agent_status} ({cheap.note or 'no note'}). {strong.note}".strip()
 
 
 ARMS = {
@@ -433,6 +441,11 @@ ARMS = {
     "scout-lean": run_scout_arm,
     "cascade-notes": run_cascade_arm,
     "cascade-tried": partial(run_cascade_arm, tell_tried=True),
+    # Thinking effort instead of model size: the coder at lower effort, and a cascade where the main model scouts and
+    # tries at low effort, then starts over at its default effort with the notes and what was tried
+    "loop-lean-low": partial(run_loop_arm, **LEAN, coder_effort="low"),
+    "loop-lean-medium": partial(run_loop_arm, **LEAN, coder_effort="medium"),
+    "cascade-effort": partial(run_cascade_arm, tell_tried=True, cheap_effort="low"),
     # Security agents beside the coder (see core/security.py)
     "loop-pair": partial(run_loop_arm, retry_context="continue", security_pair=True),
     "loop-audit": partial(run_loop_arm, retry_context="continue", security_audit=True),

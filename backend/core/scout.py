@@ -43,11 +43,11 @@ def notes_from(text: str) -> str:
 
 
 async def run_scout(task: str, repo_path: str, model: str, max_cost_usd: float, on_event=None,
-                    max_listed_files: int = 100):
+                    max_listed_files: int = 100, effort: str | None = None):
     """Returns (notes, AgentResult)."""
     tools = RepoTools(repo_path, verify_command="", read_only=True, max_listed_files=max_listed_files)
     result = await run_agent(scout_prompt(task), model, tools=tools, max_cost_usd=max_cost_usd, on_event=on_event,
-                             system_prompt=SCOUT_SYSTEM_PROMPT)
+                             system_prompt=SCOUT_SYSTEM_PROMPT, effort=effort)
     return notes_from(result.final_text or result.raw_output), result
 
 

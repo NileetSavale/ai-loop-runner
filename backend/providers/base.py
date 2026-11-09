@@ -44,8 +44,10 @@ class LLMProvider(ABC):
         self.api_key = api_key
 
     async def complete_with_tools(
-        self, system: str, messages: list[dict], tools: list[dict], model: str, on_token: TokenCallback = None
+        self, system: str, messages: list[dict], tools: list[dict], model: str, on_token: TokenCallback = None,
+        effort: str | None = None,
     ) -> ToolTurn:
+        """effort: as in complete. Callers pass it only when set, so providers without it keep working."""
         raise NotImplementedError
 
     def tool_results_message(self, results: list[dict]) -> dict:

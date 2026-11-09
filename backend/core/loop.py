@@ -229,6 +229,7 @@ async def run_loop(
     attribute_failures: bool = True,
     map_in_prompt: bool = True,
     locator: str = "names",
+    coder_effort: str | None = None,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
@@ -250,7 +251,8 @@ async def run_loop(
     still run first, so failure attribution is unaffected.
     locator: how the likely places are picked after the files a test failure points at. "names" matches task words
     against file and symbol names (locate_issue); "keywords" ranks every function by keyword search over its code
-    (core/keyword_locate.py)."""
+    (core/keyword_locate.py).
+    coder_effort: thinking effort for the coder ("low" to "max"); None keeps the model's default."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -447,6 +449,7 @@ async def run_loop(
                 on_event=emit,
                 add_tests=add_tests,
                 history=history if retry_context == "continue" else None,
+                effort=coder_effort,
             )
             history = agent_result.messages or None
             # The reviewer's spend belongs to this attempt, so limits and records include it

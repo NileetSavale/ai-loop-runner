@@ -8,6 +8,19 @@ from providers.base import TokenCallback, calculate_cost
 from providers.router import get_provider
 
 MAX_AGENT_STEPS = 25
+# clear_old_results: once a request passes the trigger, the API replaces all but the last few tool results with a
+# placeholder (our history stays whole). Clearing breaks the prompt cache from that point, so it only happens when
+# it frees enough to be worth a new cache write.
+CONTEXT_EDITING = {"edits": [{
+    "type": "clear_tool_uses_20250919",
+    "trigger": {"type": "input_tokens", "value": 20_000},
+    "keep": {"type": "tool_uses", "value": 4},
+    "clear_at_least": {"type": "input_tokens", "value": 6_000},
+}]}
+EXPLORING_TOOLS = {"list_files", "read_file", "search_code", "lookup_code"}
+CHANGING_TOOLS = {"edit_file", "write_file", "change_existing_test"}
+EXPLORE_NUDGE = ("\n\n(You've made {n} reads and searches without changing anything. Decide on a fix now and make "
+                 "it, or say what is blocking you.)")
 
 SYSTEM_PROMPT = """You are a software engineer executing a specific coding task.
 You will be given:
@@ -101,14 +114,19 @@ async def run_agent(
     history: list | None = None,
     system_prompt: str | None = None,
     effort: str | None = None,
+    clear_old_results: bool = False,
+    explore_budget: int | None = None,
 ) -> AgentResult:
     """history: an earlier attempt's conversation to continue, with prompt added as the next user message.
     system_prompt: replaces the coder's, for agents with another job (the scout).
-    effort: how hard the model thinks on each step ("low" to "max"); None keeps the model's default."""
+    effort: how hard the model thinks on each step ("low" to "max"); None keeps the model's default.
+    clear_old_results: have the API clear old tool results once the request is long (CONTEXT_EDITING).
+    explore_budget: after this many reads, searches and lookups with no change made, tell the model once to decide
+    on a fix or say what's blocking it."""
     provider = get_provider(model, user_api_key)
     if tools and provider.supports_tools:
         return await _run_tool_agent(provider, prompt, model, tools, on_token, max_cost_usd, on_event, add_tests, history,
-                                     system_prompt, effort)
+                                     system_prompt, effort, clear_old_results, explore_budget)
     result = await provider.complete(_with_tests_rule(SYSTEM_PROMPT, add_tests), prompt, model, on_token)
     cost = calculate_cost(model, result.input_tokens, result.output_tokens)
     if on_event:
@@ -142,7 +160,8 @@ def _add_user_text(messages: list, text: str) -> list:
     return messages
 
 
-async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, on_token, max_cost_usd: float, on_event=None, add_tests: bool = False, history: list | None = None, system_prompt: str | None = None, effort: str | None = None) -> AgentResult:
+async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, on_token, max_cost_usd: float, on_event=None, add_tests: bool = False, history: list | None = None, system_prompt: str | None = None, effort: str | None = None, clear_old_results: bool = False,
+                          explore_budget: int | None = None) -> AgentResult:
     """The agent loop: the model picks an action, our code runs it, the model sees the result."""
     messages = _add_user_text(history or [], prompt)
     transcript, notes, actions, final_text = "", [], [], ""
@@ -163,6 +182,8 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
         sent["earlier attempts, resent"] = len(json.dumps(history, default=str))
     new = prompt_sources(prompt)
 
+    exploring, nudged = 0, False
+
     async def show(text: str):
         nonlocal transcript
         transcript += text
@@ -174,7 +195,8 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
 
     for step in range(1, MAX_AGENT_STEPS + 1):
         turn = await provider.complete_with_tools(system, messages, schemas, model, show_model_text,
-                                                   **({"effort": effort} if effort else {}))
+                                                   **({"effort": effort} if effort else {}),
+                                                   **({"context_editing": CONTEXT_EDITING} if clear_old_results else {}))
         input_tokens += turn.input_tokens + turn.cache_read_tokens + turn.cache_write_tokens
         output_tokens += turn.output_tokens
         turn_cost = calculate_cost(model, turn.input_tokens, turn.output_tokens, turn.cache_read_tokens, turn.cache_write_tokens)
@@ -227,6 +249,13 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
                 for change in tools.changes:
                     await on_event("file_changed", change)
             tools.changes = []
+            if call.name in EXPLORING_TOOLS:
+                exploring += 1
+            elif call.name in CHANGING_TOOLS and not is_error:
+                exploring = 0
+            if explore_budget and exploring >= explore_budget and not nudged:
+                nudged = True
+                content += EXPLORE_NUDGE.format(n=exploring)
             results.append({"id": call.id, "content": content, "is_error": is_error})
             new[f"results: {call.name}"] = new.get(f"results: {call.name}", 0) + len(content)
         messages += [turn.assistant_message, provider.tool_results_message(results)]

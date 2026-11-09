@@ -2,6 +2,9 @@ import anthropic as sdk
 from .base import LLMProvider, LLMResult, MAX_OUTPUT_TOKENS, TokenCallback, ToolCall, ToolTurn
 
 
+CONTEXT_EDITING_BETA = "context-management-2025-06-27"
+
+
 class AnthropicProvider(LLMProvider):
     supports_tools = True
 
@@ -30,12 +33,15 @@ class AnthropicProvider(LLMProvider):
             truncated=final.stop_reason == "max_tokens",
         )
 
-    async def complete_with_tools(self, system, messages, tools, model, on_token=None, effort=None) -> ToolTurn:
+    async def complete_with_tools(self, system, messages, tools, model, on_token=None, effort=None,
+                                 context_editing=None) -> ToolTurn:
         client = sdk.AsyncAnthropic(api_key=self.api_key)
         text = ""
 
-        # An agent loop resends the whole conversation each step, so cache it
-        async with client.messages.stream(
+        # An agent loop resends the whole conversation each step, so cache it. Context editing is a beta, so it goes
+        # through the beta client.
+        stream_fn = client.beta.messages.stream if context_editing else client.messages.stream
+        async with stream_fn(
             model=model,
             max_tokens=MAX_OUTPUT_TOKENS,
             system=system,
@@ -43,6 +49,7 @@ class AnthropicProvider(LLMProvider):
             tools=tools,
             cache_control={"type": "ephemeral"},
             **({"output_config": {"effort": effort}} if effort else {}),
+            **({"betas": [CONTEXT_EDITING_BETA], "context_management": context_editing} if context_editing else {}),
         ) as stream:
             async for chunk in stream.text_stream:
                 text += chunk

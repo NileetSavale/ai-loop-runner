@@ -45,9 +45,11 @@ class LLMProvider(ABC):
 
     async def complete_with_tools(
         self, system: str, messages: list[dict], tools: list[dict], model: str, on_token: TokenCallback = None,
-        effort: str | None = None,
+        effort: str | None = None, context_editing: dict | None = None,
     ) -> ToolTurn:
-        """effort: as in complete. Callers pass it only when set, so providers without it keep working."""
+        """effort: as in complete. context_editing: the API's context_management setting, which clears old tool
+        results on the server before the model reads the request (our history stays whole). Callers pass both only
+        when set, so providers without them keep working."""
         raise NotImplementedError
 
     def tool_results_message(self, results: list[dict]) -> dict:

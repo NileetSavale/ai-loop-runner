@@ -89,6 +89,7 @@ def server():
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             state["bodies"].append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            state.setdefault("headers", []).append(dict(self.headers))
             if self.path.startswith("/anthropic"):
                 events = _anthropic_tool() if state.get("tool") else _anthropic(state["stop"])
             elif self.path.startswith("/openai"):
@@ -218,3 +219,21 @@ def test_anthropic_tool_turn_round_trip(server):
     # Thinking goes back exactly as received, or the API rejects the request. SDK 0.40 failed this.
     assert sent["messages"][1]["content"][0] == {"type": "thinking", "thinking": "", "signature": "sig123"}
     assert sent["messages"][2]["content"] == [{"type": "tool_result", "tool_use_id": "t1", "content": "file text", "is_error": False}]
+
+
+def test_anthropic_context_editing_goes_through_the_beta_only_when_asked(server):
+    server["tool"] = True
+    provider, sdk_patch = _make("anthropic", server["url"])
+    tools = [{"name": "read_file", "description": "d", "input_schema": {"type": "object", "properties": {}}}]
+    setting = {"edits": [{"type": "clear_tool_uses_20250919"}]}
+
+    async def scenario():
+        await provider.complete_with_tools("sys", [{"role": "user", "content": "go"}], tools, "x")
+        await provider.complete_with_tools("sys", [{"role": "user", "content": "go"}], tools, "x", context_editing=setting)
+
+    with sdk_patch:
+        asyncio.run(scenario())
+    plain, edited = server["bodies"][-2:]
+    assert "context_management" not in plain and edited["context_management"] == setting
+    betas = [{k.lower(): v for k, v in h.items()}.get("anthropic-beta", "") for h in server["headers"][-2:]]
+    assert betas[0] == "" and "context-management-2025-06-27" in betas[1]

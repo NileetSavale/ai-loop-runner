@@ -16,6 +16,11 @@ MAX_READ_CHARS = 12_000  # about 3,000 tokens, and every later turn in the attem
 MAX_READABLE_BYTES = 10_000_000
 MAX_LISTED_FILES = 500
 MAX_SEARCH_HITS = 100
+# compact=True (off by default until measured): fewer, grouped search hits and shorter default reads, since every
+# later turn in the attempt resends them
+COMPACT_SEARCH_HITS = 30
+COMPACT_SEARCH_SCAN = 2_000  # matches counted before giving up, so a vague query stays fast
+COMPACT_READ_LINES = 80
 MAX_TEST_OUTPUT_CHARS = 8_000
 SKIPPED_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".next", "dist", "build"}
 
@@ -88,12 +93,13 @@ class RepoTools:
     def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None, review_test_change=None,
                  short_output: bool = False, old_failures: set[str] = frozenset(), review_changes=None,
                  max_listed_files: int = MAX_LISTED_FILES, sandbox: Sandbox | None = None, read_only: bool = False,
-                 keep_schemas: bool = False, knowledge=None):
+                 keep_schemas: bool = False, knowledge=None, compact: bool = False):
         self.repo_path = repo_path
         self.read_only = read_only
         # Read-only, but still offering every tool, so a continued conversation keeps its cache
         self.keep_schemas = keep_schemas
         self.knowledge = knowledge  # a CodeGraph, which adds the lookup_code tool
+        self.compact = compact
         self.sandbox = sandbox
         self.max_listed_files = max_listed_files
         # async (changed paths) -> problems. A security reviewer that sees the changes each time the tests run.
@@ -159,7 +165,8 @@ class RepoTools:
         if start_line > len(lines):
             raise ToolError(f"{path} has {len(lines)} lines, so there is no line {start_line}.")
 
-        last = min(end_line or len(lines), len(lines), start_line + MAX_READ_LINES - 1)
+        window = COMPACT_READ_LINES if self.compact and end_line is None else MAX_READ_LINES
+        last = min(end_line or len(lines), len(lines), start_line + window - 1)
         content, shown = "", start_line - 1
         for line in lines[start_line - 1:last]:
             if content and len(content) + len(line) > MAX_READ_CHARS:
@@ -171,7 +178,8 @@ class RepoTools:
         if start_line == 1 and shown == len(lines):
             return content
         ending = "" if content.endswith("\n") else "\n"
-        return f"{content}{ending}(showing lines {start_line}-{shown} of {len(lines)}. Set start_line to read further.)"
+        more = " or end_line" if self.compact else ""
+        return f"{content}{ending}(showing lines {start_line}-{shown} of {len(lines)}. Set start_line{more} to read further.)"
 
     async def _search_code(self, query: str) -> str:
         # ponytail: plain text, because a model-written regex can hang the server. Add regex with a timeout if needed.
@@ -187,12 +195,35 @@ class RepoTools:
                     with open(path) as f:
                         for number, line in enumerate(f, 1):
                             if needle in line.lower():
-                                hits.append(f"{os.path.relpath(path, root)}:{number}: {line.strip()[:200]}")
-                                if len(hits) >= MAX_SEARCH_HITS:
-                                    return "\n".join(hits) + f"\n(stopped at {MAX_SEARCH_HITS} matches)"
+                                hits.append((os.path.relpath(path, root), number, line.strip()[:200]))
+                                if len(hits) >= (COMPACT_SEARCH_SCAN if self.compact else MAX_SEARCH_HITS):
+                                    raise StopIteration
                 except (OSError, UnicodeDecodeError):
                     continue  # binary or unreadable
-        return "\n".join(hits) or "No matches."
+                except StopIteration:
+                    return self._search_result(hits, capped=True)
+        return self._search_result(hits, capped=False)
+
+    def _search_result(self, hits: list[tuple[str, int, str]], capped: bool) -> str:
+        if not hits:
+            return "No matches."
+        if not self.compact:
+            text = "\n".join(f"{p}:{n}: {line}" for p, n, line in hits)
+            return text + (f"\n(stopped at {MAX_SEARCH_HITS} matches)" if capped else "")
+        # Grouped by file, so each path is sent once
+        by_file: dict[str, list[str]] = {}
+        for p, n, line in hits[:COMPACT_SEARCH_HITS]:
+            by_file.setdefault(p, []).append(f"  {n}: {line}")
+        text = "\n".join(f"{p}\n" + "\n".join(rows) for p, rows in by_file.items())
+        if len(hits) <= COMPACT_SEARCH_HITS:
+            return text
+        counts: dict[str, int] = {}
+        for p, _, _ in hits:
+            counts[p] = counts.get(p, 0) + 1
+        top = ", ".join(f"{p} ({c})" for p, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8])
+        total = f"over {len(hits)}" if capped else str(len(hits))
+        return (f"{text}\n({total} matches in {len(counts)}{'+' if capped else ''} files, showing the first "
+                f"{COMPACT_SEARCH_HITS}. Most matches: {top}. Search for something more specific.)")
 
     def _write(self, path: str, content: str) -> str:
         allowed, rejected = filter_edits([FileEdit(path, content)], self.repo_path, self.added_tests)

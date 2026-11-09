@@ -68,10 +68,27 @@ class RepoMemory:
         data = json.loads(self.path.read_text()) if self.path.exists() else {}
         self.notes: dict[str, dict] = data.get("notes", {})
         self.transcripts: list[dict] = data.get("transcripts", [])
+        self.together: dict[str, dict[str, int]] = data.get("together", {})  # file -> {file read in the same task: tasks}
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"notes": self.notes, "transcripts": self.transcripts}, indent=1))
+        self.path.write_text(json.dumps({"notes": self.notes, "transcripts": self.transcripts, "together": self.together},
+                                        indent=1))
+
+    def add_read_together(self, actions: list[str]):
+        """Count each pair of code files one task read or changed, from its tool calls ("read_file path")."""
+        files = sorted({a.split(" ", 1)[1] for a in actions
+                        if a.startswith(("read_file ", "edit_file ", "write_file ")) and " " in a})
+        files = [f for f in files if f.endswith(".py")]
+        for f in files:
+            for other in files:
+                if other != f:
+                    self.together.setdefault(f, {})
+                    self.together[f][other] = self.together[f].get(other, 0) + 1
+
+    def read_together(self, path: str, limit: int = 5) -> list[str]:
+        counts = self.together.get(path, {})
+        return [f"{p} ({n}x)" for p, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
 
     def add_notes(self, text: str, repo_path: str, rev: str, task: str) -> int:
         """Store notes on code as it was at rev (before the task changed it). A newer note on the same code replaces

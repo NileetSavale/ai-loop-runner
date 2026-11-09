@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass, field
 from core.edits import FileEdit, resolve_in_repo  # noqa: F401 (resolve_in_repo is imported from here elsewhere)
 from core.token_sources import EARLIER_REPLIES, SYSTEM, merge_sizes, prompt_sources, reply_sources, turn_sources
-from core.tools import READ_ONLY_TOOLS, TOOL_SCHEMAS, RepoTools
+from core.tools import LOOKUP_SCHEMA, READ_ONLY_TOOLS, TOOL_SCHEMAS, RepoTools
 from providers.base import TokenCallback, calculate_cost
 from providers.router import get_provider
 
@@ -153,8 +153,10 @@ async def _run_tool_agent(provider, prompt: str, model: str, tools: RepoTools, o
     system = system_prompt or _with_tests_rule(TOOL_SYSTEM_PROMPT, add_tests).replace(
         "{test_change_rule}", _TEST_CHANGES_REVIEWED if reviewed else _TEST_CHANGES_LOCKED)
     schemas = TOOL_SCHEMAS if reviewed else [t for t in TOOL_SCHEMAS if t["name"] != "change_existing_test"]
+    if tools.knowledge is not None:
+        schemas = [*schemas, LOOKUP_SCHEMA]
     if tools.read_only and not tools.keep_schemas:
-        schemas = [t for t in TOOL_SCHEMAS if t["name"] in READ_ONLY_TOOLS]
+        schemas = [t for t in schemas if t["name"] in READ_ONLY_TOOLS]
     # What each request is made of, so spend can be traced to its source (see core/token_sources.py)
     sent = {SYSTEM: len(system) + len(json.dumps(schemas))}
     if history:

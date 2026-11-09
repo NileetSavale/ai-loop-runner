@@ -64,5 +64,5 @@ def test_memory_arm_carries_notes_to_the_next_task_on_the_same_repo(tmp_path):
             asyncio.run(run_memory_arm(BenchTask(name, repo, "unit values wrong", "true"), repo, "m", 1.0, result))
     assert "Notes teammates left" not in prompts[0][0] and prompts[0][1]
     assert "- a.py::unit - doubles a unit value" in prompts[1][0]
-    assert result.memory == {"stored": 1, "stale": 0, "used": 1, "kept": 1}
+    assert result.memory == {"stored": 1, "stale": 0, "used": 1, "kept": 1, "lookups": 0}
     assert (tmp_path / "mem" / "swe-loop-lean-memory-django__django.json").exists()

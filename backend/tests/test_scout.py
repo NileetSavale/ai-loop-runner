@@ -55,7 +55,7 @@ def test_scout_reads_only_and_returns_its_notes(tmp_path):
         notes, result = asyncio.run(run_scout("f adds wrong", str(tmp_path), "claude-haiku-5-5", 1.0))
     assert notes == NOTES and result.actions == ["read_file a.py"]
     assert model.systems[0] == SCOUT_SYSTEM_PROMPT
-    assert set(model.tools[0]) == set(READ_ONLY_TOOLS)
+    assert set(model.tools[0]) == set(READ_ONLY_TOOLS) - {"lookup_code"}  # no graph, no lookup
 
 
 def test_notes_fall_back_to_the_reply_when_the_format_is_ignored():

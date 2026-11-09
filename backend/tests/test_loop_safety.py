@@ -678,3 +678,15 @@ def test_the_auditor_only_pays_for_files_that_are_new_or_changed(tmp_path):
     assert reviewer.complete.call_count == 2  # nothing to pay for on the second run
     assert all("Password stored as MD5." in [f["problem"] for f in a["findings"]] for a in audits)
     assert "a.py" in reviewer.complete.call_args_list[1].args[1].split("Context only")[1]  # unchanged, but still context
+
+
+def test_keyword_locator_fills_the_likely_places(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    verify = AsyncMock(side_effect=[FAIL, PASS])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    found = [{"path": "deep/b.py", "reason": "task words match f"}]
+    with patch("core.loop.locate_by_keywords", return_value=found) as locate:
+        _, _, events = _run(tmp_path, agent, verify, use_map=True, locator="keywords")
+    assert locate.call_args.args[1] == "do it"
+    assert next(e for e in events if e.get("event") == "focus")["data"]["files"] == found
+    assert "- deep/b.py (task words match f)" in agent.call_args_list[0].args[0]

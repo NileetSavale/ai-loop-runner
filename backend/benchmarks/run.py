@@ -425,6 +425,8 @@ ARMS = {
     "loop-lean-noattr": partial(run_loop_arm, **LEAN, attribute_failures=False),
     # lean without the repo map and likely places in the guide: is the map worth anything?
     "loop-lean-nomap": partial(run_loop_arm, **LEAN, map_in_prompt=False),
+    # lean with likely places from keyword search over functions instead of name matching
+    "loop-lean-keywords": partial(run_loop_arm, **LEAN, locator="keywords"),
     # The cheap model first (see core/scout.py): alone, as a scout for the main model, and as a cascade that hands
     # the main model the scout's notes, or the notes plus what the cheap attempt tried
     "cheap-lean": run_cheap_arm,

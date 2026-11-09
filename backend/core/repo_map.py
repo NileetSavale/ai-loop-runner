@@ -203,7 +203,7 @@ def map_for_prompt(repo_map: dict, focus: list[dict]) -> str:
     focus_paths = [f["path"] for f in focus]
     lines = []
     for path in focus_paths + [p for p in nodes if p not in focus_paths]:
-        symbols = ", ".join(s["name"] for s in nodes[path]["symbols"][:8])
+        symbols = ", ".join(s["name"] for s in nodes[path]["symbols"][:8]) if path in nodes else ""  # past the cap
         lines.append(f"{path}: {symbols}" if symbols else path)
     outline, used = [], 0
     for line in lines:

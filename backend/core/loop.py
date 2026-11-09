@@ -13,7 +13,8 @@ from models import Session, SessionEvent, Task, Iteration, UsageEvent
 from database import get_session as db_session
 from core.agent import run_agent, AgentResult, FileEdit, parse_file_blocks
 from core.edits import apply_edits, describe_change, filter_edits, is_locked_path, is_secret_path, is_test_path, read_current, resolve_in_repo
-from core.repo_map import build_repo_map, locate_issue, map_for_prompt
+from core.keyword_locate import locate_by_keywords
+from core.repo_map import MAX_FOCUS_FILES, build_repo_map, locate_issue, map_for_prompt
 from core.security import (AUDIT_SYSTEM_PROMPT, PAIR_SYSTEM_PROMPT, AuditCache, audit_prompt, files_to_audit,
                            findings_for, findings_guide, pair_prompt, parse_findings, parse_verdict)
 from core.tester import TEST_REVIEW_SYSTEM_PROMPT, TESTER_SYSTEM_PROMPT, test_review_prompt, tester_prompt, tests_guide
@@ -227,6 +228,7 @@ async def run_loop(
     sandbox: Sandbox | None = None,
     attribute_failures: bool = True,
     map_in_prompt: bool = True,
+    locator: str = "names",
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
@@ -245,7 +247,10 @@ async def run_loop(
     as in a plain verify-and-retry loop: it isn't told which tests failed before it started, isn't stopped when only
     those still fail, and test changes are reviewed without that information.
     map_in_prompt: False leaves the repo map and likely places out of the guide (the map ablation). The tests are
-    still run first, so failure attribution is unaffected."""
+    still run first, so failure attribution is unaffected.
+    locator: how the likely places are picked after the files a test failure points at. "names" matches task words
+    against file and symbol names (locate_issue); "keywords" ranks every function by keyword search over its code
+    (core/keyword_locate.py)."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -302,7 +307,15 @@ async def run_loop(
         if use_map:
             # No LLM here: this costs time, not tokens, and it's what saves them later
             repo_map = await asyncio.to_thread(build_repo_map, repo_path)
-            focus = locate_issue(repo_map, spec, baseline.output if baseline and not baseline.passed else None, files, repo_path)
+            failure_output = baseline.output if baseline and not baseline.passed else None
+            if locator == "keywords":
+                # What a failure or the user points at still comes first; keyword search replaces the name matching
+                focus = locate_issue(repo_map, "", failure_output, files, repo_path)
+                seen = {f["path"] for f in focus}
+                found = await asyncio.to_thread(locate_by_keywords, repo_path, spec, MAX_FOCUS_FILES)
+                focus = (focus + [f for f in found if f["path"] not in seen])[:MAX_FOCUS_FILES]
+            else:
+                focus = locate_issue(repo_map, spec, failure_output, files, repo_path)
             guide = _build_guide(repo_map, focus, baseline if attribute_failures else None, old_failures,
                                  max_old_failure_names, map_in_prompt)
             await emit("focus", {"files": focus, "tests_passing": baseline.passed})

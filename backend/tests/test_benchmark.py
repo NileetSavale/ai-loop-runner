@@ -214,6 +214,7 @@ def test_swe_verify_command_runs_only_the_test_step_with_no_network():
     assert command == "export LANG=C\nbin/test a.py"
     full = verify_command("img:latest", command)
     assert "--network none" in full and '"$PWD":/testbed' in full and "hidden" not in full
+    assert " timeout -s KILL " in full  # a hung test ends inside the container, not only in the docker client
     with pytest.raises(ValueError):
         swe_test_command("no markers")
 

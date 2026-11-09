@@ -37,6 +37,7 @@ from sqlmodel import SQLModel, create_engine, select
 import core.loop as loop
 import database
 from core.edits import is_test_path
+from core.code_graph import CodeGraph
 from core.repo_memory import NOTES_PROMPT, RepoMemory, memory_section, transcript_section
 from core.scout import handover, run_scout, tried_summary
 from core.token_sources import merge
@@ -428,23 +429,34 @@ async def run_memory_arm(task: BenchTask, repo: Path, model: str, budget: float,
 
     keep: "notes" has the coder write notes on the code it read once each task ends, and gives later tasks the notes
     whose code is unchanged (core/repo_memory.py); "transcripts" gives later tasks the most similar earlier task's
-    tool calls and last words instead, the baseline prior work found hard to beat."""
+    tool calls and last words instead, the baseline prior work found hard to beat; "graph" keeps the same notes but
+    the coder pulls them through the lookup_code tool on a code graph (core/code_graph.py), starting from keyword
+    search; "both" is the graph with the best-matching notes also put in the prompt."""
     if MEMORY_DIR is None:
         raise RuntimeError("Set benchmarks.run.MEMORY_DIR (swe_run --memory-dir) for the memory arms")
     memory = RepoMemory(MEMORY_DIR / f"{result.arm}-{task.name.rsplit('-', 1)[0]}.json")
     base = _git(repo, "rev-parse", "HEAD")
-    if keep == "notes":
+    if keep in ("notes", "both"):
         notes, counts = memory.relevant(str(repo), task.prompt)
         prompt = task.prompt + memory_section(notes)
+    elif keep == "graph":
+        prompt, counts = task.prompt, {"stored": len(memory.notes)}
     else:
         past = memory.similar_transcript(task.prompt)
         prompt, counts = task.prompt + transcript_section(past), {"stored": len(memory.transcripts), "used": int(bool(past))}
+    if keep in ("graph", "both"):
+        started = time.monotonic()
+        graph = await asyncio.to_thread(CodeGraph, str(repo), memory)
+        counts["graph_seconds"] = round(time.monotonic() - started, 1)
+        settings = {"locator": "keywords", "knowledge": graph, **settings}
     left = await run_loop_arm(replace(task, prompt=prompt), repo, model, budget, result, **LEAN, **settings,
-                              **({"write_notes": NOTES_PROMPT} if keep == "notes" else {}))
-    if keep == "notes":
-        counts["kept"] = memory.add_notes(left["notes"], str(repo), base, task.name)
-    else:
+                              **({"write_notes": NOTES_PROMPT} if keep != "transcripts" else {}))
+    if keep == "transcripts":
         memory.add_transcript(task.prompt, left["actions"], left["final_text"], result.agent_status)
+    else:
+        counts["kept"] = memory.add_notes(left["notes"], str(repo), base, task.name)
+        memory.add_read_together(left["actions"])
+        counts["lookups"] = sum(a.startswith("lookup_code") for a in left["actions"])
     memory.save()
     result.memory = counts
 
@@ -483,6 +495,8 @@ ARMS = {
     # Research step 3: what earlier tasks on the same repo learned (run bugs in date order, with --memory-dir)
     "loop-lean-memory": run_memory_arm,
     "loop-lean-transcripts": partial(run_memory_arm, keep="transcripts"),
+    "loop-lean-graph": partial(run_memory_arm, keep="graph"),
+    "loop-lean-graph-notes": partial(run_memory_arm, keep="both"),
     # Security agents beside the coder (see core/security.py)
     "loop-pair": partial(run_loop_arm, retry_context="continue", security_pair=True),
     "loop-audit": partial(run_loop_arm, retry_context="continue", security_audit=True),

@@ -3,6 +3,7 @@
 The model only asks. This code decides. There is deliberately no shell tool: the model can run the session's
 verify command and nothing else, and every write goes through the same rules as the one-shot agent.
 """
+import asyncio
 import os
 
 from core.edits import FileEdit, apply_edits, describe_change, filter_edits, is_locked_path, is_secret_path, is_test_path, read_current, resolve_in_repo
@@ -65,9 +66,17 @@ TOOL_SCHEMAS = [
         reason="Why the task requires this change. Quote the part of the task that asks for the new behaviour.",
     ),
 ]
-_REQUIRED = {t["name"]: t["input_schema"]["required"] for t in TOOL_SCHEMAS}
+# Offered only when the run has a code graph (core/code_graph.py)
+LOOKUP_SCHEMA = _tool(
+    "lookup_code",
+    "Look up functions or classes in the code graph: where they are, what they call, what calls them, which tests "
+    "call them, what earlier tasks read alongside them, and notes teammates left on code that hasn't changed since. "
+    "Cheaper than reading files to find out how code connects.",
+    query="A function or class name (Class.method works), a file path, or words describing the code.",
+)
+_REQUIRED = {t["name"]: t["input_schema"]["required"] for t in [*TOOL_SCHEMAS, LOOKUP_SCHEMA]}
 # All a read-only agent (the scout in core/scout.py) is offered or allowed to run
-READ_ONLY_TOOLS = ("list_files", "read_file", "search_code")
+READ_ONLY_TOOLS = ("list_files", "read_file", "search_code", "lookup_code")
 _OPTIONAL_LINES = {"read_file": ("start_line", "end_line")}
 
 
@@ -79,11 +88,12 @@ class RepoTools:
     def __init__(self, repo_path: str, verify_command: str, added_tests: set[str] | None = None, review_test_change=None,
                  short_output: bool = False, old_failures: set[str] = frozenset(), review_changes=None,
                  max_listed_files: int = MAX_LISTED_FILES, sandbox: Sandbox | None = None, read_only: bool = False,
-                 keep_schemas: bool = False):
+                 keep_schemas: bool = False, knowledge=None):
         self.repo_path = repo_path
         self.read_only = read_only
         # Read-only, but still offering every tool, so a continued conversation keeps its cache
         self.keep_schemas = keep_schemas
+        self.knowledge = knowledge  # a CodeGraph, which adds the lookup_code tool
         self.sandbox = sandbox
         self.max_listed_files = max_listed_files
         # async (changed paths) -> problems. A security reviewer that sees the changes each time the tests run.
@@ -100,7 +110,7 @@ class RepoTools:
 
     async def run(self, name: str, args: dict) -> tuple[str, bool]:
         """Returns (result, is_error). Errors go back to the model rather than ending the run."""
-        if name not in _REQUIRED:
+        if name not in _REQUIRED or (name == "lookup_code" and self.knowledge is None):
             return f"Unknown tool: {name}", True
         if self.read_only and name not in READ_ONLY_TOOLS:
             return f"{name} isn't available: this agent can only read the repo.", True
@@ -122,6 +132,9 @@ class RepoTools:
             return str(e), True
         except (OSError, UnicodeDecodeError) as e:
             return f"{name} failed: {e}", True
+
+    async def _lookup_code(self, query: str) -> str:
+        return await asyncio.to_thread(self.knowledge.lookup, query)
 
     async def _list_files(self) -> str:
         root = os.path.realpath(self.repo_path)

@@ -219,6 +219,15 @@ def test_swe_verify_command_runs_only_the_test_step_with_no_network():
         swe_test_command("no markers")
 
 
+def test_swe_verify_command_hands_files_back_on_linux_even_after_a_timeout(monkeypatch):
+    import benchmarks.swe_run as swe_run
+    monkeypatch.setattr(swe_run.platform, "system", lambda: "Linux")
+    full = verify_command("img:latest", "bin/test a.py")
+    assert full.index("timeout -s KILL") < full.index("chown -R") and "exit $s" in full
+    monkeypatch.setattr(swe_run.platform, "system", lambda: "Darwin")
+    assert "chown" not in verify_command("img:latest", "bin/test a.py")
+
+
 def test_overall_cap_counts_saved_results_and_refuses_to_go_over(tmp_path):
     (tmp_path / "a.json").write_text(json.dumps({"runs": [{"cost_usd": 1.5}, {"cost_usd": 0.5}]}))
     (tmp_path / "b.json").write_text(json.dumps({"runs": [{"cost_usd": 3.0}]}))

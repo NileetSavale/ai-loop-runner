@@ -9,7 +9,7 @@ set -euo pipefail
 BUNDLE=${1:?Pass the git bundle}
 
 sudo apt-get update -q
-sudo apt-get install -yq docker.io git curl
+sudo apt-get install -yq docker.io docker-buildx git curl
 sudo usermod -aG docker "$USER"
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"

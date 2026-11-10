@@ -3,8 +3,8 @@
 #
 #     PROJECT=my-project bash benchmarks/cloud/gcp_up.sh
 #
-# Creates billable resources: the VM (n2-standard-8, about $0.40/hour while running) and its disk (600 GB, about
-# $60/month even while the VM is stopped). benchmarks/cloud/gcp_down.sh deletes both. The free trial allows 8 running
+# Creates billable resources: the VM (n2-standard-8, about $0.40/hour while running) and its disk (600 GB standard, about
+# $25/month even while the VM is stopped). benchmarks/cloud/gcp_down.sh deletes both. The free trial allows 8 running
 # vCPUs; MACHINE=n2-standard-16 needs the billing account upgraded first.
 #
 # Only committed code (a git bundle of HEAD) and the saved results go over, never .env: copy the API key yourself
@@ -16,6 +16,8 @@ ZONE=${ZONE:-us-central1-a}
 NAME=${NAME:-swe-runner}
 MACHINE=${MACHINE:-n2-standard-8}
 DISK_GB=${DISK_GB:-600}
+# The trial allows 250 GB of SSD-backed disk (pd-balanced counts) but 2 TB of standard
+DISK_TYPE=${DISK_TYPE:-pd-standard}
 HERE=$(cd "$(dirname "$0")" && pwd)
 BACKEND=$(cd "$HERE/../.." && pwd)
 
@@ -28,7 +30,7 @@ gcloud config set project "$PROJECT"
 gcloud services enable compute.googleapis.com
 gcloud compute instances create "$NAME" --zone "$ZONE" --machine-type "$MACHINE" \
   --image-family ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud \
-  --boot-disk-size "${DISK_GB}GB" --boot-disk-type pd-balanced
+  --boot-disk-size "${DISK_GB}GB" --boot-disk-type "$DISK_TYPE"
 
 BUNDLE=$(mktemp -d)/loop_runner.bundle
 git -C "$BACKEND" bundle create "$BUNDLE" HEAD

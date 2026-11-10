@@ -50,8 +50,14 @@ def to_contents(messages: list[dict]) -> list[genai_types.Content]:
     for m in messages:
         blocks = m["content"] if isinstance(m["content"], list) else [{"type": "text", "text": m["content"]}]
         names.update({b["id"]: b["name"] for b in blocks if b["type"] == "tool_use"})
-        contents.append(genai_types.Content(role="model" if m["role"] == "assistant" else "user",
-                                            parts=[_part(b, names) for b in blocks]))
+        role = "model" if m["role"] == "assistant" else "user"
+        # Vertex rejects a turn mixing function responses with text (as "Requests ending with a model turn are not
+        # supported"), which the loop makes when a retry adds its prompt after the last tool results. Each goes in
+        # its own turn.
+        results = [b for b in blocks if b["type"] == "tool_result"]
+        rest = [b for b in blocks if b["type"] != "tool_result"]
+        for group in (results, rest) if results and rest else (blocks,):
+            contents.append(genai_types.Content(role=role, parts=[_part(b, names) for b in group]))
     return contents
 
 

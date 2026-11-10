@@ -30,6 +30,8 @@ from providers.base import calculate_cost
 from core.fix_review import PROMPTS, REVIEWER_MODEL, edited_tests, hunk_ranges, review_fix
 
 CONCURRENCY = 4
+# One dropped connection used to end the whole replay with nothing saved; now a review retries, then is skipped
+RETRY_WAITS_SECONDS = (5, 20, 60)
 # A worst case per review, for the cap: the context and diff limits come to about 12k prompt tokens, plus a short reply
 # and its thinking (Sonnet averaged $0.021 a review in step 2)
 WORST_CASE_PROMPT_TOKENS, WORST_CASE_REPLY_TOKENS = 12_000, 2_000
@@ -82,14 +84,30 @@ async def review(run: dict, args, specs: dict, lock: asyncio.Semaphore) -> dict:
         if task not in specs:
             specs[task] = (await asyncio.to_thread(load_instance, task))["problem_statement"]
         files = {path: await asyncio.to_thread(original_file, image_for(task), path) for path in hunk_ranges(run["diff"])}
-        verdict = await review_fix(specs[task], run["diff"], lambda path: files[path], run.get("note", ""),
-                                   args.prompt, args.model, args.effort)
+        for wait in (*RETRY_WAITS_SECONDS, None):
+            try:
+                verdict = await review_fix(specs[task], run["diff"], lambda path: files[path], run.get("note", ""),
+                                           args.prompt, args.model, args.effort)
+                break
+            except Exception as error:  # the API or the network; the replay goes on without this review
+                print(f"{task} {run['arm']}: {type(error).__name__}: {error}"
+                      + (f", retrying in {wait}s" if wait else ", skipped"), flush=True)
+                if wait is None:
+                    return None
+                await asyncio.sleep(wait)
     flagged = edited_tests(run["diff"])
     print(f"{task} {run['arm']}: {'accept' if verdict['accept'] else 'ESCALATE'}, hidden "
           f"{'pass' if run['hidden_passed'] else 'FAIL'}, ${verdict['cost_usd']:.4f}"
           f"{', edits tests' if flagged else ''}. {verdict['why']}", flush=True)
     return {"task": task, "arm": f"review:{run['arm']}", "source_arm": run["arm"], "hidden_passed": run["hidden_passed"],
             "edited_tests": flagged, **verdict}
+
+
+def write(out: Path, args, reviews: list[dict], summary: dict | None = None):
+    """Saved after every review, so a stopped replay still counts toward the caps and can be resumed."""
+    out.write_text(json.dumps({"settings": vars(args) | {"results": [str(p) for p in args.results],
+                                                         "resume": str(args.resume) if args.resume else None},
+                               "summary": summary, "runs": reviews}, indent=2))
 
 
 async def main():
@@ -101,26 +119,37 @@ async def main():
     parser.add_argument("--effort", default=None, help="the reviewer's effort; the model's default if left out")
     parser.add_argument("--everyone", action="store_true", help="also review accepted fixes by the main model")
     parser.add_argument("--cheap-model", default=CHEAP_MODEL, help="whose fixes to review, as the runs' --cheap-model")
+    parser.add_argument("--resume", type=Path, help="a stopped replay's saved file: its reviews are kept, the rest done, "
+                        "and the file updated in place")
     parser.add_argument("--max-total-usd", type=float, default=2.0)
     args = parser.parse_args()
 
-    runs = select([r for path in args.results for r in json.loads(path.read_text())["runs"]], args.everyone,
-                  args.cheap_model)
+    done = json.loads(args.resume.read_text())["runs"] if args.resume else []
+    reviewed = {(r["task"], r["source_arm"]) for r in done}
+    runs = [r for r in select([r for path in args.results for r in json.loads(path.read_text())["runs"]], args.everyone,
+                              args.cheap_model) if (r["task"], r["arm"]) not in reviewed]
     worst_case = len(runs) * calculate_cost(args.model, WORST_CASE_PROMPT_TOKENS, WORST_CASE_REPLY_TOKENS)
     if worst_case > args.max_total_usd:
         raise SystemExit(f"{len(runs)} reviews could cost ${worst_case:.2f}, over --max-total-usd ${args.max_total_usd:.2f}.")
     standing = check_caps(worst_case, {args.model})
-    print(f"{len(runs)} accepted fixes to review with {args.model}, prompt {args.prompt}: ${worst_case:.2f} at most. "
-          f"Overall: {standing}.", flush=True)
+    print(f"{len(runs)} accepted fixes to review with {args.model}, prompt {args.prompt}"
+          f"{f' ({len(done)} already done)' if done else ''}: ${worst_case:.2f} at most. Overall: {standing}.", flush=True)
 
-    specs, lock = {}, asyncio.Semaphore(CONCURRENCY)
-    reviews = await asyncio.gather(*(review(r, args, specs, lock) for r in runs))
-    summary = score(list(reviews))
+    out = args.resume or RESULTS_DIR / f"{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-review-offline.json"
+    specs, lock, reviews = {}, asyncio.Semaphore(CONCURRENCY), list(done)
+
+    async def review_and_save(run: dict):
+        result = await review(run, args, specs, lock)
+        if result:
+            reviews.append(result)
+            write(out, args, reviews)
+
+    await asyncio.gather(*(review_and_save(r) for r in runs))
+    summary = score(reviews)
     by_arm = {arm: score([r for r in reviews if r["source_arm"] == arm]) for arm in sorted({r["source_arm"] for r in reviews})}
-    print(json.dumps({"overall": summary, "by_arm": by_arm}, indent=2))
-    out = RESULTS_DIR / f"{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-review-offline.json"
-    out.write_text(json.dumps({"settings": vars(args) | {"results": [str(p) for p in args.results]},
-                               "summary": {"overall": summary, "by_arm": by_arm}, "runs": list(reviews)}, indent=2))
+    summary = {"overall": summary, "by_arm": by_arm, "skipped": len(done) + len(runs) - len(reviews)}
+    print(json.dumps(summary, indent=2))
+    write(out, args, reviews, summary)
     print(f"Saved to {out}")
 
 

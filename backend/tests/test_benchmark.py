@@ -255,3 +255,28 @@ def test_token_sources_are_averaged_per_run_and_ranked_by_cost():
     lines = format_sources(runs).splitlines()
     assert lines[1].startswith("results: read_file") and "$0.0150" in lines[1] and "75%" in lines[1]
     assert format_sources([RunResult("t", "claude-code", "m", 1)]) == ""
+
+
+def test_network_errors_are_retried_and_their_spend_kept():
+    from benchmarks.swe_run import run_with_retries
+    tries = iter([RunResult("t", "a", "m", 1, cost_usd=0.02, note="The run crashed: Connection error."),
+                  RunResult("t", "a", "m", 1, cost_usd=0.05, hidden_passed=True)])
+    result = run_with_retries(lambda: next(tries), RunResult("t", "a", "m", 1), wait=0)
+    assert result.hidden_passed and result.discarded_cost_usd == 0.02
+
+
+def test_other_failures_are_kept_and_a_crash_does_not_end_the_batch():
+    from benchmarks.swe_run import run_with_retries
+    calls = []
+
+    def boom():
+        calls.append(1)
+        raise RuntimeError("disk full")
+    result = run_with_retries(boom, RunResult("t", "a", "m", 1), wait=0)
+    assert len(calls) == 1 and result.agent_status == "error" and "disk full" in result.note
+    stuck = run_with_retries(lambda: RunResult("t", "a", "m", 1, cost_usd=0.01, note="Connection error"),
+                             RunResult("t", "a", "m", 1), tries=2, wait=0)
+    assert stuck.note.startswith("Gave up after 2 tries") and stuck.discarded_cost_usd == 0.01
+    timed_out = run_with_retries(lambda: RunResult("t", "a", "m", 1, note="Timed out after 600s"),
+                                 RunResult("t", "a", "m", 1), wait=0)
+    assert timed_out.note == "Timed out after 600s"  # the agent being slow isn't a network error

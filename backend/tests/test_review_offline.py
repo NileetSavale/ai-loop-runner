@@ -1,4 +1,4 @@
-from benchmarks.review_offline import score, select
+from benchmarks.review_offline import UNREADABLE, score, select
 from core.fix_review import PROMPTS, code_context, edited_tests, hunk_ranges, parse_verdict, review_prompt
 
 DIFF = """diff --git a/pkg/mod.py b/pkg/mod.py
@@ -57,15 +57,16 @@ def test_parse_verdict_escalates_unless_clearly_accepted():
 
 def test_score_counts_catches_and_false_escalations_for_reviewer_rule_and_either():
     reviews = [
-        {"hidden_passed": False, "accept": False, "edited_tests": [], "cost_usd": 0.01},
+        {"hidden_passed": False, "accept": False, "edited_tests": [], "cost_usd": 0.01, "why": UNREADABLE},
         {"hidden_passed": False, "accept": True, "edited_tests": ["tests/t.py"], "cost_usd": 0.01},
         {"hidden_passed": True, "accept": False, "edited_tests": [], "cost_usd": 0.01},
         {"hidden_passed": True, "accept": True, "edited_tests": [], "cost_usd": 0.01},
     ]
+    reviews = [{"why": "w", **r} for r in reviews]
     assert score(reviews) == {
         "reviewed": 4, "hidden_failures": 2, "hidden_passes": 2, "caught": 1, "wrongly_escalated": 1,
         "rule": {"caught": 1, "wrongly_escalated": 0}, "either": {"caught": 2, "wrongly_escalated": 1},
-        "cost_usd": 0.04,
+        "unreadable": {"hidden_failures": 1, "hidden_passes": 0}, "cost_usd": 0.04,
     }
 
 
@@ -106,7 +107,7 @@ def test_v1_prompt_is_unchanged_and_v2_adds_the_sibling_and_test_checks():
     assert "changes or deletes" not in review_prompt("task", "diff", "", "")
 
 
-def _replay(tmp_path, monkeypatch, review_fix, resume=None):
+def _replay(tmp_path, monkeypatch, review_fix, resume=None, cap="9"):
     """Runs review_offline's main on one saved file of two accepted Haiku fixes, with the reviewer faked."""
     import asyncio, json, sys
     import benchmarks.review_offline as offline
@@ -118,7 +119,7 @@ def _replay(tmp_path, monkeypatch, review_fix, resume=None):
     monkeypatch.setattr(offline, "original_file", lambda image, path: "")
     monkeypatch.setattr(offline, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(offline, "check_caps", lambda worst, models: "fine")
-    monkeypatch.setattr(sys, "argv", ["x", str(saved), "--max-total-usd", "9"] + (["--resume", str(resume)] if resume else []))
+    monkeypatch.setattr(sys, "argv", ["x", str(saved), "--max-total-usd", cap] + (["--resume", str(resume)] if resume else []))
     asyncio.run(offline.main())
     out = resume or next(p for p in tmp_path.glob("*-review-offline.json"))
     return json.loads(out.read_text())
@@ -162,3 +163,20 @@ def test_replay_resumes_a_stopped_file_without_reviewing_its_fixes_again(tmp_pat
     saved = _replay(tmp_path, monkeypatch, reviewer, resume=stopped)
     assert len(seen) == 1 and sorted(r["task"] for r in saved["runs"]) == ["a", "b"]
     assert saved["summary"]["overall"]["reviewed"] == 2
+
+
+def test_replay_stops_starting_reviews_at_the_cap_counting_resumed_ones(tmp_path, monkeypatch):
+    import json
+    import benchmarks.review_offline as offline
+    monkeypatch.setattr(offline, "calculate_cost", lambda model, i, o: 1.0)  # each review could cost $1
+    stopped = tmp_path / "stopped-review-offline.json"
+    stopped.write_text(json.dumps({"runs": [{"task": "a", "arm": "review:swe-cheap-lean", "source_arm": "swe-cheap-lean",
+                                             "hidden_passed": True, "edited_tests": [], **VERDICT, "cost_usd": 1.5}]}))
+
+    async def reviewer(*args):
+        return VERDICT
+
+    saved = _replay(tmp_path, monkeypatch, reviewer, resume=stopped, cap="2")
+    assert [r["task"] for r in saved["runs"]] == ["a"] and saved["summary"]["not_reviewed_at_cap"] == 1
+    saved = _replay(tmp_path, monkeypatch, reviewer, resume=stopped, cap="3")
+    assert sorted(r["task"] for r in saved["runs"]) == ["a", "b"]

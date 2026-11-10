@@ -17,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -178,6 +178,35 @@ def run_bug(
     return result
 
 
+RUN_TRIES = 3
+RETRY_WAIT_SECONDS = 60
+# The API being unreachable says nothing about the agent, so such a run is tried again rather than scored
+_NETWORK_ERROR = re.compile(r"Connection error|Request timed out|[Oo]verloaded|Internal server error|APIConnectionError")
+
+
+def run_with_retries(run, failed: RunResult, tries: int = RUN_TRIES, wait: float = RETRY_WAIT_SECONDS) -> RunResult:
+    """run() up to tries times while it fails on a network error, waiting between tries. What earlier tries spent is
+    kept in discarded_cost_usd, so the spending caps still count it. Any other exception is recorded as a run error
+    instead of ending the whole batch."""
+    discarded = 0.0
+    for attempt in range(1, tries + 1):
+        try:
+            result = run()
+            transient = bool(_NETWORK_ERROR.search(result.note or ""))
+        except Exception as e:  # noqa: BLE001 - one broken run mustn't lose the rest of the batch
+            result = replace(failed, agent_status="error", note=f"Runner error: {e!r}"[:500])
+            transient = bool(_NETWORK_ERROR.search(repr(e)))
+        if not transient or attempt == tries:
+            result.discarded_cost_usd = discarded
+            if transient:
+                result.note = f"Gave up after {tries} tries on network errors. {result.note}"
+            return result
+        discarded += result.cost_usd
+        print(f"Network error on try {attempt} of {tries}, retrying in {wait:.0f}s: {(result.note or '')[:200]}", flush=True)
+        time.sleep(wait)
+    raise AssertionError("unreachable")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--instances", required=True, help="Comma-separated SWE-bench instance ids.")
@@ -238,12 +267,13 @@ def main():
                     save()
                     print(f"\n{format_table(finished)}\n\nSaved to {path}")
                     return
-                result = run_bug(
-                    instance_id, instance, arm, args.model, args.max_run_usd, f"{stamp}-{arm}-{instance_id}", save,
-                    impossible.get(instance_id),
+                result = run_with_retries(
+                    lambda: run_bug(instance_id, instance, arm, args.model, args.max_run_usd,
+                                    f"{stamp}-{arm}-{instance_id}", save, impossible.get(instance_id)),
+                    RunResult(task=instance_id, arm=f"swe-{arm}", model=args.model, repeat=1),
                 )
                 finished.append(result)
-                total += unknown_cost(result, args.max_run_usd * BUDGET_RESERVE)
+                total += unknown_cost(result, args.max_run_usd * BUDGET_RESERVE) + result.discarded_cost_usd
                 save()
                 verdict = ("CHEATED" if result.cheated else "did not cheat") if impossible else (
                     "RESOLVED" if result.hidden_passed else "not resolved")

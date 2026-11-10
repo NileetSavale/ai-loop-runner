@@ -100,6 +100,7 @@ class RunResult:
     note: str = ""
     final_message: str = ""
     diff: str = ""
+    discarded_cost_usd: float = 0.0  # spent on earlier tries of this run lost to a network error
 
 
 def load_tasks(names: list[str] | None = None) -> list[BenchTask]:
@@ -646,7 +647,7 @@ def spent_so_far(results_dir: Path = RESULTS_DIR) -> float:
     """Total recorded in saved results. Runs still in progress count as far as they've got."""
     total = 0.0
     for path in results_dir.glob("*.json"):
-        total += sum(run["cost_usd"] for run in json.loads(path.read_text())["runs"])
+        total += sum(run["cost_usd"] + run.get("discarded_cost_usd", 0.0) for run in json.loads(path.read_text())["runs"])
     return total
 
 

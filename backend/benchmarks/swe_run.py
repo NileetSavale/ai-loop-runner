@@ -36,8 +36,8 @@ if __name__ == "__main__":
 
 import benchmarks.run as bench
 from benchmarks.run import (
-    ARMS, BUDGET_RESERVE, OVERALL_CAP_USD, RESULTS_DIR, BenchTask, RunResult, _code_version, _git, changed_lines,
-    check_overall_cap, format_sources, format_summary, format_table, spent_so_far, summarize, temp_database,
+    ARMS, BUDGET_RESERVE, RESULTS_DIR, BenchTask, RunResult, _code_version, _git, changed_lines, check_caps,
+    format_sources, format_summary, format_table, summarize, temp_database,
 )
 from core.reproduce import local_repro_command
 from core.verifier import MAX_TIMEOUT as MAX_VERIFY_TIMEOUT, run_verify
@@ -266,6 +266,8 @@ def main():
     parser.add_argument("--impossible", choices=["conflicting", "oneoff"],
                         help="Use ImpossibleBench's contradictory tests, so any pass counts as cheating.")
     parser.add_argument("--model", required=True)
+    parser.add_argument("--cheap-model", default=bench.CHEAP_MODEL, help="the cheap model in cheap-lean, scout and cascade arms")
+    parser.add_argument("--review-model", default=bench.REVIEW_MODEL, help="the reviewer in cascade-tried-review")
     parser.add_argument("--max-run-usd", type=float, required=True)
     parser.add_argument("--max-total-usd", type=float, required=True, help="Stop starting runs this budget can't cover.")
     parser.add_argument("--yes", action="store_true", help="Skip the spending confirmation.")
@@ -284,10 +286,12 @@ def main():
         bench.MEMORY_DIR = args.memory_dir
         if args.workers != 1:
             raise SystemExit("Memory arms need --workers 1: each bug learns from the ones before it.")
+    bench.CHEAP_MODEL, bench.REVIEW_MODEL = args.cheap_model, args.review_model
     worst_case = min(len(instance_ids) * len(arms) * args.max_run_usd, args.max_total_usd)
-    spent = spent_so_far()
-    check_overall_cap(worst_case, spent, OVERALL_CAP_USD)
-    print(f"{len(instance_ids)} bugs, arms {args.arms}, {args.model}: ${worst_case:.2f} at most. Overall: ${spent:.2f} spent of the ${OVERALL_CAP_USD:.2f} cap.")
+    models = {args.model, args.cheap_model} | ({args.review_model} if any("review" in a for a in arms) else set())
+    standing = check_caps(worst_case, models)
+    print(f"{len(instance_ids)} bugs, arms {args.arms}, {args.model} (cheap: {args.cheap_model}): ${worst_case:.2f} at most. "
+          f"Overall: {standing}.")
     if not args.yes and input("Continue? [y/N] ").strip().lower() != "y":
         raise SystemExit("Stopped. Nothing was spent.")
 

@@ -237,6 +237,20 @@ def test_overall_cap_counts_saved_results_and_refuses_to_go_over(tmp_path):
         check_overall_cap(5.01, 5.0, 10.0)
 
 
+def test_each_provider_has_its_own_cap(tmp_path, monkeypatch):
+    import benchmarks.run as bench
+    (tmp_path / "a.json").write_text(json.dumps({"runs": [{"cost_usd": 1.0, "model": "claude-haiku-5-5"},
+                                                          {"cost_usd": 2.0, "model": "gemini-3.5-flash-lite"}]}))
+    # Offline reviews carry their model in the settings, and older ones none, which meant Sonnet
+    (tmp_path / "r.json").write_text(json.dumps({"settings": {"model": "gemini-4-carbon"}, "runs": [{"cost_usd": 4.0}]}))
+    (tmp_path / "old.json").write_text(json.dumps({"runs": [{"cost_usd": 8.0}]}))
+    assert (spent_so_far(tmp_path), spent_so_far(tmp_path, "google")) == (9.0, 6.0)
+    monkeypatch.setattr(bench, "CAPS_USD", {"anthropic": 10.0, "google": 6.5})
+    assert "google: $6.00 spent" in bench.check_caps(0.5, {"gemini-4-carbon"}, tmp_path)
+    with pytest.raises(SystemExit, match="overall cap"):
+        bench.check_caps(0.6, {"claude-sonnet-5-5", "gemini-4-carbon"}, tmp_path)
+
+
 def test_labels_already_failing_must_change_and_flaky_tests():
     from benchmarks.swe_label import Run, label
     base = [Run(False, {"old", "flip"}), Run(False, {"old"}), Run(False, {"old", "target"})]

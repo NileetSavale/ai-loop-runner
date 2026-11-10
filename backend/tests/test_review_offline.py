@@ -180,3 +180,10 @@ def test_replay_stops_starting_reviews_at_the_cap_counting_resumed_ones(tmp_path
     assert [r["task"] for r in saved["runs"]] == ["a"] and saved["summary"]["not_reviewed_at_cap"] == 1
     saved = _replay(tmp_path, monkeypatch, reviewer, resume=stopped, cap="3")
     assert sorted(r["task"] for r in saved["runs"]) == ["a", "b"]
+
+
+def test_runs_still_going_when_a_batch_stopped_are_not_reviewed():
+    from benchmarks.review_offline import finished_runs
+    saved = {"runs": [{"task": "a", "arm": "swe-cheap-lean"}, {"task": "b", "arm": "swe-cheap-lean"}],
+             "running": [["b", "swe-cheap-lean"]]}
+    assert finished_runs(saved) == [{"task": "a", "arm": "swe-cheap-lean"}]

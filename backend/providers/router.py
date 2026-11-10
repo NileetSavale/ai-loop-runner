@@ -2,7 +2,7 @@ import os
 from .base import LLMProvider
 from .anthropic import AnthropicProvider
 from .openai import OpenAIProvider
-from .gemini import GeminiProvider
+from .gemini import GeminiProvider, vertex_enabled
 from .mistral import MistralProvider
 
 
@@ -36,6 +36,8 @@ def get_provider(model: str, user_api_key: str | None = None) -> LLMProvider:
     user_api_key: decrypted BYOK key. If None, falls back to platform key.
     """
     provider_name = _provider_for(model)
+    if provider_name == "google" and not user_api_key and vertex_enabled():
+        return GeminiProvider(api_key="")  # Vertex AI, billed to the Google Cloud project
     key = user_api_key or _PLATFORM_KEYS.get(provider_name, "")
     if not key:
         raise ValueError(f"No API key available for provider '{provider_name}'. Add your key in Settings.")

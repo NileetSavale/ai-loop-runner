@@ -82,6 +82,15 @@ def _gemini(stop):
         yield None, chunk
 
 
+def _gemini_tool():
+    usage = {"promptTokenCount": 120, "cachedContentTokenCount": 100, "candidatesTokenCount": 5,
+             "thoughtsTokenCount": 6, "totalTokenCount": 131}
+    yield None, {"candidates": [{"content": {"role": "model", "parts": [{"text": "Looking."}]}}]}
+    yield None, {"candidates": [{"content": {"role": "model", "parts": [
+        {"functionCall": {"name": "read_file", "args": {"path": "src/a.py"}}, "thoughtSignature": "c2lnMTIz"}]},
+        "finishReason": "STOP"}], "usageMetadata": usage}
+
+
 @pytest.fixture
 def server():
     state = {"stop": False, "bodies": []}
@@ -97,7 +106,7 @@ def server():
             elif self.path.startswith("/mistral"):
                 events = _mistral(state["stop"])
             else:
-                events = _gemini(state["stop"])
+                events = _gemini_tool() if state.get("tool") else _gemini(state["stop"])
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
@@ -237,3 +246,47 @@ def test_anthropic_context_editing_goes_through_the_beta_only_when_asked(server)
     assert "context_management" not in plain and edited["context_management"] == setting
     betas = [{k.lower(): v for k, v in h.items()}.get("anthropic-beta", "") for h in server["headers"][-2:]]
     assert betas[0] == "" and "context-management-2025-06-27" in betas[1]
+
+
+def test_gemini_tool_turn_round_trip(server):
+    """Gemini's wire format behind the loop's Anthropic-shaped history: the call comes back as a tool_use block, and
+    goes out again with its thought signature, followed by a function response named after it."""
+    server["tool"] = True
+    provider, sdk_patch = _make("gemini", server["url"])
+    tools = [{"name": "read_file", "description": "d", "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}}}]
+    messages = [{"role": "user", "content": "go"}]
+
+    async def scenario():
+        first = await provider.complete_with_tools("sys", messages, tools, "gemini-3-flash", effort="low")
+        history = messages + [first.assistant_message, provider.tool_results_message(
+            [{"id": first.tool_calls[0].id, "content": "file text", "is_error": False}])]
+        await provider.complete_with_tools("sys", history, tools, "gemini-3-flash")
+        return first
+
+    with sdk_patch:
+        first = asyncio.run(scenario())
+    call = first.tool_calls[0]
+    assert (call.name, call.input) == ("read_file", {"path": "src/a.py"})
+    assert first.stop_reason == "tool_use" and first.text == "Looking."
+    # Thinking is billed as output; cached prompt tokens are priced as cache reads
+    assert (first.input_tokens, first.output_tokens, first.cache_read_tokens) == (20, 11, 100)
+    asked, sent = server["bodies"][-2:]
+    # This SDK sends its newer fields snake_case; the API takes either
+    thinking = asked["generationConfig"]["thinkingConfig"]
+    assert (thinking.get("thinkingLevel") or thinking.get("thinking_level")) == "LOW"
+    declared = asked["tools"][0]["functionDeclarations"][0]
+    assert (declared.get("parametersJsonSchema") or declared.get("parameters_json_schema")) == tools[0]["input_schema"]
+    assert [c["role"] for c in sent["contents"]] == ["user", "model", "user"]
+    assert sent["contents"][1]["parts"][1] == {"functionCall": {"name": "read_file", "args": {"path": "src/a.py"}},
+                                               "thoughtSignature": "c2lnMTIz"}
+    assert sent["contents"][2]["parts"] == [{"functionResponse": {"name": "read_file", "response": {"output": "file text"}}}]
+
+
+def test_gemini_goes_to_vertex_only_when_switched_on(monkeypatch):
+    from providers import router
+    monkeypatch.setitem(router._PLATFORM_KEYS, "google", "studio-key")
+    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
+    assert router.get_provider("gemini-3-flash").api_key == "studio-key"
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    assert router.get_provider("gemini-3-flash").api_key == ""
+    assert router.get_provider("gemini-3-flash", user_api_key="byok").api_key == "byok"

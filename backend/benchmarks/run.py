@@ -161,7 +161,7 @@ def temp_database():
     """Keep benchmark rows out of the app's database."""
     previous = database.engine
     with tempfile.TemporaryDirectory() as folder:
-        database.engine = create_engine(f"sqlite:///{folder}/benchmark.db", connect_args={"check_same_thread": False})
+        database.engine = create_engine(f"sqlite:///{folder}/benchmark.db", connect_args={"check_same_thread": False, "timeout": 30})
         SQLModel.metadata.create_all(database.engine)
         try:
             yield

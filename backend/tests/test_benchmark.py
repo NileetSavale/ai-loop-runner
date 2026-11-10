@@ -14,7 +14,7 @@ from benchmarks.run import (
     BenchTask, RunResult, apply_claude_output, changed_lines, claude_code_command, format_summary, format_table,
     hidden_tests_pass, load_tasks, prepare_repo, run_benchmark, run_loop_arm, run_one, spent_so_far, check_overall_cap, summarize,
 )
-from benchmarks.swe_run import test_command as swe_test_command, verify_command
+from benchmarks.swe_run import finished_pairs, test_command as swe_test_command, verify_command
 from core.agent import run_agent
 from core.verifier import run_verify
 from providers.base import LLMProvider, LLMResult
@@ -321,3 +321,10 @@ def test_budget_stops_every_worker_once_one_is_refused():
     assert not budget.start()
     budget.total = 0  # even if spending were somehow lower, a stopped batch stays stopped
     assert not budget.start()
+
+
+def test_skip_done_counts_runs_still_going_when_a_batch_stopped_as_not_run():
+    saved = {"runs": [{"task": "a", "arm": "swe-x"}, {"task": "a", "arm": "swe-y"}, {"task": "b", "arm": "swe-x"}],
+             "running": [["a", "swe-y"]]}
+    assert finished_pairs(saved) == {("a", "swe-x"), ("b", "swe-x")}
+    assert finished_pairs({"runs": [{"task": "a", "arm": "swe-x"}]}) == {("a", "swe-x")}

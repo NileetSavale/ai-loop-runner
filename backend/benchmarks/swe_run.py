@@ -259,6 +259,13 @@ class Budget:
             return self.total
 
 
+def finished_pairs(saved: dict) -> set[tuple[str, str]]:
+    """(bug, arm) for each run a results file holds that finished. Runs still going when it was last saved are listed
+    under "running": they were paid for, so they stay in the file for the spending caps, but they count as not run."""
+    running = {tuple(key) for key in saved.get("running", [])}
+    return {(r["task"], r["arm"]) for r in saved["runs"]} - running
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--instances", required=True, help="Comma-separated SWE-bench instance ids.")
@@ -273,6 +280,8 @@ def main():
                         help="seconds before a run is stopped; Gemini's runs take longer than Claude's")
     parser.add_argument("--max-total-usd", type=float, required=True, help="Stop starting runs this budget can't cover.")
     parser.add_argument("--yes", action="store_true", help="Skip the spending confirmation.")
+    parser.add_argument("--skip-done", type=Path, help="A results file from a stopped batch: its finished runs aren't "
+                        "run again. The new runs go to a new file, so analyse the two together.")
     parser.add_argument("--workers", type=int, default=1, help="Bugs run at once. Memory arms need 1, since each bug "
                         "learns from the ones before it.")
     parser.add_argument("--memory-dir", type=Path, help="Where the memory arms keep what they learn. Give a new folder "
@@ -290,7 +299,9 @@ def main():
             raise SystemExit("Memory arms need --workers 1: each bug learns from the ones before it.")
     bench.CHEAP_MODEL, bench.REVIEW_MODEL = args.cheap_model, args.review_model
     bench.RUN_TIMEOUT_SECONDS = args.run_timeout
-    worst_case = min(len(instance_ids) * len(arms) * args.max_run_usd, args.max_total_usd)
+    done = finished_pairs(json.loads(args.skip_done.read_text())) if args.skip_done else set()
+    to_run = len(instance_ids) * len(arms) - len(done & {(i, f"swe-{a}") for i in instance_ids for a in arms})
+    worst_case = min(to_run * args.max_run_usd, args.max_total_usd)
     models = {args.model, args.cheap_model} | ({args.review_model} if any("review" in a for a in arms) else set())
     standing = check_caps(worst_case, models)
     print(f"{len(instance_ids)} bugs, arms {args.arms}, {args.model} (cheap: {args.cheap_model}): ${worst_case:.2f} at most. "
@@ -314,6 +325,7 @@ def main():
             path.write_text(json.dumps({
                 "settings": vars(args) | {"memory_dir": str(args.memory_dir) if args.memory_dir else None},
                 "code": _code_version(), "summary": summarize(runs), "runs": [asdict(r) for r in runs],
+                "running": [list(key) for key in running],
             }, indent=2))
 
     def unknown_cost(result: RunResult, budget: float) -> float:
@@ -339,6 +351,8 @@ def main():
     def run_arms(index: int, instance_id: str, instance: dict, source: Path):
         # Take turns going first, so neither arm always runs on a warmer machine
         for arm in arms[::-1] if index % 2 else arms:
+            if (instance_id, f"swe-{arm}") in done:
+                continue
             if not budget.start():
                 return
             result = run_with_retries(

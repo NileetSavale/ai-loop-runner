@@ -39,10 +39,11 @@ import database
 from core.edits import is_test_path
 from core.code_graph import CodeGraph
 from core.repo_memory import NOTES_PROMPT, RepoMemory, memory_section, transcript_section
-from core.fix_review import edited_tests, review_fix
+from core.fix_review import REVIEWER_MODEL, edited_tests, review_fix
 from core.scout import handover, run_scout, tried_summary
 from core.token_sources import merge
 from providers.base import calculate_cost
+from providers.router import _provider_for
 from core.verifier import _verify_env, failing_tests, run_verify
 from database import get_session as db_session
 from models import Iteration, Session, SessionEvent, Task
@@ -56,6 +57,8 @@ RUN_TIMEOUT_SECONDS = 600
 BUDGET_RESERVE = 0.75
 # Across every benchmark run, so no single command can eat the API credits. Only raise this when the owner agrees.
 OVERALL_CAP_USD = float(os.getenv("BENCHMARK_OVERALL_CAP_USD", "300"))
+# Gemini runs on Vertex AI are paid from Google Cloud trial credits, which also pay for the VM, so they get their own cap
+GOOGLE_CAP_USD = float(os.getenv("BENCHMARK_GOOGLE_CAP_USD", "150"))
 
 
 @dataclass
@@ -336,7 +339,9 @@ async def run_claude_code_arm(task: BenchTask, repo: Path, model: str, budget: f
     apply_claude_output(stdout.decode(errors="replace"), result, task.verify)
 
 
+# swe_run's --cheap-model and --review-model replace these for an experiment, as with MEMORY_DIR
 CHEAP_MODEL = "claude-haiku-5-5"
+REVIEW_MODEL = REVIEWER_MODEL
 # The lean arm's settings, shared by the arms that compare against it
 LEAN = dict(retry_context="continue", max_only_old_failures=1, short_output=True, reviewer_effort="low",
             max_listed_files=100)
@@ -368,8 +373,9 @@ def _add_usage(total: RunResult, part: RunResult, label: str):
                            **{f"{label}: {k}": v for k, v in (part.token_sources or {}).items()}}
 
 
-async def _scout(task: BenchTask, repo: Path, result: RunResult, model: str = CHEAP_MODEL, effort: str | None = None) -> str:
+async def _scout(task: BenchTask, repo: Path, result: RunResult, model: str | None = None, effort: str | None = None) -> str:
     # The main model costs 20x the cheap one per token, so it gets more room to look around
+    model = model or CHEAP_MODEL
     budget = SCOUT_BUDGET_USD if model == CHEAP_MODEL else SCOUT_BUDGET_USD * 5
     notes, scouted = await run_scout(task.prompt, str(repo), model, budget,
                                      **({"effort": effort} if effort else {}))
@@ -432,7 +438,8 @@ async def run_cascade_arm(task: BenchTask, repo: Path, model: str, budget: float
     if review and accepted(cheap, needs_reproduction=reproduce):
         _git(repo, "add", "-A")
         diff = _git(repo, "diff", "--cached", base, strip=False)
-        verdict = await review_fix(task.prompt, diff, lambda path: _show(repo, base, path), cheap.note, review)
+        verdict = await review_fix(task.prompt, diff, lambda path: _show(repo, base, path), cheap.note, review,
+                                   model=REVIEW_MODEL)
         result.cost_usd += verdict["cost_usd"]
         result.input_tokens += verdict["input_tokens"]
         result.output_tokens += verdict["output_tokens"]
@@ -689,11 +696,18 @@ def format_summary(summary: dict) -> str:
     ])
 
 
-def spent_so_far(results_dir: Path = RESULTS_DIR) -> float:
-    """Total recorded in saved results. Runs still in progress count as far as they've got."""
+CAPS_USD = {"anthropic": OVERALL_CAP_USD, "google": GOOGLE_CAP_USD}
+
+
+def spent_so_far(results_dir: Path = RESULTS_DIR, provider: str = "anthropic") -> float:
+    """Total recorded in saved results for one provider's models. Runs still in progress count as far as they've got.
+    A run counts under its model; offline reviews carry theirs in the file's settings."""
     total = 0.0
     for path in results_dir.glob("*.json"):
-        total += sum(run["cost_usd"] + run.get("discarded_cost_usd", 0.0) for run in json.loads(path.read_text())["runs"])
+        saved = json.loads(path.read_text())
+        default = (saved.get("settings") or {}).get("model") or REVIEWER_MODEL
+        total += sum(run["cost_usd"] + run.get("discarded_cost_usd", 0.0) for run in saved["runs"]
+                     if _provider_for(run.get("model") or default) == provider)
     return total
 
 
@@ -702,6 +716,17 @@ def check_overall_cap(worst_case: float, spent: float, cap: float):
         raise SystemExit(
             f"Refusing to start: ${spent:.2f} spent plus up to ${worst_case:.2f} more would pass the ${cap:.2f} overall cap."
         )
+
+
+def check_caps(worst_case: float, models: set[str], results_dir: Path = RESULTS_DIR) -> str:
+    """Checks the worst case against the cap of every provider the models use (in full against each, since a run's
+    split between them isn't known up front), and says where each stands."""
+    lines = []
+    for provider in sorted({_provider_for(m) for m in models}):
+        spent, cap = spent_so_far(results_dir, provider), CAPS_USD.get(provider, OVERALL_CAP_USD)
+        check_overall_cap(worst_case, spent, cap)
+        lines.append(f"{provider}: ${spent:.2f} spent of the ${cap:.2f} cap")
+    return "; ".join(lines)
 
 
 def _code_version() -> dict:
@@ -731,10 +756,9 @@ def main():
     tasks = load_tasks(args.tasks.split(",") if args.tasks else None)
     runs = len(tasks) * args.repeats
     worst_case = min(runs * args.max_run_usd, args.max_total_usd)
-    spent = spent_so_far()
-    check_overall_cap(worst_case, spent, OVERALL_CAP_USD)
+    standing = check_caps(worst_case, {args.model, CHEAP_MODEL})
     print(f"{runs} runs of {args.arm} on {args.model}: up to ${args.max_run_usd:.2f} each, ${worst_case:.2f} at most in total.")
-    print(f"Overall: ${spent:.2f} spent of the ${OVERALL_CAP_USD:.2f} cap.")
+    print(f"Overall: {standing}.")
     print("This spends real money, and agent-written code runs on this machine.")
     if not args.yes and input("Continue? [y/N] ").strip().lower() != "y":
         raise SystemExit("Stopped. Nothing was spent.")

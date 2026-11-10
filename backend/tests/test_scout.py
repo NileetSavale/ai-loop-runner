@@ -187,3 +187,10 @@ def test_effort_reaches_the_provider_only_when_set(tmp_path):
         with patch("core.agent.get_provider", return_value=Model([_turn(text=NOTES)])):
             asyncio.run(run_scout("f", str(tmp_path), "claude-sonnet-5-5", 1.0, effort=effort))
     assert seen == [{"effort": "low"}, {}]
+
+
+def test_strict_cascade_accepts_a_cheap_pass_only_with_a_kept_reproduction():
+    run = RunResult("t", "a", "m", 1, agent_status="passed")
+    assert accepted(run) and not accepted(run, needs_reproduction=True)
+    run.reproduction = {"kept": True}
+    assert accepted(run, needs_reproduction=True)

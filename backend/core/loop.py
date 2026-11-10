@@ -17,6 +17,10 @@ from core.keyword_locate import locate_by_keywords
 from core.repo_map import MAX_FOCUS_FILES, build_repo_map, locate_issue, map_for_prompt
 from core.security import (AUDIT_SYSTEM_PROMPT, PAIR_SYSTEM_PROMPT, AuditCache, audit_prompt, files_to_audit,
                            findings_for, findings_guide, pair_prompt, parse_findings, parse_verdict)
+from core.reproduce import (
+    FAILURE_NAME as REPRO_FAILURE, REPRODUCER_SYSTEM_PROMPT, SCRIPT_PATH as REPRO_SCRIPT, fails_for_the_bug, repro_guide,
+    reproducer_prompt, script_from, with_reproduction,
+)
 from core.tester import TEST_REVIEW_SYSTEM_PROMPT, TESTER_SYSTEM_PROMPT, test_review_prompt, tester_prompt, tests_guide
 from core.tools import MAX_LISTED_FILES, MAX_TEST_OUTPUT_CHARS, RepoTools
 from core.verifier import failing_tests, run_verify, short_test_output, tail, VerifyResult
@@ -52,7 +56,8 @@ MAX_DIFF_CHARS = 8_000
 MAX_RECORD_ACTIONS = 20
 MAX_RECORD_SUMMARY_CHARS = 600
 MAX_RECORD_TESTS = 15
-NOTES_BUDGET_USD = 0.10  # writing notes for later tasks, after the run
+NOTES_BUDGET_USD = 0.10
+REPRO_TRIES = 2  # writing notes for later tasks, after the run
 
 
 def build_file_context(files: list[str], repo_path: str) -> str:
@@ -236,6 +241,7 @@ async def run_loop(
     compact_tools: bool = False,
     clear_old_results: bool = False,
     explore_budget: int | None = None,
+    repro_command: str | None = None,
 ):
     """The last three trim tokens and are off by default until measured: stop sooner when only tests that failed
     before any change still fail, give the agent failing names and the end of test output rather than 8k characters
@@ -264,7 +270,10 @@ async def run_loop(
     knowledge: a CodeGraph (core/code_graph.py). The coder gets the lookup_code tool to query it.
     compact_tools, clear_old_results, explore_budget: exploring trims, off until measured. Fewer, grouped search hits
     and shorter default reads (core/tools.py); old tool results cleared by the API once a request is long; and one
-    nudge to commit to a fix after this many reads and searches with no change (core/agent.py)."""
+    nudge to commit to a fix after this many reads and searches with no change (core/agent.py).
+    repro_command: how to run core/reproduce.py's script in this repo. Set, a model writes a script from the task
+    before the coder starts; if it fails on the original code for the bug's sake, it runs after the tests from then
+    on, and an attempt passes only if both pass."""
     if retry_context not in RETRY_CONTEXTS:
         raise ValueError(f"retry_context must be one of {RETRY_CONTEXTS}")
     # Load session + task once; scalar columns are eagerly loaded so safe to use detached
@@ -404,6 +413,32 @@ async def run_loop(
                         pass
             await emit("tests_written", {"files": sorted(written), "tests": sorted(task_tests), "approved": approved,
                                          "problems": problems or [], "kept": bool(task_tests)})
+
+        if repro_command:
+            code_paths = files_to_audit(focus, repo_map["edges"], is_test_path) if use_map else [f for f in files if not is_test_path(f)]
+            code = {p: c for p in code_paths if not is_secret_path(p) and (c := read_current(repo_path, p))}
+            script, earlier, kept, output = None, None, False, ""
+            for _ in range(REPRO_TRIES):  # one rewrite if the script couldn't run
+                script = script_from(await ask(REPRODUCER_SYSTEM_PROMPT, reproducer_prompt(spec, code, earlier), "reproducer"))
+                if not script:
+                    break
+                apply_edits([FileEdit(REPRO_SCRIPT, script)], repo_path)
+                check = await run_verify(repro_command, repo_path, sandbox)
+                output = check.output
+                if fails_for_the_bug(check.exit_code, check.output):
+                    kept = True
+                    break
+                earlier = (script, check.output)
+            if kept:
+                verify_command = with_reproduction(verify_command, repro_command)
+                task_tests = task_tests | {REPRO_FAILURE}
+                guide += repro_guide()
+            elif script:
+                try:
+                    os.remove(resolve_in_repo(repo_path, REPRO_SCRIPT))
+                except OSError:
+                    pass
+            await emit("reproduction", {"kept": kept, "script": script or "", "output": tail(output, 1_500)})
 
         security_reviews: dict[str, tuple[bool, list[str]]] = {}  # by diff, so an unchanged diff isn't paid for twice
 

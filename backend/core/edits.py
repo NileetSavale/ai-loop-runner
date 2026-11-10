@@ -8,7 +8,8 @@ from dataclasses import dataclass
 # Hash the verify setup before each run if a real tamper proof is needed.
 _TEST_DIRS = {"tests", "test", "__tests__", "spec", "specs"}
 _TEST_FILES = re.compile(r"test_.*|.*_test\..+|.*\.(test|spec)\..+", re.IGNORECASE)
-_LOCKED_FILES = re.compile(r"conftest\.py|pytest\.ini|tox\.ini|(jest|vitest)\.config\..+", re.IGNORECASE)
+# test_reproduce_issue.py: the script core/reproduce.py writes to judge the coder, so the coder mustn't change it
+_LOCKED_FILES = re.compile(r"conftest\.py|pytest\.ini|tox\.ini|(jest|vitest)\.config\..+|test_reproduce_issue\.py", re.IGNORECASE)
 
 
 MAX_DIFF_LINES = 400
@@ -67,7 +68,7 @@ def filter_edits(edits, repo_path: str, added_tests: set[str] | None = None) -> 
             continue
         rel = os.path.relpath(real_path, os.path.realpath(repo_path))
         if is_locked_path(rel):
-            rejected.append(f"REJECTED {edit.path}: test config and git files are read-only.")
+            rejected.append(f"REJECTED {edit.path}: test config, git files and the reproduction script are read-only.")
         elif is_test_path(rel) and rel not in added_tests and os.path.exists(real_path):
             rejected.append(f"REJECTED {edit.path}: existing tests are read-only. Add a new test file instead.")
         else:

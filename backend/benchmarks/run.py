@@ -63,6 +63,7 @@ class BenchTask:
     path: Path
     prompt: str
     verify: str
+    repro: str = ""  # how to run core/reproduce.py's script here, for the arms that use one
 
 
 @dataclass
@@ -96,6 +97,7 @@ class RunResult:
     tests_written: dict | None = None  # what the tester wrote before the coder started, and whether it was kept
     # Estimated tokens and cost by where they came from: {source: {"written", "read", "output", "cost_usd"}}
     token_sources: dict[str, dict[str, float]] | None = None
+    reproduction: dict | None = None  # the reproduction script, whether it was kept, and its first output
     memory: dict | None = None  # repo memory arms: notes stored, stale and used going in, and kept coming out
     note: str = ""
     final_message: str = ""
@@ -170,12 +172,17 @@ def temp_database():
 
 async def run_loop_arm(
     task: BenchTask, repo: Path, model: str, budget: float, result: RunResult, add_tests: bool = False,
-    allow_test_changes: bool = True, retry_context: str = "fresh", **trims,
+    allow_test_changes: bool = True, retry_context: str = "fresh", reproduce: bool = False, **trims,
 ):
     """Run our agent the way POST /sessions does. trims: run_loop's token-trimming options.
 
     Returns what the last attempt left behind (its test output, failing and broken tests, and its own last words),
-    for a handover to another model."""
+    for a handover to another model. reproduce: write and gate on a reproduction script (core/reproduce.py), run
+    with task.repro."""
+    if reproduce:
+        if not task.repro:
+            raise ValueError(f"{task.name} has no way to run a reproduction script")
+        trims = {**trims, "repro_command": task.repro}
     session_id = str(uuid.uuid4())
     with db_session() as db:
         db.add(Session(
@@ -245,7 +252,9 @@ async def run_loop_arm(
     result.usage_matches = event_tokens == recorded_tokens and abs(result.cost_usd - recorded_cost) < 1e-9
     checked = [data for kind, data in kinds if kind == "attempt_checked"]
     notes = [data["text"] for kind, data in kinds if kind == "repo_notes"]
-    return {"verify_output": last_output, **(checked[-1] if checked else {"failing": [], "broken": [], "final_text": ""}),
+    repro = next((data for kind, data in kinds if kind == "reproduction"), None)
+    result.reproduction = repro
+    return {"repro_kept": bool(repro and repro["kept"]), "verify_output": last_output, **(checked[-1] if checked else {"failing": [], "broken": [], "final_text": ""}),
             "actions": [f"{t['tool']} {t['target']}".strip() for t in tools], "notes": notes[-1] if notes else ""}
 
 
@@ -387,28 +396,34 @@ async def run_scout_arm(task: BenchTask, repo: Path, model: str, budget: float, 
     result.agent_status, result.note, result.attempt_failures = solver.agent_status, solver.note, solver.attempt_failures
 
 
-def accepted(run: RunResult) -> bool:
+def accepted(run: RunResult, needs_reproduction: bool = False) -> bool:
     """Whether the cheap attempt counts as done. With failure attribution, a run stopped because only tests that
-    failed before any change still fail is done too: a stronger model can't fix what was broken before."""
+    failed before any change still fail is done too: a stronger model can't fix what was broken before.
+    needs_reproduction: only if the cheap model's reproduction script was kept, so its pass shows the bug is gone."""
+    if needs_reproduction and not (run.reproduction and run.reproduction["kept"]):
+        return False
     return run.agent_status == "passed" or "already failing before any change" in run.note
 
 
 async def run_cascade_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult,
-                          tell_tried: bool = False, cheap_effort: str | None = None):
+                          tell_tried: bool = False, cheap_effort: str | None = None, reproduce: bool = False):
     """The cheap model scouts and tries the fix with its notes. If that doesn't count as done, its changes are undone
     and the main model starts over with the notes, plus what the attempt tried and what happened if tell_tried.
 
     cheap_effort: set, the "cheap" step is the main model thinking at that effort rather than the cheap model, so
-    the escalation is to more thinking rather than to a bigger model."""
+    the escalation is to more thinking rather than to a bigger model. reproduce: both models gate on a reproduction
+    script, and the cheap attempt is accepted only if it had one (accepted)."""
     cheap_model = model if cheap_effort else CHEAP_MODEL
     cheap_name = f"{model} at {cheap_effort} effort" if cheap_effort else CHEAP_MODEL
     base = _git(repo, "rev-parse", "HEAD")
     notes = await _scout(task, repo, result, cheap_model, cheap_effort)
     cheap = RunResult(task=result.task, arm=result.arm, model=cheap_model, repeat=result.repeat)
     left = await run_loop_arm(replace(task, prompt=handover(task.prompt, notes)), repo, cheap_model,
-                              budget - result.cost_usd, cheap, **LEAN, **({"coder_effort": cheap_effort} if cheap_effort else {}))
+                              budget - result.cost_usd, cheap, **LEAN, reproduce=reproduce,
+                              **({"coder_effort": cheap_effort} if cheap_effort else {}))
     _add_usage(result, cheap, "cheap")
-    if accepted(cheap):
+    result.reproduction = cheap.reproduction
+    if accepted(cheap, needs_reproduction=reproduce):
         result.agent_status, result.attempt_failures = cheap.agent_status, cheap.attempt_failures
         result.note = f"Solved by {cheap_name}. {cheap.note}".strip()
         return
@@ -421,8 +436,10 @@ async def run_cascade_arm(task: BenchTask, repo: Path, model: str, budget: float
     _git(repo, "clean", "-fdq")
     strong = RunResult(task=result.task, arm=result.arm, model=model, repeat=result.repeat)
     await run_loop_arm(replace(task, prompt=handover(task.prompt, notes, tried)), repo, model,
-                       budget - result.cost_usd, strong, **LEAN)
+                       budget - result.cost_usd, strong, **LEAN, reproduce=reproduce)
     _add_usage(result, strong, "escalated")
+    if reproduce:
+        result.reproduction = {"cheap": cheap.reproduction, "escalated": strong.reproduction}
     result.agent_status, result.attempt_failures = strong.agent_status, strong.attempt_failures
     result.note = f"Escalated to {model} after {cheap_name}: {cheap.agent_status} ({cheap.note or 'no note'}). {strong.note}".strip()
 
@@ -501,6 +518,10 @@ ARMS = {
     "loop-lean-clear": partial(run_loop_arm, **LEAN, clear_old_results=True),
     "loop-lean-budget": partial(run_loop_arm, **LEAN, explore_budget=EXPLORE_BUDGET),
     "loop-lean-trim": partial(run_loop_arm, **LEAN, **TRIMS),
+    # A reproduction script written from the task gates every pass (core/reproduce.py); in the cascade, the cheap
+    # model's pass counts only with one
+    "loop-lean-repro": partial(run_loop_arm, **LEAN, reproduce=True),
+    "cascade-tried-repro": partial(run_cascade_arm, tell_tried=True, reproduce=True),
     # Research step 3: what earlier tasks on the same repo learned (run bugs in date order, with --memory-dir)
     "loop-lean-memory": run_memory_arm,
     "loop-lean-transcripts": partial(run_memory_arm, keep="transcripts"),

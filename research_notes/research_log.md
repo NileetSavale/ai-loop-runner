@@ -651,3 +651,30 @@ verified (titles we don't recognise). Don't cite anything here until it's marked
   Language-Model Agents", arXiv 2608.03169v2 (29 Sep 2026, cs.CR). GPT-5.6 tiers at low vs max reasoning on 14 office
   tasks, 840 runs: low used ~43% fewer output tokens and 20% less time with no forbidden-tool use. Not about code;
   relevant to our coder-effort runs. Abstract-level read via a summary.
+
+## 2026-11-10: Why Haiku's accepted fixes fail the hidden tests (step 2, read by hand)
+
+Step 2 (Haiku alone and the two cascades, 60 bugs, results so far): 150 Haiku fixes were accepted by the loop, and 44
+(29%) fail SWE-bench's hidden tests; 26 of those are on 14 bugs Sonnet solved in some run. An agent read all 44 with the
+issue, the official fix and the hidden tests (judgment calls, nothing re-run):
+
+| Why it fails | All 44 | On Sonnet-solved bugs (26) |
+|---|---|---|
+| Hidden test checks a detail the issue doesn't state (exact message, keyword name, node type, header) | 19 | 10 |
+| Incomplete: right place, misses a case | 16 | 11 |
+| Wrong location / symptom patch / breaks existing tests | 4 | 3 |
+| Evaluation artefact | 5 | 2 |
+
+Could a reviewer who sees only the issue, the diff and nearby code catch it: yes 9, maybe 13, no 22. All 9 "yes" are
+on Sonnet-solved bugs and share a shape: the fix stops at the first spot the issue names and misses its sibling
+(`replace_unnamed_groups` next to `replace_named_groups`, `inlineformset_factory` next to `modelformset_factory`,
+`get_email_field_name()`, `__add__` next to `__radd__`, `-v` in `_preprocess_options`), or the fix edits an existing
+test's expected value to match itself (matplotlib-22871; also sphinx-10435, django-11265).
+
+- So the "accepted but wrong" rate overstates real defects: nearly half are benchmark strictness.
+- django-16145 can't be solved on this Mac: every fix passes the FAIL_TO_PASS tests, but `test_honor_umask` (a
+  PASS_TO_PASS test) fails in our environment before any change, and SWE-bench counts it. Check it on the native cloud
+  VM before reporting 16145 for any arm.
+- The offline Sonnet reviewer runs with its prompt unchanged: tuning it on these same 44 would leak the answers. A
+  prompt that asks about sibling code paths and edited tests is a candidate for a second round on fresh bugs.
+- Cheap, automatable signal worth adding: the fix edits an existing test's expected value.

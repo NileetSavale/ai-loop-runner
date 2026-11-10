@@ -269,6 +269,8 @@ def main():
     parser.add_argument("--cheap-model", default=bench.CHEAP_MODEL, help="the cheap model in cheap-lean, scout and cascade arms")
     parser.add_argument("--review-model", default=bench.REVIEW_MODEL, help="the reviewer in cascade-tried-review")
     parser.add_argument("--max-run-usd", type=float, required=True)
+    parser.add_argument("--run-timeout", type=int, default=bench.RUN_TIMEOUT_SECONDS,
+                        help="seconds before a run is stopped; Gemini's runs take longer than Claude's")
     parser.add_argument("--max-total-usd", type=float, required=True, help="Stop starting runs this budget can't cover.")
     parser.add_argument("--yes", action="store_true", help="Skip the spending confirmation.")
     parser.add_argument("--workers", type=int, default=1, help="Bugs run at once. Memory arms need 1, since each bug "
@@ -287,6 +289,7 @@ def main():
         if args.workers != 1:
             raise SystemExit("Memory arms need --workers 1: each bug learns from the ones before it.")
     bench.CHEAP_MODEL, bench.REVIEW_MODEL = args.cheap_model, args.review_model
+    bench.RUN_TIMEOUT_SECONDS = args.run_timeout
     worst_case = min(len(instance_ids) * len(arms) * args.max_run_usd, args.max_total_usd)
     models = {args.model, args.cheap_model} | ({args.review_model} if any("review" in a for a in arms) else set())
     standing = check_caps(worst_case, models)

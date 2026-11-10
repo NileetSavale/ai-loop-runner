@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import json
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -104,11 +105,17 @@ def verify_command(image: str, command: str) -> str:
     PYTHONPATH because the setup's pip install is skipped, and a non-editable install would hide the agent's changes.
     The time limit runs inside the container: when run_verify gives up it kills the docker client, not the container,
     and two hung sympy tests kept running at full CPU for two days that way.
+
+    On Linux the tests run as root inside the container and leave root-owned files in the mounted repo, which this
+    user then can't delete, so the files are handed back afterwards, even when the time limit killed the tests. Docker
+    Desktop on the Mac maps ownership itself.
     """
+    limited = f'timeout -s KILL {MAX_VERIFY_TIMEOUT + 30} bash -c {shlex.quote(command)}'
+    if platform.system() == "Linux":
+        limited = "bash -c " + shlex.quote(f"{limited}; s=$?; chown -R {os.getuid()}:{os.getgid()} /testbed; exit $s")
     return (
         'docker run --rm --network none --platform linux/amd64 -e PYTHONDONTWRITEBYTECODE=1 -e PYTHONPATH=/testbed '
-        f'-v "$PWD":/testbed -w /testbed {shlex.quote(image)} '
-        f'timeout -s KILL {MAX_VERIFY_TIMEOUT + 30} bash -c {shlex.quote(command)}'
+        f'-v "$PWD":/testbed -w /testbed {shlex.quote(image)} {limited}'
     )
 
 

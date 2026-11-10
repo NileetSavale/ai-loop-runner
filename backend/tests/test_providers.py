@@ -290,3 +290,16 @@ def test_gemini_goes_to_vertex_only_when_switched_on(monkeypatch):
     monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
     assert router.get_provider("gemini-3-flash").api_key == ""
     assert router.get_provider("gemini-3-flash", user_api_key="byok").api_key == "byok"
+
+
+def test_gemini_splits_a_turn_mixing_tool_results_and_text():
+    """A retry adds its prompt after the last tool results; Vertex rejects that mixed turn, so it goes as two."""
+    from providers.gemini import to_contents
+    contents = to_contents([
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "read_file", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "x", "is_error": False},
+                                     {"type": "text", "text": "Tests failed. Continue."}]},
+    ])
+    assert [c.role for c in contents] == ["user", "model", "user", "user"]
+    assert contents[2].parts[0].function_response.name == "read_file" and contents[3].parts[0].text.startswith("Tests")

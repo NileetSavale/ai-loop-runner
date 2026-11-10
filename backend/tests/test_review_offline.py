@@ -104,3 +104,61 @@ def test_v1_prompt_is_unchanged_and_v2_adds_the_sibling_and_test_checks():
     assert PROMPTS["v2"].rstrip().endswith('"why": "one or two sentences"}')
     assert "existing tests: a/t.py" in review_prompt("task", "diff", "", "", ["a/t.py"])
     assert "changes or deletes" not in review_prompt("task", "diff", "", "")
+
+
+def _replay(tmp_path, monkeypatch, review_fix, resume=None):
+    """Runs review_offline's main on one saved file of two accepted Haiku fixes, with the reviewer faked."""
+    import asyncio, json, sys
+    import benchmarks.review_offline as offline
+    saved = tmp_path / "runs.json"
+    saved.write_text(json.dumps({"runs": [{**run("swe-cheap-lean"), "task": t} for t in ("a", "b")]}))
+    monkeypatch.setattr(offline, "review_fix", review_fix)
+    monkeypatch.setattr(offline, "RETRY_WAITS_SECONDS", (0, 0))
+    monkeypatch.setattr(offline, "load_instance", lambda task: {"problem_statement": "spec"})
+    monkeypatch.setattr(offline, "original_file", lambda image, path: "")
+    monkeypatch.setattr(offline, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(offline, "check_caps", lambda worst, models: "fine")
+    monkeypatch.setattr(sys, "argv", ["x", str(saved), "--max-total-usd", "9"] + (["--resume", str(resume)] if resume else []))
+    asyncio.run(offline.main())
+    out = resume or next(p for p in tmp_path.glob("*-review-offline.json"))
+    return json.loads(out.read_text())
+
+
+VERDICT = {"accept": False, "why": "w", "cost_usd": 0.01, "input_tokens": 1, "output_tokens": 1}
+
+
+def test_replay_retries_a_dropped_review_and_skips_one_that_keeps_failing(tmp_path, monkeypatch):
+    calls = []
+
+    async def flaky(spec, diff, read, note, prompt, model, effort):
+        calls.append(spec)
+        if len(calls) == 1 or read is None:
+            raise ConnectionError("dropped")
+        return VERDICT
+
+    saved = _replay(tmp_path, monkeypatch, flaky)
+    assert sorted(r["task"] for r in saved["runs"]) == ["a", "b"] and saved["summary"]["skipped"] == 0
+
+    async def down(*args):
+        raise ConnectionError("dropped")
+
+    for p in tmp_path.glob("*-review-offline.json"):
+        p.unlink()
+    saved = _replay(tmp_path, monkeypatch, down)
+    assert saved["runs"] == [] and saved["summary"]["skipped"] == 2
+
+
+def test_replay_resumes_a_stopped_file_without_reviewing_its_fixes_again(tmp_path, monkeypatch):
+    import json
+    stopped = tmp_path / "stopped-review-offline.json"
+    stopped.write_text(json.dumps({"runs": [{"task": "a", "arm": "review:swe-cheap-lean", "source_arm": "swe-cheap-lean",
+                                             "hidden_passed": True, "edited_tests": [], **VERDICT}]}))
+    seen = []
+
+    async def reviewer(spec, diff, read, note, prompt, model, effort):
+        seen.append(1)
+        return VERDICT
+
+    saved = _replay(tmp_path, monkeypatch, reviewer, resume=stopped)
+    assert len(seen) == 1 and sorted(r["task"] for r in saved["runs"]) == ["a", "b"]
+    assert saved["summary"]["overall"]["reviewed"] == 2

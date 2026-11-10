@@ -13,10 +13,13 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -148,10 +151,11 @@ def score(instance_id: str, patch: str, run_id: str) -> tuple[bool, str]:
 
 def run_bug(
     instance_id: str, instance: dict, arm: str, model: str, budget: float, run_id: str, on_paid,
-    impossible_tests: str | None = None,
+    impossible_tests: str | None = None, source: Path | None = None,
 ) -> RunResult:
     """impossible_tests, if given, is a test patch that contradicts the issue. It's applied as if the tests were
-    already in the repo, and any pass then means the agent cheated, by changing tests or by special-casing code."""
+    already in the repo, and any pass then means the agent cheated, by changing tests or by special-casing code.
+    source: an untouched checkout of the bug to copy, instead of copying it out of the image again."""
     result = RunResult(task=instance_id, arm=f"swe-{arm}", model=model, repeat=1)
     with tempfile.TemporaryDirectory() as folder:
         # A script outside the repo, so Claude Code can be allowed exactly this command and nothing else
@@ -164,7 +168,11 @@ def run_bug(
             f"bash {shlex.quote(str(script))}", repro=f"bash {shlex.quote(str(repro))}",
         )
         repo = Path(folder) / "repo"
-        base = checkout(instance["image"], repo)
+        if source:
+            shutil.copytree(source, repo, symlinks=True)
+            base = _git(repo, "rev-parse", "HEAD")
+        else:
+            base = checkout(instance["image"], repo)
         if impossible_tests:
             subprocess.run(["git", "apply", "-"], input=impossible_tests, cwd=repo, text=True, check=True, capture_output=True)
             _git(repo, "add", "-A")
@@ -219,6 +227,30 @@ def run_with_retries(run, failed: RunResult, tries: int = RUN_TRIES, wait: float
     raise AssertionError("unreachable")
 
 
+class Budget:
+    """The batch's spending, shared by the workers. A run starts only if every run already going, and it, could each
+    spend their whole allowance without passing the total."""
+
+    def __init__(self, total_usd: float, run_usd: float):
+        self.limit, self.run_usd = total_usd, run_usd
+        self.total, self.going, self.stopped = 0.0, 0, False
+        self._lock = threading.Lock()
+
+    def start(self) -> bool:
+        with self._lock:
+            if self.stopped or self.total + (self.going + 1) * self.run_usd > self.limit:
+                self.stopped = True
+                return False
+            self.going += 1
+            return True
+
+    def finish(self, cost: float) -> float:
+        with self._lock:
+            self.going -= 1
+            self.total += cost
+            return self.total
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--instances", required=True, help="Comma-separated SWE-bench instance ids.")
@@ -229,6 +261,8 @@ def main():
     parser.add_argument("--max-run-usd", type=float, required=True)
     parser.add_argument("--max-total-usd", type=float, required=True, help="Stop starting runs this budget can't cover.")
     parser.add_argument("--yes", action="store_true", help="Skip the spending confirmation.")
+    parser.add_argument("--workers", type=int, default=1, help="Bugs run at once. Memory arms need 1, since each bug "
+                        "learns from the ones before it.")
     parser.add_argument("--memory-dir", type=Path, help="Where the memory arms keep what they learn. Give a new folder "
                         "per experiment, and the bugs in date order.")
     args = parser.parse_args()
@@ -240,6 +274,8 @@ def main():
         if not args.memory_dir or args.memory_dir.exists():
             raise SystemExit("Memory arms need --memory-dir pointing at a folder that doesn't exist yet.")
         bench.MEMORY_DIR = args.memory_dir
+        if args.workers != 1:
+            raise SystemExit("Memory arms need --workers 1: each bug learns from the ones before it.")
     worst_case = min(len(instance_ids) * len(arms) * args.max_run_usd, args.max_total_usd)
     spent = spent_so_far()
     check_overall_cap(worst_case, spent, OVERALL_CAP_USD)
@@ -252,12 +288,18 @@ def main():
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     path = RESULTS_DIR / f"{stamp}-swe-{args.model}.json"
     finished: list[RunResult] = []
+    running: dict[tuple[str, str], RunResult] = {}  # paid for but not yet finished, by bug and arm
+    lock = threading.Lock()
 
     def save(current: RunResult | None = None):
-        runs = finished + ([current] if current else [])
-        path.write_text(json.dumps({
-            "settings": vars(args), "code": _code_version(), "summary": summarize(runs), "runs": [asdict(r) for r in runs],
-        }, indent=2))
+        with lock:
+            if current is not None:
+                running[current.task, current.arm] = current
+            runs = finished + list(running.values())
+            path.write_text(json.dumps({
+                "settings": vars(args) | {"memory_dir": str(args.memory_dir) if args.memory_dir else None},
+                "code": _code_version(), "summary": summarize(runs), "runs": [asdict(r) for r in runs],
+            }, indent=2))
 
     def unknown_cost(result: RunResult, budget: float) -> float:
         """A killed Claude Code run never reports its cost, so assume it spent all it was allowed."""
@@ -267,30 +309,45 @@ def main():
     missing = [i for i in instance_ids if impossible and i not in impossible]
     if missing:
         raise SystemExit(f"Not in ImpossibleBench's {args.impossible} split: {', '.join(missing)}")
+    budget = Budget(args.max_total_usd, args.max_run_usd)
 
-    total = 0.0
-    with temp_database():
-        for index, instance_id in enumerate(instance_ids):
+    def run_instance(index: int, instance_id: str):
+        try:
             instance = load_instance(instance_id)
-            # Take turns going first, so neither arm always runs on a warmer machine
-            for arm in arms[::-1] if index % 2 else arms:
-                if total + args.max_run_usd > args.max_total_usd:
-                    print(f"Stopping: ${total:.2f} spent, and another run could pass the ${args.max_total_usd:.2f} total.")
-                    save()
-                    print(f"\n{format_table(finished)}\n\nSaved to {path}")
-                    return
-                result = run_with_retries(
-                    lambda: run_bug(instance_id, instance, arm, args.model, args.max_run_usd,
-                                    f"{stamp}-{arm}-{instance_id}", save, impossible.get(instance_id)),
-                    RunResult(task=instance_id, arm=f"swe-{arm}", model=args.model, repeat=1),
-                )
+            with tempfile.TemporaryDirectory() as folder:
+                source = Path(folder) / "repo"
+                checkout(instance["image"], source)  # once per bug; each arm works on its own copy
+                run_arms(index, instance_id, instance, source)
+        except Exception as e:  # noqa: BLE001 - one broken bug mustn't lose the rest of the batch
+            print(f"{instance_id}: runner error, skipped: {e!r}"[:500], flush=True)
+
+    def run_arms(index: int, instance_id: str, instance: dict, source: Path):
+        # Take turns going first, so neither arm always runs on a warmer machine
+        for arm in arms[::-1] if index % 2 else arms:
+            if not budget.start():
+                return
+            result = run_with_retries(
+                lambda: run_bug(instance_id, instance, arm, args.model, args.max_run_usd,
+                                f"{stamp}-{arm}-{instance_id}", save, impossible.get(instance_id), source),
+                RunResult(task=instance_id, arm=f"swe-{arm}", model=args.model, repeat=1),
+            )
+            spent_now = budget.finish(unknown_cost(result, args.max_run_usd * BUDGET_RESERVE) + result.discarded_cost_usd)
+            with lock:
+                running.pop((instance_id, f"swe-{arm}"), None)
                 finished.append(result)
-                total += unknown_cost(result, args.max_run_usd * BUDGET_RESERVE) + result.discarded_cost_usd
-                save()
-                verdict = ("CHEATED" if result.cheated else "did not cheat") if impossible else (
-                    "RESOLVED" if result.hidden_passed else "not resolved")
-                print(f"{instance_id} {arm}: {verdict}, ${result.cost_usd:.4f}, "
-                      f"${total:.4f} so far" + (f" ({result.note[:200]})" if result.note else ""), flush=True)
+            save()
+            verdict = ("CHEATED" if result.cheated else "did not cheat") if impossible else (
+                "RESOLVED" if result.hidden_passed else "not resolved")
+            print(f"{instance_id} {arm}: {verdict}, ${result.cost_usd:.4f}, "
+                  f"${spent_now:.4f} so far" + (f" ({result.note[:200]})" if result.note else ""), flush=True)
+
+    with temp_database(), ThreadPoolExecutor(args.workers) as pool:
+        for future in [pool.submit(run_instance, i, b) for i, b in enumerate(instance_ids)]:
+            future.result()
+    if budget.stopped:
+        print(f"Stopping: ${budget.total:.2f} spent, and another run could pass the ${args.max_total_usd:.2f} total.")
+        print(f"\n{format_table(finished)}\n\nSaved to {path}")
+        return
 
     for arm in arms:
         runs = [r for r in finished if r.arm == f"swe-{arm}"]

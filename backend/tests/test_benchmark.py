@@ -280,3 +280,21 @@ def test_other_failures_are_kept_and_a_crash_does_not_end_the_batch():
     timed_out = run_with_retries(lambda: RunResult("t", "a", "m", 1, note="Timed out after 600s"),
                                  RunResult("t", "a", "m", 1), wait=0)
     assert timed_out.note == "Timed out after 600s"  # the agent being slow isn't a network error
+
+
+def test_budget_reserves_a_full_run_for_each_run_going():
+    from benchmarks.swe_run import Budget
+    budget = Budget(total_usd=3, run_usd=1)
+    assert budget.start() and budget.start() and budget.start()
+    assert not budget.start() and budget.stopped
+    assert budget.finish(0.2) == 0.2
+
+
+def test_budget_stops_every_worker_once_one_is_refused():
+    from benchmarks.swe_run import Budget
+    budget = Budget(total_usd=2, run_usd=1)
+    assert budget.start()
+    budget.finish(1.5)
+    assert not budget.start()
+    budget.total = 0  # even if spending were somehow lower, a stopped batch stays stopped
+    assert not budget.start()

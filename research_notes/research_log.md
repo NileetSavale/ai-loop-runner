@@ -640,3 +640,10 @@ verified (titles we don't recognise). Don't cite anything here until it's marked
 - No setup changed a test to pass (cheated 0 in all three). Lean: 7 visible passes failed hidden tests, 11 reported
   failures passed them.
 - Limits: one run per bug; the solve differences between the loop setups are within noise (p 0.63).
+
+**Related work found 2026-11-09 (abstract and header read, body not read)**
+- Xu (Georgia Tech) and Wu (CU Boulder), "Validation Evidence in LLM Repair Agents: How Much of What Passes Actually
+  Tests the Bug?", arXiv 2607.28871 (30 Jul 2026). Replays each validation test on buggy code, patch and gold fix:
+  46.0% of passing evidence doesn't discriminate the bug; 23.8% of runs close on such evidence alone. Bug-contrast
+  feedback cuts that by 7.8 points with no cost to repair success. Closest prior work to ours on using test signals
+  inside repair agents; ours differs (pre-existing failures, stop and escalation decisions, cost). Must cite.

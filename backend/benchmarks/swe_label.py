@@ -18,6 +18,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -115,11 +117,11 @@ def label_instance(row: dict, reps: int, gold_resolved: bool | None) -> Labels:
     return labels
 
 
-def build_and_check_gold(ids: list[str], run_id: str) -> dict[str, bool | None]:
+def build_and_check_gold(ids: list[str], run_id: str, jobs: int = 2) -> dict[str, bool | None]:
     """Builds the images and records whether SWE-bench itself counts the official fix as resolving each bug."""
     subprocess.run(
         [str(SWE_DIR / "venv/bin/swebench"), "eval", "verified", "--gold", *[a for i in ids for a in ("-i", i)],
-         "--run-id", run_id, "--task-repo", "./swe-bench-tasks", "-j", "2"],
+         "--run-id", run_id, "--task-repo", "./swe-bench-tasks", "-j", str(jobs)],
         cwd=SWE_DIR, env={**os.environ, "DOCKER_DEFAULT_PLATFORM": "linux/amd64"},
     )
     resolved = {}
@@ -148,12 +150,23 @@ def summarize(rows: list[dict]) -> str:
     ])
 
 
+def remove_images(images: list[str]):
+    """Frees the disk for the next batch. Images shared with later bugs are pulled or built again when needed."""
+    subprocess.run(["docker", "rmi", "-f", *images], capture_output=True)
+    subprocess.run(["docker", "image", "prune", "-f"], capture_output=True)
+    subprocess.run(["docker", "builder", "prune", "-af"], capture_output=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--sample", type=int, default=60)
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--reps", type=int, default=3)
+    parser.add_argument("--all", action="store_true", help="Every bug, pilot included, in an order fixed by the seed.")
     parser.add_argument("--out", type=Path, default=SWE_DIR / "labels.jsonl")
+    parser.add_argument("--workers", type=int, default=1, help="Bugs labelled at once.")
+    parser.add_argument("--batch", type=int, default=0, help="Bugs whose images are on disk at once: each batch's "
+                        "images are removed once it's labelled, for disks that can't hold them all. 0 keeps them all.")
     args = parser.parse_args()
 
     dataset = json.loads(subprocess.run(
@@ -161,22 +174,35 @@ def main():
     ).stdout.splitlines()[-1])
     rows = {r["instance_id"]: r for r in dataset}
     # Chosen before seeing any results, from a fixed seed, so the sample can't favour any kind of bug
-    sample = random.Random(args.seed).sample(sorted(set(rows) - PILOT), args.sample)
+    pool = sorted(rows) if args.all else sorted(set(rows) - PILOT)
+    sample = random.Random(args.seed).sample(pool, len(pool) if args.all else args.sample)
 
     done = {json.loads(line)["instance_id"] for line in args.out.read_text().splitlines()} if args.out.exists() else set()
     todo = [i for i in sample if i not in done]
     print(f"{len(sample)} bugs sampled (seed {args.seed}), {len(todo)} still to label, {args.reps} runs each way.", flush=True)
 
-    gold = build_and_check_gold(todo, f"label-gold-{args.seed}") if todo else {}
-    for i, instance_id in enumerate(todo, 1):
+    lock, count = threading.Lock(), iter(range(1, len(todo) + 1))
+
+    def label_one(instance_id: str, gold_resolved: bool | None):
         try:
-            labels = label_instance(rows[instance_id], args.reps, gold.get(instance_id))
+            labels = label_instance(rows[instance_id], args.reps, gold_resolved)
         except Exception as e:  # one broken image shouldn't lose the rest
-            labels = Labels(instance_id, gold.get(instance_id), error=repr(e)[:300])
-        with args.out.open("a") as f:
-            f.write(json.dumps(asdict(labels)) + "\n")
+            labels = Labels(instance_id, gold_resolved, error=repr(e)[:300])
         flags = [k for k in ("already_failing", "must_change", "flaky", "new_test_files") if getattr(labels, k)]
-        print(f"[{i}/{len(todo)}] {instance_id}: {', '.join(flags) or labels.error or 'clean'}", flush=True)
+        with lock:
+            with args.out.open("a") as f:
+                f.write(json.dumps(asdict(labels)) + "\n")
+            print(f"[{next(count)}/{len(todo)}] {instance_id}: {', '.join(flags) or labels.error or 'clean'}", flush=True)
+
+    size = args.batch or len(todo) or 1
+    for start in range(0, len(todo), size):
+        batch = todo[start:start + size]
+        run_id = f"label-gold-{args.seed}" + (f"-{start // size}" if args.batch else "")
+        gold = build_and_check_gold(batch, run_id, max(2, args.workers))
+        with ThreadPoolExecutor(args.workers) as workers:
+            list(workers.map(lambda i: label_one(i, gold.get(i)), batch))
+        if args.batch:
+            remove_images([rows[i]["image"] for i in batch])
 
     results = [json.loads(line) for line in args.out.read_text().splitlines()]
     print(summarize([r for r in results if r["instance_id"] in set(sample)]))

@@ -647,3 +647,7 @@ verified (titles we don't recognise). Don't cite anything here until it's marked
   46.0% of passing evidence doesn't discriminate the bug; 23.8% of runs close on such evidence alone. Bug-contrast
   feedback cuts that by 7.8 points with no cost to repair success. Closest prior work to ours on using test signals
   inside repair agents; ours differs (pre-existing failures, stop and escalation decisions, cost). Must cite.
+- Same authors (Xu, Georgia Tech; Wu, CU Boulder), "Low Reasoning Effort Is Enough for Routine Office Work by
+  Language-Model Agents", arXiv 2608.03169v2 (29 Sep 2026, cs.CR). GPT-5.6 tiers at low vs max reasoning on 14 office
+  tasks, 840 runs: low used ~43% fewer output tokens and 20% less time with no forbidden-tool use. Not about code;
+  relevant to our coder-effort runs. Abstract-level read via a summary.

@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
@@ -348,7 +349,10 @@ def main():
             print(f"{instance_id} {arm}: {verdict}, ${result.cost_usd:.4f}, "
                   f"${spent_now:.4f} so far" + (f" ({result.note[:200]})" if result.note else ""), flush=True)
 
-    with temp_database(), ThreadPoolExecutor(args.workers) as pool:
+    # run_loop_arm patches out the analytics cache for each run, and overlapping patches from several workers can
+    # restore the real one mid-run (django-11790 then crashed reaching for Redis). Patched for the whole batch, every
+    # per-run patch restores the stand-in.
+    with temp_database(), patch("core.loop.invalidate_analytics", AsyncMock()), ThreadPoolExecutor(args.workers) as pool:
         for future in [pool.submit(run_instance, i, b) for i, b in enumerate(instance_ids)]:
             future.result()
     if budget.stopped:

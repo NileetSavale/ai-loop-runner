@@ -83,6 +83,11 @@ PRICING: dict[str, dict[str, float]] = {
     # Google
     "gemini-1.5-pro":           {"in": 1.25,   "out": 5.00},
     "gemini-1.5-flash":         {"in": 0.075,  "out": 0.30},
+    # The rates after the late-2026 promotions end (AI Studio's page, 2026-11-10; Vertex's wouldn't load), so caps err high
+    "gemini-4-carbon":          {"in": 4.00,   "out": 20.00},
+    "gemini-4-argon":           {"in": 4.00,   "out": 20.00},
+    "gemini-3.8-flash":         {"in": 1.50,   "out": 7.50},
+    "gemini-3.5-flash-lite":    {"in": 0.30,   "out": 2.50},
     # Mistral
     "mistral-large-latest":     {"in": 2.00,   "out": 6.00},
     "mistral-small-latest":     {"in": 0.20,   "out": 0.60},

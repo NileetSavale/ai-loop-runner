@@ -39,6 +39,7 @@ import database
 from core.edits import is_test_path
 from core.code_graph import CodeGraph
 from core.repo_memory import NOTES_PROMPT, RepoMemory, memory_section, transcript_section
+from core.fix_review import edited_tests, review_fix
 from core.scout import handover, run_scout, tried_summary
 from core.token_sources import merge
 from providers.base import calculate_cost
@@ -93,6 +94,7 @@ class RunResult:
     cheated_by_code: bool | None = None  # still passes with the original impossible tests put back
     attempt_failures: list[list[str]] | None = None  # failing tests after each attempt, to see why a run kept going
     test_reviews: list[dict] | None = None  # each proposed change to an existing test and the reviewer's verdict
+    fix_review: dict | None = None  # cascade review: the reviewer's verdict on the cheap model's passing diff
     security: list[dict] | None = None  # the security auditor's findings and each security pair review
     tests_written: dict | None = None  # what the tester wrote before the coder started, and whether it was kept
     # Estimated tokens and cost by where they came from: {source: {"written", "read", "output", "cost_usd"}}
@@ -406,13 +408,16 @@ def accepted(run: RunResult, needs_reproduction: bool = False) -> bool:
 
 
 async def run_cascade_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult,
-                          tell_tried: bool = False, cheap_effort: str | None = None, reproduce: bool = False):
+                          tell_tried: bool = False, cheap_effort: str | None = None, reproduce: bool = False,
+                          review: str | None = None):
     """The cheap model scouts and tries the fix with its notes. If that doesn't count as done, its changes are undone
     and the main model starts over with the notes, plus what the attempt tried and what happened if tell_tried.
 
     cheap_effort: set, the "cheap" step is the main model thinking at that effort rather than the cheap model, so
     the escalation is to more thinking rather than to a bigger model. reproduce: both models gate on a reproduction
-    script, and the cheap attempt is accepted only if it had one (accepted)."""
+    script, and the cheap attempt is accepted only if it had one (accepted). review: a cheap attempt that counts as
+    done is accepted only if a reviewer (core/fix_review.py, this prompt version) also accepts its diff; rejected, it
+    escalates with the reviewer's reason. Kept in result.fix_review."""
     cheap_model = model if cheap_effort else CHEAP_MODEL
     cheap_name = f"{model} at {cheap_effort} effort" if cheap_effort else CHEAP_MODEL
     base = _git(repo, "rev-parse", "HEAD")
@@ -423,7 +428,17 @@ async def run_cascade_arm(task: BenchTask, repo: Path, model: str, budget: float
                               **({"coder_effort": cheap_effort} if cheap_effort else {}))
     _add_usage(result, cheap, "cheap")
     result.reproduction = cheap.reproduction
-    if accepted(cheap, needs_reproduction=reproduce):
+    rejected = None
+    if review and accepted(cheap, needs_reproduction=reproduce):
+        _git(repo, "add", "-A")
+        diff = _git(repo, "diff", "--cached", base, strip=False)
+        verdict = await review_fix(task.prompt, diff, lambda path: _show(repo, base, path), cheap.note, review)
+        result.cost_usd += verdict["cost_usd"]
+        result.input_tokens += verdict["input_tokens"]
+        result.output_tokens += verdict["output_tokens"]
+        result.fix_review = {"prompt": review, "edited_tests": edited_tests(diff), **verdict}
+        rejected = None if verdict["accept"] else verdict["why"]
+    if accepted(cheap, needs_reproduction=reproduce) and not rejected:
         result.agent_status, result.attempt_failures = cheap.agent_status, cheap.attempt_failures
         result.note = f"Solved by {cheap_name}. {cheap.note}".strip()
         return
@@ -435,13 +450,22 @@ async def run_cascade_arm(task: BenchTask, repo: Path, model: str, budget: float
     _git(repo, "reset", "--hard", base)
     _git(repo, "clean", "-fdq")
     strong = RunResult(task=result.task, arm=result.arm, model=model, repeat=result.repeat)
-    await run_loop_arm(replace(task, prompt=handover(task.prompt, notes, tried)), repo, model,
+    await run_loop_arm(replace(task, prompt=handover(task.prompt, notes, tried, rejected)), repo, model,
                        budget - result.cost_usd, strong, **LEAN, reproduce=reproduce)
     _add_usage(result, strong, "escalated")
     if reproduce:
         result.reproduction = {"cheap": cheap.reproduction, "escalated": strong.reproduction}
     result.agent_status, result.attempt_failures = strong.agent_status, strong.attempt_failures
-    result.note = f"Escalated to {model} after {cheap_name}: {cheap.agent_status} ({cheap.note or 'no note'}). {strong.note}".strip()
+    why = f"rejected by the reviewer: {rejected}" if rejected else f"{cheap.agent_status} ({cheap.note or 'no note'})"
+    result.note = f"Escalated to {model} after {cheap_name}: {why}. {strong.note}".strip()
+
+
+def _show(repo: Path, rev: str, path: str) -> str:
+    """A file as it was at rev, or "" if it didn't exist there."""
+    try:
+        return _git(repo, "show", f"{rev}:{path}", strip=False)
+    except subprocess.CalledProcessError:
+        return ""
 
 
 async def run_memory_arm(task: BenchTask, repo: Path, model: str, budget: float, result: RunResult,
@@ -522,6 +546,7 @@ ARMS = {
     # model's pass counts only with one
     "loop-lean-repro": partial(run_loop_arm, **LEAN, reproduce=True),
     "cascade-tried-repro": partial(run_cascade_arm, tell_tried=True, reproduce=True),
+    "cascade-tried-review": partial(run_cascade_arm, tell_tried=True, review="v2"),
     # Research step 3: what earlier tasks on the same repo learned (run bugs in date order, with --memory-dir)
     "loop-lean-memory": run_memory_arm,
     "loop-lean-transcripts": partial(run_memory_arm, keep="transcripts"),

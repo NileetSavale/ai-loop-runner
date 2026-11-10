@@ -68,10 +68,15 @@ def tried_summary(changed: dict[str, list[str]], failing: list[str], broken: lis
     return "\n\n".join(parts)
 
 
-def handover(task: str, notes: str, tried: str | None = None) -> str:
-    """The task as the next model sees it: the original text, then what is already known."""
+def handover(task: str, notes: str, tried: str | None = None, rejected: str | None = None) -> str:
+    """The task as the next model sees it: the original text, then what is already known. rejected: the attempt
+    passed the tests but a reviewer turned it down, for this reason."""
     text = f"{task}\n\n## Notes from a teammate who explored the repo\n{notes}"
-    if tried:
+    if tried and rejected:
+        text += ("\n\n## A teammate's earlier attempt, which a reviewer rejected\nIt passed the tests, but the reviewer "
+                 f"said: {rejected}\nIts changes have been undone. This is what it tried; whether the reviewer is right "
+                 f"is for you to judge.\n\n{tried}")
+    elif tried:
         text += ("\n\n## A teammate's earlier attempt, which didn't pass\nIts changes have been undone. This is what it "
                  "tried and what happened; whether the idea or only its execution was wrong is for you to judge.\n\n"
                  f"{tried}")

@@ -194,3 +194,32 @@ def test_strict_cascade_accepts_a_cheap_pass_only_with_a_kept_reproduction():
     assert accepted(run) and not accepted(run, needs_reproduction=True)
     run.reproduction = {"kept": True}
     assert accepted(run, needs_reproduction=True)
+
+
+def _reviewed(tmp_path, accept):
+    seen = {}
+
+    async def fake_review(spec, diff, read, note, prompt):
+        seen.update(spec=spec, diff=diff, original=read("a.py"), missing=read("new.py"), prompt=prompt)
+        return {"accept": accept, "why": "misses the twin in g", "cost_usd": 0.02, "input_tokens": 100,
+                "output_tokens": 20}
+
+    with patch.object(bench, "review_fix", fake_review):
+        repo, calls, result = _cascade(tmp_path, "passed", tell_tried=True, review="v2")
+    return seen, calls, result
+
+
+def test_reviewed_cascade_keeps_a_passing_cheap_fix_the_reviewer_accepts(tmp_path):
+    seen, calls, result = _reviewed(tmp_path, True)
+    assert len(calls) == 1 and result.note.startswith("Solved by")
+    assert seen["original"] == BASE and seen["missing"] == "" and "x + 1  # cheap attempt" in seen["diff"]
+    assert seen["prompt"] == "v2" and result.fix_review["accept"] is True
+    assert abs(result.cost_usd - 0.031) < 1e-9  # scout, cheap attempt, review
+
+
+def test_reviewed_cascade_escalates_a_rejected_fix_with_the_reason(tmp_path):
+    _, calls, result = _reviewed(tmp_path, False)
+    model, prompt, code_seen, _ = calls[1]
+    assert model == "claude-sonnet-5-5" and code_seen == BASE
+    assert "a reviewer rejected" in prompt and "misses the twin in g" in prompt and "x + 1" not in prompt
+    assert "rejected by the reviewer: misses the twin in g" in result.note and result.fix_review["accept"] is False

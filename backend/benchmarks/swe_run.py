@@ -280,8 +280,8 @@ def main():
                         help="seconds before a run is stopped; Gemini's runs take longer than Claude's")
     parser.add_argument("--max-total-usd", type=float, required=True, help="Stop starting runs this budget can't cover.")
     parser.add_argument("--yes", action="store_true", help="Skip the spending confirmation.")
-    parser.add_argument("--skip-done", type=Path, help="A results file from a stopped batch: its finished runs aren't "
-                        "run again. The new runs go to a new file, so analyse the two together.")
+    parser.add_argument("--skip-done", type=Path, nargs="+", default=[], help="Results files from stopped batches: "
+                        "their finished runs aren't run again. The new runs go to a new file, so analyse them together.")
     parser.add_argument("--workers", type=int, default=1, help="Bugs run at once. Memory arms need 1, since each bug "
                         "learns from the ones before it.")
     parser.add_argument("--memory-dir", type=Path, help="Where the memory arms keep what they learn. Give a new folder "
@@ -299,7 +299,7 @@ def main():
             raise SystemExit("Memory arms need --workers 1: each bug learns from the ones before it.")
     bench.CHEAP_MODEL, bench.REVIEW_MODEL = args.cheap_model, args.review_model
     bench.RUN_TIMEOUT_SECONDS = args.run_timeout
-    done = finished_pairs(json.loads(args.skip_done.read_text())) if args.skip_done else set()
+    done = set().union(*(finished_pairs(json.loads(path.read_text())) for path in args.skip_done))
     to_run = len(instance_ids) * len(arms) - len(done & {(i, f"swe-{a}") for i in instance_ids for a in arms})
     worst_case = min(to_run * args.max_run_usd, args.max_total_usd)
     models = {args.model, args.cheap_model} | ({args.review_model} if any("review" in a for a in arms) else set())
@@ -323,7 +323,8 @@ def main():
                 running[current.task, current.arm] = current
             runs = finished + list(running.values())
             path.write_text(json.dumps({
-                "settings": vars(args) | {key: str(value) for key, value in vars(args).items() if isinstance(value, Path)},
+                "settings": vars(args) | {key: str(value) if isinstance(value, Path) else [str(v) for v in value]
+                                         for key, value in vars(args).items() if isinstance(value, (Path, list))},
                 "code": _code_version(), "summary": summarize(runs), "runs": [asdict(r) for r in runs],
                 "running": [list(key) for key in running],
             }, indent=2))

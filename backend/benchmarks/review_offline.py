@@ -25,7 +25,7 @@ if __name__ == "__main__":
     load_dotenv(BACKEND / ".env")
 
 from benchmarks.run import CHEAP_MODEL, RESULTS_DIR, check_caps
-from benchmarks.swe_run import load_instance
+from benchmarks.swe_run import finished_pairs, load_instance
 from providers.base import MAX_OUTPUT_TOKENS, calculate_cost
 from core.fix_review import PROMPTS, REVIEWER_MODEL, edited_tests, hunk_ranges, review_fix
 
@@ -54,6 +54,12 @@ def accepted(run: dict) -> bool:
 
 def select(runs: list[dict], everyone: bool = False, cheap_model: str = CHEAP_MODEL) -> list[dict]:
     return [r for r in runs if accepted(r) and r.get("diff", "").strip() and (everyone or by_cheap_model(r, cheap_model))]
+
+
+def finished_runs(saved: dict) -> list[dict]:
+    """A stopped batch saves its runs still going, not yet checked against the hidden tests: those aren't reviewed."""
+    done = finished_pairs(saved)
+    return [r for r in saved["runs"] if (r["task"], r["arm"]) in done]
 
 
 def original_file(image: str, path: str) -> str:
@@ -129,8 +135,8 @@ async def main():
 
     done = json.loads(args.resume.read_text())["runs"] if args.resume else []
     reviewed = {(r["task"], r["source_arm"]) for r in done}
-    runs = [r for r in select([r for path in args.results for r in json.loads(path.read_text())["runs"]], args.everyone,
-                              args.cheap_model) if (r["task"], r["arm"]) not in reviewed]
+    runs = [r for r in select([r for path in args.results for r in finished_runs(json.loads(path.read_text()))],
+                              args.everyone, args.cheap_model) if (r["task"], r["arm"]) not in reviewed]
     # The cap covers the resumed reviews too. A review starts only if it can't take the total past the cap.
     per_review = calculate_cost(args.model, WORST_CASE_PROMPT_TOKENS, MAX_OUTPUT_TOKENS)
     spent = {"done": sum(r["cost_usd"] for r in done), "reserved": 0.0}

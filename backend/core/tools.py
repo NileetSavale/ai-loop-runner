@@ -256,7 +256,7 @@ class RepoTools:
         full_path = resolve_in_repo(self.repo_path, path)
         rel = os.path.relpath(full_path, os.path.realpath(self.repo_path))
         if is_locked_path(rel):
-            raise ToolError(f"{path} is test config, which is always read-only.")
+            raise ToolError(f"{path} is test config or the reproduction script, which are always read-only.")
         if not is_test_path(rel) or not os.path.exists(full_path):
             raise ToolError(f"{path} isn't an existing test file. Use edit_file or write_file.")
         with open(full_path) as f:

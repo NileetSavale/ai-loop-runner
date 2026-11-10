@@ -705,3 +705,39 @@ def test_notes_turn_continues_the_coder_read_only_and_is_paid_for(tmp_path):
     assert call.args[0] == "write notes" and call.kwargs["history"] == coder.messages
     assert call.kwargs["tools"].read_only and call.kwargs["tools"].keep_schemas
     assert next(e for e in events if e.get("event") == "repo_notes")["data"]["text"] == "- a.py - holds x"
+
+
+def _reproducer(script):
+    async def complete(system, prompt, model, on_token=None, effort=None):
+        from providers.base import LLMResult
+        return LLMResult(text=f'<file path="test_reproduce_issue.py">\n{script}\n</file>', input_tokens=1, output_tokens=1)
+    return complete
+
+
+def test_a_reproduction_that_fails_for_the_bug_gates_the_pass(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    verify = AsyncMock(side_effect=[FAIL, VerifyResult(False, "AssertionError", 1), PASS])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    provider = AsyncMock()
+    provider.complete = _reproducer("assert False")
+    with patch("core.loop.get_provider", return_value=provider):
+        _, _, events = _run(tmp_path, agent, verify, use_map=True, command="run tests", repro_command="run repro")
+    assert verify.call_args_list[1].args[0] == "run repro"  # the script alone, on the original code
+    assert verify.call_args_list[2].args[0].startswith("run tests\nv=$?")  # then tests and script together
+    assert (tmp_path / "test_reproduce_issue.py").exists()
+    assert "## Reproduction script" in agent.call_args_list[0].args[0]
+    assert next(e for e in events if e.get("event") == "reproduction")["data"]["kept"]
+
+
+def test_a_script_that_cannot_load_is_dropped(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    broken = VerifyResult(False, "ModuleNotFoundError: No module named 'x'", 1)
+    verify = AsyncMock(side_effect=[FAIL, broken, broken, PASS])
+    agent = AsyncMock(return_value=_agent(FileEdit("a.py", "1")))
+    provider = AsyncMock()
+    provider.complete = _reproducer("import x")
+    with patch("core.loop.get_provider", return_value=provider):
+        _, _, events = _run(tmp_path, agent, verify, use_map=True, command="run tests", repro_command="run repro")
+    assert verify.call_args_list[3].args[0] == "run tests"  # back to the tests alone
+    assert not (tmp_path / "test_reproduce_issue.py").exists()
+    assert not next(e for e in events if e.get("event") == "reproduction")["data"]["kept"]

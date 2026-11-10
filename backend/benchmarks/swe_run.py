@@ -34,6 +34,7 @@ from benchmarks.run import (
     ARMS, BUDGET_RESERVE, OVERALL_CAP_USD, RESULTS_DIR, BenchTask, RunResult, _code_version, _git, changed_lines,
     check_overall_cap, format_sources, format_summary, format_table, spent_so_far, summarize, temp_database,
 )
+from core.reproduce import local_repro_command
 from core.verifier import MAX_TIMEOUT as MAX_VERIFY_TIMEOUT, run_verify
 
 SWE_DIR = Path(os.getenv("SWEBENCH_DIR", "/Volumes/LoopRunnerDocker/swe"))
@@ -80,9 +81,18 @@ def test_command(eval_script: str) -> str:
     match = re.search(r">>>>> Start Test Output'\n(.*?)\n: '>>>>> End Test Output'", eval_script, re.DOTALL)
     if not match:
         raise ValueError("Couldn't find the test command in the eval script")
+    return "\n".join([*_setup_lines(eval_script), match.group(1)])
+
+
+def _setup_lines(eval_script: str) -> list[str]:
+    """The eval script's environment setup (conda activate, cd), without git, pip or its hidden tests."""
     setup = eval_script.split("\ngit checkout ")[0].splitlines()
-    kept = [line for line in setup if not re.match(r"#!|set -|git |.*pip install", line)]
-    return "\n".join([*kept, match.group(1)])
+    return [line for line in setup if not re.match(r"#!|set -|git |.*pip install", line)]
+
+
+def repro_command(eval_script: str) -> str:
+    """Run core/reproduce.py's script in the bug's environment."""
+    return "\n".join([*_setup_lines(eval_script), local_repro_command()])
 
 
 def verify_command(image: str, command: str) -> str:
@@ -147,9 +157,11 @@ def run_bug(
         # A script outside the repo, so Claude Code can be allowed exactly this command and nothing else
         script = Path(folder) / "verify.sh"
         script.write_text(verify_command(instance["image"], test_command(instance["eval_script"])) + "\n")
+        repro = Path(folder) / "repro.sh"
+        repro.write_text(verify_command(instance["image"], repro_command(instance["eval_script"])) + "\n")
         task = BenchTask(
             instance_id, Path(), f"Fix this issue in the repo.\n\n{instance['problem_statement']}",
-            f"bash {shlex.quote(str(script))}",
+            f"bash {shlex.quote(str(script))}", repro=f"bash {shlex.quote(str(repro))}",
         )
         repo = Path(folder) / "repo"
         base = checkout(instance["image"], repo)

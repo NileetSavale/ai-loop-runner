@@ -678,3 +678,29 @@ test's expected value to match itself (matplotlib-22871; also sphinx-10435, djan
 - The offline Sonnet reviewer runs with its prompt unchanged: tuning it on these same 44 would leak the answers. A
   prompt that asks about sibling code paths and edited tests is a candidate for a second round on fresh bugs.
 - Cheap, automatable signal worth adding: the fix edits an existing test's expected value.
+
+## 2026-11-10: Step 2 final (59 bugs), the offline reviewer, and effort levels
+
+Step 2 on 59 of the 60 bugs (django-11265 left out: 2 of its runs crashed with "Event loop is closed"):
+
+| Setup | Solved | $/bug | Tokens/bug |
+|---|---|---|---|
+| loop-lean-keywords (Sonnet) | 50 | 0.062 | 52k |
+| loop-lean (Sonnet, earlier run) | 50 | 0.062 | |
+| loop-lean-nomap | 48 | 0.065 | 59k |
+| scout-lean | 48 | 0.065 | 93k |
+| cheap-lean (Haiku) | 43 | 0.005 | 95k |
+| cascade-tried | 42 | 0.019 | 129k |
+| cascade-notes | 42 | 0.035 | 172k |
+
+- Keyword pointers match plain lean on solves and save tokens; they don't add fixes.
+- Neither cascade beats Haiku alone: Haiku's wrong fixes pass the repo's tests, so they're never escalated.
+
+Offline Sonnet reviewer, prompt v1 (unchanged), on 165 accepted Haiku fixes: caught 25 of 46 hidden failures (54%),
+wrongly rejected 33 of 119 good fixes (28%), $3.41. The edited-tests rule alone: 4 caught, 10 wrong; adds 1 catch on
+top of the reviewer. Simulated reviewed cascade (a rejected fix scores what loop-lean-keywords scored on that bug,
+Sonnet from scratch, not a real run): Haiku + reviewer + Sonnet 48/59 at about $0.048/bug, against Sonnet alone 50/59
+at $0.062. To be confirmed by a real run on fresh bugs.
+
+Effort (60 bugs): loop-lean at low effort 42 solved, $0.037/bug; medium 40, $0.041; default 50, $0.062. A cascade over
+effort levels 43, $0.067: dominated. Lowering effort saves about 35% of cost and loses 8-10 bugs.

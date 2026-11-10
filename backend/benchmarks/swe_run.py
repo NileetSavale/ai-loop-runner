@@ -323,7 +323,7 @@ def main():
                 running[current.task, current.arm] = current
             runs = finished + list(running.values())
             path.write_text(json.dumps({
-                "settings": vars(args) | {"memory_dir": str(args.memory_dir) if args.memory_dir else None},
+                "settings": vars(args) | {key: str(value) for key, value in vars(args).items() if isinstance(value, Path)},
                 "code": _code_version(), "summary": summarize(runs), "runs": [asdict(r) for r in runs],
                 "running": [list(key) for key in running],
             }, indent=2))

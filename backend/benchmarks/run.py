@@ -54,7 +54,7 @@ RUN_TIMEOUT_SECONDS = 600
 # run inside its limit unless that turn costs over a quarter of the limit. Stream and cancel mid-turn if that happens.
 BUDGET_RESERVE = 0.75
 # Across every benchmark run, so no single command can eat the API credits. Only raise this when the owner agrees.
-OVERALL_CAP_USD = float(os.getenv("BENCHMARK_OVERALL_CAP_USD", "150"))
+OVERALL_CAP_USD = float(os.getenv("BENCHMARK_OVERALL_CAP_USD", "300"))
 
 
 @dataclass

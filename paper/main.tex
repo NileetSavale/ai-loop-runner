@@ -32,35 +32,66 @@ LLM agents, program repair, model cascades, patch correctness, SWE-bench, cost
 
 \section{Introduction}
 % ~1 page
-\todo{Draft. Points, in order:}
+Coding agents increasingly work in a verify-and-retry loop: they edit the code, run the repository's tests, and
+retry until the tests pass~\cite{swebench}. Passing the tests is the loop's definition of done. The same signal is a
+natural basis for saving money. In a \emph{cascade}, a cheap model attempts the task first, and the task escalates
+to a strong model only when the cheap model's fix fails the tests~\cite{frugalgpt,kapoor2024}. If the cheap model
+solves most tasks, the cascade should approach the strong model's success rate at a fraction of its cost.
+
+That reasoning assumes the tests tell the truth. A gate can only escalate the failures it sees. A fix that passes the
+repository's tests but does not resolve the issue is accepted and never escalated: the tests lie, and the cascade
+believes them. This is test overfitting, long studied in automated program repair~\cite{smith2015,qi2015}, in a new
+place: inside the escalation decision of a multi-model agent.
+
+We measure how often this happens, what it costs, and what can be done about it, on SWE-bench
+Verified~\cite{swebenchverified} with models from two families (Anthropic's Claude and Google's Gemini). SWE-bench's
+hidden tests, which the agent never sees, serve as ground truth. We develop the agent and the reviewer on a
+\pilot{60-bug} pilot and report the main results on the \todo{$N$} remaining bugs. Our contributions:
 \begin{itemize}
-\item Coding agents increasingly run a verify-and-retry loop: edit, run the repository's tests, retry until they
-pass. Passing the tests is the loop's definition of done.
-\item To cut cost, a natural design is a cascade: a cheap model tries first, and the task escalates to a strong model
-only when the cheap model's fix fails the tests (cf.\ FrugalGPT-style cascades, Kapoor et al.'s escalation baseline).
-\item Problem: a gate can only escalate failures it sees. A fix that passes the repository's tests but is wrong is
-accepted and never escalated. This is test overfitting (Smith et al.\ 2015) in a new setting.
-\item We measure this on SWE-bench Verified with two model families, using SWE-bench's hidden tests as ground truth.
-\item Contributions: (1) the false-accept rate of cheap models' test-passing fixes and why they fail; (2) a condition
-for when test-gated cascades help, replicated across families; (3) a reviewer model as the escalation trigger,
-including a cross-family reviewer, with catch rate, false-rejection rate and end-to-end cost; (4) failure attribution in
-the loop: stopping on failures that predate the change cuts the cost of such bugs about fourfold; (5) released runs.
+\item \textbf{How often the tests lie (RQ1).} \pilot{28\%} of the fixes a cheap model's loop accepted fail the hidden
+tests; we classify why, with two human annotators.
+\item \textbf{When test-gated cascades help (RQ2).} A cheap model's failures are either \emph{visible}, ending with
+failing tests, or \emph{silent}, accepted but wrong. A test gate acts only on visible failures. In our pilot, Claude
+Haiku's failures were almost all silent and its cascade gained nothing; Gemini Flash-Lite's were mostly visible and
+its cascade gained \pilot{7} bugs.
+\item \textbf{A reviewer as the escalation trigger (RQ3).} A strong model reviewing the cheap model's test-passing
+diff catches silent failures that the tests miss. We report catch rate, false-rejection rate and end-to-end cost, for
+same-family and cross-family reviewers.
+\item \textbf{Failure attribution (RQ4).} Some tests fail before the agent changes anything. Telling those apart from
+failures the agent caused, and stopping when only they remain, cut the cost of such bugs \pilot{4.4-fold} in our pilot.
+\item All runs, diffs, reviews and labels \todo{released at URL}.
 \end{itemize}
 
 \section{Background and Related Work}
-% ~1 page. Source: reports/Cascade reviewer findings prior work.md (verify each citation before submission).
-\todo{Draft from the literature report. Paragraphs:}
-\begin{itemize}
-\item Test overfitting and plausible patches in APR: Smith et al.\ (FSE 2015), Qi et al.\ (ISSTA 2015). On SWE-bench:
-Ahmed and Ganhotra (overfitting to generated tests, 21.8--33\%), PatchDiff (Wang et al.), UTBoost, SWE-ABS, SWE-Bench+.
-\item Cascades and routing: FrugalGPT, Kapoor et al.\ ``AI Agents That Matter'' (escalation on example tests),
-Chen et al.\ (test-agreement cascades for code), Dekoninck et al.\ (quality estimator is critical), Rajput et al.\
-(cheap verifiers' blind spots), SWE-Router, Sun et al.\ (effort ladders need an oracle gate).
-\item Patch judges: Abstain and Validate (Google; reject recall 0.58, $\approx$24\% false rejects), APCA re-evaluation
-(Williams et al.: random baseline), SWE-RM. Self-preference of LLM judges.
-\item Gap: no study uses a strong model's review of a cheap model's \emph{test-passing} patch as the escalation trigger,
-reports catch and false-rejection rates with end-to-end cost, or compares same- and cross-family reviewers.
-\end{itemize}
+% ~1 page. Every citation to be checked against its source before submission.
+\textbf{Plausible but incorrect patches.} Automated program repair has long distinguished \emph{plausible} patches,
+which pass the tests used during repair, from correct ones. Smith et al.\ showed that patches fitted to one test suite
+often break held-out tests~\cite{smith2015}, and Qi et al.\ found that most plausible patches from early repair tools
+were wrong~\cite{qi2015}. For LLM agents on SWE-bench, Ahmed and Ganhotra measure overfitting to reproduction tests
+the agent generates, at 21.8--33\%, and find that iterative refinement raises it~\cite{ahmed2025overfitting}. Other
+work strengthens SWE-bench's own tests: PatchDiff finds that many ``solved'' patches behave differently from the
+reference~\cite{wang2025patchdiff}, and UTBoost adds tests to instances whose tests are
+insufficient~\cite{utboost}. Our gate is weaker still: the repository's existing tests, which is what a deployed
+agent actually has.
+
+\textbf{Cascades and routing.} FrugalGPT cascades LLMs with a learned scorer~\cite{frugalgpt}; Dekoninck et al.\ show
+that the quality estimator decides whether cascading pays~\cite{dekoninck2025}. For code, Kapoor et al.\ ran an
+escalation baseline that moved to a stronger model when example tests failed, and noted that cheap models' solutions
+can pass the example tests and fail the evaluation tests~\cite{kapoor2024}. Chen et al.\ cascade code models on
+agreement with generated tests~\cite{chen2024cascade}. Sun et al.\ find that escalating reasoning effort on failure
+pays when the gate is the benchmark's own scoring tests~\cite{sun2026effort}. We study the deployable case: the gate
+is the repository's tests, and the question is which failures it can see.
+
+\textbf{LLMs as patch judges.} Closest to our reviewer, Cambronero et al.\ gate an agent's patches at Google with an
+LLM validator, rejecting \todo{58\%} of bad patches at a cost of rejecting about a quarter of good
+ones~\cite{cambronero2025}. Re-evaluations of patch-overfitting detectors find that many do no better than random
+selection~\cite{williams2026}, so we compare our reviewer with a random rejector. To our knowledge, no prior work uses
+a strong model's review of a cheap model's \emph{test-passing} patch as the trigger for escalation, measures the
+end-to-end cost of doing so, or compares reviewers from the same and a different model family.
+
+\textbf{Failure attribution.} Benchmarks usually remove instances whose tests fail even with the reference
+fix~\cite{tddbench}. A deployed agent cannot: it must decide whether a failing test is its fault. We measure what that
+decision saves inside the loop.
 
 \section{Study Design}
 % ~1.5 pages

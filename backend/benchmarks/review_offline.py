@@ -130,10 +130,14 @@ async def main():
     parser.add_argument("--cheap-model", default=CHEAP_MODEL, help="whose fixes to review, as the runs' --cheap-model")
     parser.add_argument("--resume", type=Path, help="a stopped replay's saved file: its reviews are kept, the rest done, "
                         "and the file updated in place")
+    parser.add_argument("--redo-unreadable", action="store_true", help="with --resume, review again the fixes whose "
+                        "verdict couldn't be read, unless the reply ran to the output limit")
     parser.add_argument("--max-total-usd", type=float, default=2.0)
     args = parser.parse_args()
 
     done = json.loads(args.resume.read_text())["runs"] if args.resume else []
+    if args.redo_unreadable:
+        done = [r for r in done if r["why"] != UNREADABLE or r["output_tokens"] >= MAX_OUTPUT_TOKENS]
     reviewed = {(r["task"], r["source_arm"]) for r in done}
     runs = [r for r in select([r for path in args.results for r in finished_runs(json.loads(path.read_text()))],
                               args.everyone, args.cheap_model) if (r["task"], r["arm"]) not in reviewed]

@@ -110,25 +110,26 @@ def review_prompt(spec: str, diff: str, context: str, note: str, flagged_tests: 
 
 
 def parse_verdict(text: str) -> tuple[bool, str]:
-    """Anything but a clear accept escalates. The reviewer sometimes reasons first, braces and all, so the verdict is
-    the last flat object with an "accept" key."""
-    found = re.findall(r'\{[^{}]*"accept"[^{}]*\}', text)
-    try:
-        verdict = json.loads(found[-1]) if found else {}
-    except json.JSONDecodeError:
-        verdict = {}
-    if not isinstance(verdict, dict):
-        verdict = {}
+    """Anything but a clear accept escalates. The reviewer sometimes reasons first, braces and all, and its "why" can
+    quote code with braces in it, so the verdict is the last JSON object in the reply with an "accept" key."""
+    decoder, verdict = json.JSONDecoder(), {}
+    for start in (m.start() for m in re.finditer(r"\{", text)):
+        try:
+            found, _ = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(found, dict) and "accept" in found:
+            verdict = found
     return verdict.get("accept") is True, str(verdict.get("why") or "The reply couldn't be read.")
 
 
 async def review_fix(spec: str, diff: str, read: Callable[[str], str], note: str = "", prompt: str = "v2",
                      model: str = REVIEWER_MODEL, effort: str | None = None, user_api_key: str | None = None) -> dict:
-    """{"accept", "why", "cost_usd", "input_tokens", "output_tokens"}. v2 also tells the reviewer which existing
+    """{"accept", "why", "cost_usd", "input_tokens", "output_tokens", "reply"}. v2 also tells the reviewer which existing
     tests the fix edits; v1 is kept as it first ran."""
     flagged = edited_tests(diff) if prompt != "v1" else None
     reply = await get_provider(model, user_api_key).complete(
         PROMPTS[prompt], review_prompt(spec, diff, code_context(diff, read), note, flagged), model, effort=effort)
     accept, why = parse_verdict(reply.text)
     return {"accept": accept, "why": why, "cost_usd": calculate_cost(model, reply.input_tokens, reply.output_tokens),
-            "input_tokens": reply.input_tokens, "output_tokens": reply.output_tokens}
+            "input_tokens": reply.input_tokens, "output_tokens": reply.output_tokens, "reply": reply.text}

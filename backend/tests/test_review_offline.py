@@ -53,6 +53,8 @@ def test_parse_verdict_escalates_unless_clearly_accepted():
     assert parse_verdict("no json")[0] is False
     reasoned = 'It sets {x} in `f()`.\n```json\n{"accept": false, "why": "misses g"}\n```'
     assert parse_verdict(reasoned) == (False, "misses g")
+    quoting_code = '```json\n{"accept": true, "why": "Wraps it in `{\'a\': f(x)}` as the task asks."}\n```'
+    assert parse_verdict(quoting_code) == (True, "Wraps it in `{'a': f(x)}` as the task asks.")
 
 
 def test_score_counts_catches_and_false_escalations_for_reviewer_rule_and_either():
@@ -107,7 +109,7 @@ def test_v1_prompt_is_unchanged_and_v2_adds_the_sibling_and_test_checks():
     assert "changes or deletes" not in review_prompt("task", "diff", "", "")
 
 
-def _replay(tmp_path, monkeypatch, review_fix, resume=None, cap="9"):
+def _replay(tmp_path, monkeypatch, review_fix, resume=None, cap="9", extra=()):
     """Runs review_offline's main on one saved file of two accepted Haiku fixes, with the reviewer faked."""
     import asyncio, json, sys
     import benchmarks.review_offline as offline
@@ -119,7 +121,7 @@ def _replay(tmp_path, monkeypatch, review_fix, resume=None, cap="9"):
     monkeypatch.setattr(offline, "original_file", lambda image, path: "")
     monkeypatch.setattr(offline, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(offline, "check_caps", lambda worst, models: "fine")
-    monkeypatch.setattr(sys, "argv", ["x", str(saved), "--max-total-usd", cap] + (["--resume", str(resume)] if resume else []))
+    monkeypatch.setattr(sys, "argv", ["x", str(saved), "--max-total-usd", cap, *extra] + (["--resume", str(resume)] if resume else []))
     asyncio.run(offline.main())
     out = resume or next(p for p in tmp_path.glob("*-review-offline.json"))
     return json.loads(out.read_text())
@@ -187,3 +189,20 @@ def test_runs_still_going_when_a_batch_stopped_are_not_reviewed():
     saved = {"runs": [{"task": "a", "arm": "swe-cheap-lean"}, {"task": "b", "arm": "swe-cheap-lean"}],
              "running": [["b", "swe-cheap-lean"]]}
     assert finished_runs(saved) == [{"task": "a", "arm": "swe-cheap-lean"}]
+
+
+def test_redo_unreadable_reviews_again_only_the_replies_that_werent_cut_off(tmp_path, monkeypatch):
+    import json
+    from benchmarks.review_offline import UNREADABLE
+    stopped = tmp_path / "stopped-review-offline.json"
+    common = {"arm": "review:swe-cheap-lean", "source_arm": "swe-cheap-lean", "hidden_passed": True, "edited_tests": []}
+    stopped.write_text(json.dumps({"runs": [{**common, "task": "a", **VERDICT, "why": UNREADABLE, "output_tokens": 900},
+                                            {**common, "task": "b", **VERDICT, "why": UNREADABLE, "output_tokens": 16000}]}))
+    seen = []
+
+    async def reviewer(spec, diff, read, note, prompt, model, effort):
+        seen.append(1)
+        return VERDICT
+
+    saved = _replay(tmp_path, monkeypatch, reviewer, resume=stopped, extra=["--redo-unreadable"])
+    assert len(seen) == 1 and sorted((r["task"], r["why"]) for r in saved["runs"]) == [("a", "w"), ("b", UNREADABLE)]

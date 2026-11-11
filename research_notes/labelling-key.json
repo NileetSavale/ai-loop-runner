@@ -1,0 +1,450 @@
+[
+  {
+    "case": 1,
+    "task": "pydata__xarray-2905",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 2,
+    "task": "django__django-13794",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 3,
+    "task": "matplotlib__matplotlib-20676",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 4,
+    "task": "sympy__sympy-18698",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 5,
+    "task": "pydata__xarray-6599",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 6,
+    "task": "django__django-13794",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 7,
+    "task": "django__django-13794",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 8,
+    "task": "pydata__xarray-4094",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 9,
+    "task": "matplotlib__matplotlib-25775",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 10,
+    "task": "sympy__sympy-22080",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 11,
+    "task": "django__django-14771",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261109-202624-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 12,
+    "task": "astropy__astropy-13033",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 13,
+    "task": "matplotlib__matplotlib-22871",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261109-202624-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 14,
+    "task": "django__django-16502",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 15,
+    "task": "django__django-16145",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 16,
+    "task": "astropy__astropy-13033",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 17,
+    "task": "matplotlib__matplotlib-20676",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 18,
+    "task": "pydata__xarray-4094",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 19,
+    "task": "sympy__sympy-13877",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 20,
+    "task": "sphinx-doc__sphinx-10435",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 21,
+    "task": "pylint-dev__pylint-4551",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 22,
+    "task": "sympy__sympy-18698",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 23,
+    "task": "django__django-13794",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 24,
+    "task": "django__django-13837",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 25,
+    "task": "django__django-14725",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 26,
+    "task": "django__django-14725",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 27,
+    "task": "django__django-13551",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 28,
+    "task": "sympy__sympy-12096",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 29,
+    "task": "sympy__sympy-22080",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 30,
+    "task": "matplotlib__matplotlib-25775",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 31,
+    "task": "django__django-16502",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 32,
+    "task": "django__django-11728",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 33,
+    "task": "django__django-11265",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 34,
+    "task": "astropy__astropy-13033",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 35,
+    "task": "django__django-15268",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 36,
+    "task": "django__django-11265",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 37,
+    "task": "sphinx-doc__sphinx-7590",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 38,
+    "task": "django__django-16145",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 39,
+    "task": "sphinx-doc__sphinx-9602",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 40,
+    "task": "pylint-dev__pylint-6386",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 41,
+    "task": "matplotlib__matplotlib-22871",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-225804-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 42,
+    "task": "sphinx-doc__sphinx-9602",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 43,
+    "task": "django__django-11728",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-232514-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 44,
+    "task": "django__django-16502",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 45,
+    "task": "django__django-13794",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 46,
+    "task": "pylint-dev__pylint-4551",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 47,
+    "task": "sympy__sympy-18698",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 48,
+    "task": "pylint-dev__pylint-6386",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 49,
+    "task": "django__django-11728",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261109-202624-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 50,
+    "task": "sphinx-doc__sphinx-7590",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 51,
+    "task": "django__django-14725",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 52,
+    "task": "django__django-11790",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 53,
+    "task": "sphinx-doc__sphinx-7440",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 54,
+    "task": "astropy__astropy-13033",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-062938-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 55,
+    "task": "pylint-dev__pylint-6386",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 56,
+    "task": "sphinx-doc__sphinx-9602",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 57,
+    "task": "django__django-16145",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 58,
+    "task": "django__django-13551",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 59,
+    "task": "django__django-13551",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 60,
+    "task": "django__django-15268",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 61,
+    "task": "pylint-dev__pylint-4551",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 62,
+    "task": "django__django-16145",
+    "arm": "swe-cheap-lean",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-015945-swe-claude-sonnet-5-5.json"
+  },
+  {
+    "case": 63,
+    "task": "django__django-11790",
+    "arm": "swe-cascade-tried",
+    "cheap_model": "gemini-3.5-flash-lite",
+    "results": "benchmarks/results/20261110-234047-swe-gemini-3.8-flash.json"
+  },
+  {
+    "case": 64,
+    "task": "matplotlib__matplotlib-25775",
+    "arm": "swe-cascade-notes",
+    "cheap_model": "claude-haiku-5-5",
+    "results": "benchmarks/results/20261110-063945-swe-claude-sonnet-5-5.json"
+  }
+]

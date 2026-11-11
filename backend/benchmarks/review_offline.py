@@ -14,6 +14,9 @@ import asyncio
 import json
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,10 +65,28 @@ def finished_runs(saved: dict) -> list[dict]:
     return [r for r in saved["runs"] if (r["task"], r["arm"]) in done]
 
 
-def original_file(image: str, path: str) -> str:
-    done = subprocess.run(["docker", "run", "--rm", "--platform", "linux/amd64", "--entrypoint", "cat", image,
-                           f"/testbed/{path}"], capture_output=True, text=True)
-    return done.stdout if done.returncode == 0 else ""
+def original_file(instance: dict, path: str) -> str:
+    """From the bug's image if it's here; otherwise from GitHub at the bug's base commit, the same code. Batches on
+    the VM delete their images, so their fixes are reviewed afterwards from GitHub."""
+    image = image_for(instance["instance_id"])
+    if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode == 0:
+        done = subprocess.run(["docker", "run", "--rm", "--platform", "linux/amd64", "--entrypoint", "cat", image,
+                               f"/testbed/{path}"], capture_output=True, text=True)
+        return done.stdout if done.returncode == 0 else ""
+    url = f"https://raw.githubusercontent.com/{instance['repo']}/{instance['base_commit']}/{path}"
+    for wait in (*RETRY_WAITS_SECONDS, None):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as error:
+            if error.code == 404:  # a file the fix creates
+                return ""
+            if wait is None:
+                raise
+        except OSError:
+            if wait is None:
+                raise
+        time.sleep(wait)
 
 
 def score(reviews: list[dict]) -> dict:
@@ -91,12 +112,12 @@ def score(reviews: list[dict]) -> dict:
 async def review(run: dict, args, specs: dict) -> dict:
     task = run["task"]
     if task not in specs:
-        specs[task] = (await asyncio.to_thread(load_instance, task))["problem_statement"]
-    files = {path: await asyncio.to_thread(original_file, image_for(task), path) for path in hunk_ranges(run["diff"])}
+        specs[task] = await asyncio.to_thread(load_instance, task)
+    files = {path: await asyncio.to_thread(original_file, specs[task], path) for path in hunk_ranges(run["diff"])}
     for wait in (*RETRY_WAITS_SECONDS, None):
         try:
-            verdict = await review_fix(specs[task], run["diff"], lambda path: files[path], run.get("note", ""),
-                                       args.prompt, args.model, args.effort)
+            verdict = await review_fix(specs[task]["problem_statement"], run["diff"], lambda path: files[path],
+                                       run.get("note", ""), args.prompt, args.model, args.effort)
             break
         except Exception as error:  # the API or the network; the replay goes on without this review
             print(f"{task} {run['arm']}: {type(error).__name__}: {error}"

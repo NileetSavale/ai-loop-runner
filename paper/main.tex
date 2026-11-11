@@ -1,0 +1,172 @@
+% Workshop paper draft. Target: AGENT 2027 (ICSE 2027 workshop on Agentic Engineering), full paper, up to 8 pages
+% including references, IEEE conference template, single-anonymous. Deadline Nov 20, 2026 AoE.
+% Numbers marked \pilot{} come from the 60-bug pilot and are replaced by fresh-bug results before submission.
+\documentclass[10pt,conference]{IEEEtran}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{cite}
+\usepackage{url}
+
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\pilot}[1]{\textcolor{blue}{#1}}
+
+\begin{document}
+
+\title{Passing the Tests Is Not Enough: Where Cheap-to-Strong Cascades Break in Verify-and-Retry Coding Agents}
+
+\author{\IEEEauthorblockN{Nileet Savale}
+\IEEEauthorblockA{\todo{affiliation}\\\todo{email}}}
+
+\maketitle
+
+\begin{abstract}
+\todo{Write last. One sentence each: setting (verify-and-retry agents gate on the repo's own tests; cascades send
+work to a cheap model first and escalate on test failure); what we measure (how often test-passing fixes are wrong,
+when test-gated cascades help, whether a reviewer is a better escalation trigger); data (SWE-bench Verified, $N$
+fresh bugs, Claude and Gemini families); the three headline numbers; the takeaway for practitioners.}
+\end{abstract}
+
+\begin{IEEEkeywords}
+LLM agents, program repair, model cascades, patch correctness, SWE-bench, cost
+\end{IEEEkeywords}
+
+\section{Introduction}
+% ~1 page
+\todo{Draft. Points, in order:}
+\begin{itemize}
+\item Coding agents increasingly run a verify-and-retry loop: edit, run the repository's tests, retry until they
+pass. Passing the tests is the loop's definition of done.
+\item To cut cost, a natural design is a cascade: a cheap model tries first, and the task escalates to a strong model
+only when the cheap model's fix fails the tests (cf.\ FrugalGPT-style cascades, Kapoor et al.'s escalation baseline).
+\item Problem: a gate can only escalate failures it sees. A fix that passes the repository's tests but is wrong is
+accepted and never escalated. This is test overfitting (Smith et al.\ 2015) in a new setting.
+\item We measure this on SWE-bench Verified with two model families, using SWE-bench's hidden tests as ground truth.
+\item Contributions: (1) the false-accept rate of cheap models' test-passing fixes and why they fail; (2) a condition
+for when test-gated cascades help, replicated across families; (3) a reviewer model as the escalation trigger,
+including a cross-family reviewer, with catch rate, false-rejection rate and end-to-end cost; (4) released runs.
+\end{itemize}
+
+\section{Background and Related Work}
+% ~1 page. Source: reports/Cascade reviewer findings prior work.md (verify each citation before submission).
+\todo{Draft from the literature report. Paragraphs:}
+\begin{itemize}
+\item Test overfitting and plausible patches in APR: Smith et al.\ (FSE 2015), Qi et al.\ (ISSTA 2015). On SWE-bench:
+Ahmed and Ganhotra (overfitting to generated tests, 21.8--33\%), PatchDiff (Wang et al.), UTBoost, SWE-ABS, SWE-Bench+.
+\item Cascades and routing: FrugalGPT, Kapoor et al.\ ``AI Agents That Matter'' (escalation on example tests),
+Chen et al.\ (test-agreement cascades for code), Dekoninck et al.\ (quality estimator is critical), Rajput et al.\
+(cheap verifiers' blind spots), SWE-Router, Sun et al.\ (effort ladders need an oracle gate).
+\item Patch judges: Abstain and Validate (Google; reject recall 0.58, $\approx$24\% false rejects), APCA re-evaluation
+(Williams et al.: random baseline), SWE-RM. Self-preference of LLM judges.
+\item Gap: no study uses a strong model's review of a cheap model's \emph{test-passing} patch as the escalation trigger,
+reports catch and false-rejection rates with end-to-end cost, or compares same- and cross-family reviewers.
+\end{itemize}
+
+\section{Study Design}
+% ~1.5 pages
+
+\subsection{Research Questions}
+\begin{description}
+\item[RQ1] How often does a cheap model's fix that passes the repository's tests fail SWE-bench's hidden tests, and why?
+\item[RQ2] When does a cascade that escalates on test failure improve on the cheap model alone, and at what cost?
+\item[RQ3] Is a reviewer model a better escalation trigger than the tests? How do same-family and cross-family
+reviewers differ?
+\end{description}
+
+\subsection{Benchmark and Ground Truth}
+We use SWE-bench Verified~\cite{swebenchverified}: 500 human-validated Python issues from 12 repositories, each with
+a gold patch and hidden tests (FAIL\_TO\_PASS and PASS\_TO\_PASS). The agent never sees the hidden tests; it sees the
+issue text and the repository, and may run the repository's existing tests. A run is \emph{resolved} if its final
+diff passes the hidden tests in the official SWE-bench harness. \todo{Pilot: 60 bugs, how chosen. Main set: the
+$N$ remaining bugs, never used while designing the loop or the reviewer prompt.}
+
+Before any agent runs, we run each bug's existing tests on the original code and with the gold patch applied, to
+record which tests already fail and which fail even with the correct fix. The loop uses this to tell failures it
+caused from failures it did not (Section~\ref{sec:loop}). \todo{Say how many bugs have tests that fail with the gold
+patch.}
+
+\subsection{The Verify-and-Retry Loop}
+\label{sec:loop}
+One coder model works in a checkout of the repository with tools to search, read and edit files. After each attempt
+the loop runs the repository's tests that relate to the change and hands the failures back. An attempt has at most 25
+tool steps and a run at most 5 attempts. The loop stops when the tests pass, when the only failing tests were already
+failing before any change, after two attempts in a row with no changes, or when the same failure repeats.
+\todo{Name the remaining lean settings that matter: retry context continues the conversation; short test output; a
+low-effort test reviewer for proposed test changes; file listing capped at 100 entries; keyword pointers to likely
+files. Per-run budget and time limit (10 min Claude, 20 min Gemini).}
+
+\subsection{Setups}
+\begin{itemize}
+\item \textbf{Cheap alone}: the loop with the cheap model.
+\item \textbf{Strong alone}: the loop with the strong model.
+\item \textbf{Test-gated cascade}: the cheap model first writes notes on where the bug is, then runs the loop. If the
+run does not end with passing tests, its changes are undone and the strong model runs the loop with the notes and a
+summary of what was tried.
+\item \textbf{Reviewed cascade}: as the test-gated cascade, but a cheap fix that passes the tests is also shown to a
+reviewer (the issue, the diff, and the original code 40 lines around each changed hunk). If the reviewer rejects it,
+the task escalates with the reviewer's reason. The reviewer prompt was fixed before the main set was run.
+\end{itemize}
+
+\subsection{Models}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Family & Cheap & Strong \\
+\midrule
+Anthropic & Claude Haiku 5.5 & Claude Sonnet 5.5 \\
+Google & Gemini 3.5 Flash-Lite & Gemini 3.8 Flash \\
+\bottomrule
+\end{tabular}
+
+\noindent Reviewers: Claude Sonnet 5.5 and Gemini 4 Carbon, each reviewing both families' cheap fixes. All models at
+their default reasoning effort. \todo{Why Gemini 3.8 Flash rather than Carbon as the strong coder (cost).}
+
+\subsection{Measures}
+Resolved rate with 95\% Wilson intervals~\cite{bowyer2025}; paired comparisons per bug (McNemar).
+Cost in US dollars from token counts at list prices, including cache reads. For RQ1, the false-accept rate is the share
+of runs the loop accepted whose fix fails the hidden tests. For RQ3, catch rate (rejected bad fixes / bad fixes),
+false-rejection rate (rejected good fixes / good fixes), MCC, and a random rejector with the same rejection rate as a
+baseline~\cite{williams2026}. Failure causes for RQ1 were labelled by two annotators \todo{who; agreement $\kappa$}.
+
+\section{Results}
+% ~2.5 pages
+
+\subsection{RQ1: Test-Passing but Wrong}
+\pilot{Pilot: of 165 fixes Haiku's loop accepted, 46 (28\%) fail the hidden tests; Flash-Lite: 18 of 53 (34\%).}
+\todo{Fresh-bug numbers; table of failure causes (pilot, 44 cases: unstated detail in hidden test 19, incomplete /
+missed sibling 16, wrong location or symptom patch 4, evaluation artefact 5); compare with published overfitting rates.}
+
+\subsection{RQ2: When Test-Gated Cascades Help}
+\pilot{Pilot. Claude, 59 bugs: Haiku 43, cascade 42, Sonnet 50. Gemini, 41 bugs: Flash-Lite 17 (\$0.06/bug),
+cascade 24 (\$0.29), 3.8 Flash 30 (\$0.56).} The cascade helps only when the cheap model's failures are visible to the
+tests. \todo{Fresh-bug table; accuracy--cost Pareto plot; share of cheap failures that are visible vs.\ silent per family.}
+
+\subsection{RQ3: A Reviewer as the Escalation Trigger}
+\pilot{Pilot, prompt v1. Sonnet on Haiku's fixes: catches 25/46, wrongly rejects 33/119. Carbon on Haiku's: 41/46,
+58/119. Sonnet on Flash-Lite's: 11/18, 4/35. Carbon on Flash-Lite's: 17/18, 18/35.} \todo{Reviewed cascade, live
+on the main set: resolved and cost against strong alone; random-rejector baseline; same- vs cross-family.}
+
+\section{Discussion}
+% ~0.5 page
+\todo{Per-token price misleads: Gemini 3.8 Flash costs about 12x Sonnet per bug despite a lower token price (more
+steps, more thinking, weaker implicit caching). Failure attribution: stopping when only pre-existing failures remain.
+What a practitioner should do.}
+
+\section{Threats to Validity}
+% ~0.5 page
+\todo{One benchmark, Python only, possibly contaminated (Verified); two model families, no open-weight model; single
+runs (repeats on a subset); the pilot was run on emulated x86 images on Apple Silicon, the main set natively; the v2
+reviewer prompt was shaped on the pilot, so only the main set tests it; the strong Gemini model is not the strongest
+available; cost at list prices of November 2026.}
+
+\section{Conclusion}
+\todo{Two or three sentences.}
+
+\section*{Data Availability}
+\todo{Runs, diffs, reviews and scripts: repository link once the user decides to release.}
+
+\section*{Acknowledgment}
+\todo{Disclose AI assistance in drafting text, as IEEE requires.}
+
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+
+\end{document}

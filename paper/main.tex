@@ -43,7 +43,8 @@ accepted and never escalated. This is test overfitting (Smith et al.\ 2015) in a
 \item We measure this on SWE-bench Verified with two model families, using SWE-bench's hidden tests as ground truth.
 \item Contributions: (1) the false-accept rate of cheap models' test-passing fixes and why they fail; (2) a condition
 for when test-gated cascades help, replicated across families; (3) a reviewer model as the escalation trigger,
-including a cross-family reviewer, with catch rate, false-rejection rate and end-to-end cost; (4) released runs.
+including a cross-family reviewer, with catch rate, false-rejection rate and end-to-end cost; (4) failure attribution in
+the loop: stopping on failures that predate the change cuts the cost of such bugs about fourfold; (5) released runs.
 \end{itemize}
 
 \section{Background and Related Work}
@@ -70,6 +71,8 @@ reports catch and false-rejection rates with end-to-end cost, or compares same- 
 \item[RQ2] When does a cascade that escalates on test failure improve on the cheap model alone, and at what cost?
 \item[RQ3] Is a reviewer model a better escalation trigger than the tests? How do same-family and cross-family
 reviewers differ?
+\item[RQ4] Does telling failures the agent caused from failures it did not (tests already failing before any change)
+cut wasted retries, without losing fixes?
 \end{description}
 
 \subsection{Benchmark and Ground Truth}
@@ -93,6 +96,10 @@ failing before any change, after two attempts in a row with no changes, or when 
 \todo{Name the remaining lean settings that matter: retry context continues the conversation; short test output; a
 low-effort test reviewer for proposed test changes; file listing capped at 100 entries; keyword pointers to likely
 files. Per-run budget and time limit (10 min Claude, 20 min Gemini).}
+As a sanity check that the loop is a realistic agent rather than a weak stand-in, on the pilot it resolved
+\pilot{50 of 60} bugs with Claude Sonnet 5.5, against \pilot{45} for Claude Code with the same model (exact McNemar
+$p=0.18$). On ImpossibleBench's ``conflicting'' tasks~\cite{impossiblebench}, whose visible tests contradict the issue,
+it changed a test to pass on \pilot{0 of 8}.
 
 \subsection{Setups}
 \begin{itemize}
@@ -144,11 +151,21 @@ tests. \todo{Fresh-bug table; accuracy--cost Pareto plot; share of cheap failure
 58/119. Sonnet on Flash-Lite's: 11/18, 4/35. Carbon on Flash-Lite's: 17/18, 18/35.} \todo{Reviewed cascade, live
 on the main set: resolved and cost against strong alone; random-rejector baseline; same- vs cross-family.}
 
+\subsection{RQ4: Failure Attribution}
+\pilot{Pilot, 60 bugs, Sonnet 5.5. With attribution the loop resolved 50 at \$0.061/bug; with every failing test
+counted as the agent's, 52 at \$0.114 (difference in resolved within noise, $p=0.63$). On the 14 bugs whose tests
+already fail before any change, attribution cost \$0.83 against \$3.67 (1.0 vs 2.8 attempts). The stop on
+``only pre-existing failures left'' fired 12 times; 11 of those runs resolved the bug.} \todo{Repeat on the main set;
+how many of the $N$ bugs have pre-existing failures; the one loss (django-13837, stopped to flag a test for a human).}
+
 \section{Discussion}
 % ~0.5 page
 \todo{Per-token price misleads: Gemini 3.8 Flash costs about 12x Sonnet per bug despite a lower token price (more
 steps, more thinking, weaker implicit caching). Failure attribution: stopping when only pre-existing failures remain.
-What a practitioner should do.}
+What a practitioner should do. Effort ladders: escalating from low to
+default reasoning effort on test failure resolved \pilot{43} at \$0.067/bug vs \pilot{50} at \$0.062 for default
+effort alone, the same blind spot as RQ2 on another axis; Sun et al.\ found ladders pay when the gate is the
+benchmark's own scoring tests.}
 
 \section{Threats to Validity}
 % ~0.5 page

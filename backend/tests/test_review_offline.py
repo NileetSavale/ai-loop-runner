@@ -118,7 +118,7 @@ def _replay(tmp_path, monkeypatch, review_fix, resume=None, cap="9", extra=()):
     monkeypatch.setattr(offline, "review_fix", review_fix)
     monkeypatch.setattr(offline, "RETRY_WAITS_SECONDS", (0, 0))
     monkeypatch.setattr(offline, "load_instance", lambda task: {"problem_statement": "spec"})
-    monkeypatch.setattr(offline, "original_file", lambda image, path: "")
+    monkeypatch.setattr(offline, "original_file", lambda instance, path: "")
     monkeypatch.setattr(offline, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(offline, "check_caps", lambda worst, models: "fine")
     monkeypatch.setattr(sys, "argv", ["x", str(saved), "--max-total-usd", cap, *extra] + (["--resume", str(resume)] if resume else []))
@@ -206,3 +206,30 @@ def test_redo_unreadable_reviews_again_only_the_replies_that_werent_cut_off(tmp_
 
     saved = _replay(tmp_path, monkeypatch, reviewer, resume=stopped, extra=["--redo-unreadable"])
     assert len(seen) == 1 and sorted((r["task"], r["why"]) for r in saved["runs"]) == [("a", "w"), ("b", UNREADABLE)]
+
+
+def test_original_file_falls_back_to_github_at_the_base_commit(monkeypatch):
+    """Without the bug's image (deleted after its batch), the file comes from GitHub at the base commit."""
+    import io, subprocess, urllib.request
+    import benchmarks.review_offline as offline
+    monkeypatch.setattr(offline.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 1))
+    asked = []
+
+    def urlopen(url, timeout):
+        asked.append(url)
+        return io.BytesIO(b"code\n")
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    instance = {"instance_id": "o__r-1", "repo": "o/r", "base_commit": "abc"}
+    assert offline.original_file(instance, "pkg/m.py") == "code\n"
+    assert asked == ["https://raw.githubusercontent.com/o/r/abc/pkg/m.py"]
+
+
+def test_original_file_is_empty_for_a_file_the_fix_creates(monkeypatch):
+    import subprocess, urllib.error, urllib.request
+    import benchmarks.review_offline as offline
+    monkeypatch.setattr(offline.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 1))
+
+    def urlopen(url, timeout):
+        raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    assert offline.original_file({"instance_id": "o__r-1", "repo": "o/r", "base_commit": "abc"}, "new.py") == ""

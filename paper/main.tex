@@ -12,7 +12,7 @@
 
 \begin{document}
 
-\title{Passing the Tests Is Not Enough: Where Cheap-to-Strong Cascades Break in Verify-and-Retry Coding Agents}
+\title{When Tests Lie: Cascades, Reviewers and Failure Attribution in Coding Agents}
 
 \author{\IEEEauthorblockN{Nileet Savale}
 \IEEEauthorblockA{\todo{affiliation}\\\todo{email}}}
@@ -110,7 +110,10 @@ run does not end with passing tests, its changes are undone and the strong model
 summary of what was tried.
 \item \textbf{Reviewed cascade}: as the test-gated cascade, but a cheap fix that passes the tests is also shown to a
 reviewer (the issue, the diff, and the original code 40 lines around each changed hunk). If the reviewer rejects it,
-the task escalates with the reviewer's reason. The reviewer prompt was fixed before the main set was run.
+the task escalates with the reviewer's reason. We wrote two reviewer prompts: v1, a plain accept-or-escalate prompt
+used throughout the pilot, and v2, which also asks whether the fix missed a sibling code path or bent an existing test
+to match itself. v2 was written after reading the pilot's failures, so it is evaluated only on the main set, where it
+was fixed before any run; v1 is reported only on the pilot.
 \end{itemize}
 
 \subsection{Models}
@@ -144,7 +147,13 @@ missed sibling 16, wrong location or symptom patch 4, evaluation artefact 5); co
 \subsection{RQ2: When Test-Gated Cascades Help}
 \pilot{Pilot. Claude, 59 bugs: Haiku 43, cascade 42, Sonnet 50. Gemini, 41 bugs: Flash-Lite 17 (\$0.06/bug),
 cascade 24 (\$0.29), 3.8 Flash 30 (\$0.56).} The cascade helps only when the cheap model's failures are visible to the
-tests. \todo{Fresh-bug table; accuracy--cost Pareto plot; share of cheap failures that are visible vs.\ silent per family.}
+tests. We state this as an observation in two model families, not a general law. \todo{Fresh-bug table;
+accuracy--cost Pareto plot.}
+
+The unifying measure is each cheap model's split of failures into \emph{visible} (the loop ends with failing
+tests, so a test gate escalates) and \emph{silent} (the loop accepts a fix that fails the hidden tests, so only a
+reviewer can escalate). \todo{Figure: per family, resolved / visible failure / silent failure as stacked bars, cheap
+model alone. Pilot: Haiku fails mostly silently, Flash-Lite mostly visibly; this predicts which cascade helps.}
 
 \subsection{RQ3: A Reviewer as the Escalation Trigger}
 \pilot{Pilot, prompt v1. Sonnet on Haiku's fixes: catches 25/46, wrongly rejects 33/119. Carbon on Haiku's: 41/46,
@@ -152,6 +161,7 @@ tests. \todo{Fresh-bug table; accuracy--cost Pareto plot; share of cheap failure
 on the main set: resolved and cost against strong alone; random-rejector baseline; same- vs cross-family.}
 
 \subsection{RQ4: Failure Attribution}
+% Keep to about a third of a column.
 \pilot{Pilot, 60 bugs, Sonnet 5.5. With attribution the loop resolved 50 at \$0.061/bug; with every failing test
 counted as the agent's, 52 at \$0.114 (difference in resolved within noise, $p=0.63$). On the 14 bugs whose tests
 already fail before any change, attribution cost \$0.83 against \$3.67 (1.0 vs 2.8 attempts). The stop on

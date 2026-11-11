@@ -153,7 +153,9 @@ accuracy--cost Pareto plot.}
 The unifying measure is each cheap model's split of failures into \emph{visible} (the loop ends with failing
 tests, so a test gate escalates) and \emph{silent} (the loop accepts a fix that fails the hidden tests, so only a
 reviewer can escalate). \todo{Figure: per family, resolved / visible failure / silent failure as stacked bars, cheap
-model alone. Pilot: Haiku fails mostly silently, Flash-Lite mostly visibly; this predicts which cascade helps.}
+model alone.} \pilot{Pilot, cheap model alone: of Haiku's 16 failures on 59 bugs, 15 are silent and 1 visible; of
+Flash-Lite's 24 failures on 42 bugs, 10 are silent and 14 visible. A test gate can only act on the visible ones, which
+is why it helps Flash-Lite and not Haiku.}
 
 \subsection{RQ3: A Reviewer as the Escalation Trigger}
 \pilot{Pilot, prompt v1. Sonnet on Haiku's fixes: catches 25/46, wrongly rejects 33/119. Carbon on Haiku's: 41/46,

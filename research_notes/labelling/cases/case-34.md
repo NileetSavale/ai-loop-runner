@@ -1,0 +1,295 @@
+# Case 34
+
+## The issue
+
+TimeSeries: misleading exception when required column check fails.
+<!-- This comments are hidden when you submit the issue,
+so you do not need to remove them! -->
+
+<!-- Please be sure to check out our contributing guidelines,
+https://github.com/astropy/astropy/blob/main/CONTRIBUTING.md .
+Please be sure to check out our code of conduct,
+https://github.com/astropy/astropy/blob/main/CODE_OF_CONDUCT.md . -->
+
+<!-- Please have a search on our GitHub repository to see if a similar
+issue has already been posted.
+If a similar issue is closed, have a quick look to see if you are satisfied
+by the resolution.
+If not please go ahead and open an issue! -->
+
+<!-- Please check that the development version still produces the same bug.
+You can install development version with
+pip install git+https://github.com/astropy/astropy
+command. -->
+
+### Description
+<!-- Provide a general description of the bug. -->
+
+For a `TimeSeries` object that has additional required columns (in addition to `time`), when codes mistakenly try to remove a required column, the exception it produces is misleading.
+
+### Expected behavior
+<!-- What did you expect to happen. -->
+An exception that informs the users required columns are missing.
+
+### Actual behavior
+The actual exception message is confusing:
+`ValueError: TimeSeries object is invalid - expected 'time' as the first columns but found 'time'`
+
+### Steps to Reproduce
+<!-- Ideally a code example could be provided so we can run it ourselves. -->
+<!-- If you are pasting code, use triple backticks (```) around
+your code snippet. -->
+<!-- If necessary, sanitize your screen output to be pasted so you do not
+reveal secrets like tokens and passwords. -->
+
+```python
+from astropy.time import Time
+from astropy.timeseries import TimeSeries
+
+time=Time(np.arange(100000, 100003), format='jd')
+ts = TimeSeries(time=time, data = {"flux": [99.9, 99.8, 99.7]})
+ts._required_columns = ["time", "flux"]                                   
+ts.remove_column("flux")
+
+```
+
+### System Details
+<!-- Even if you do not think this is necessary, it is useful information for the maintainers.
+Please run the following snippet and paste the output below:
+import platform; print(platform.platform())
+import sys; print("Python", sys.version)
+import numpy; print("Numpy", numpy.__version__)
+import erfa; print("pyerfa", erfa.__version__)
+import astropy; print("astropy", astropy.__version__)
+import scipy; print("Scipy", scipy.__version__)
+import matplotlib; print("Matplotlib", matplotlib.__version__)
+-->
+```
+Windows-10-10.0.22000-SP0
+Python 3.9.10 | packaged by conda-forge | (main, Feb  1 2022, 21:21:54) [MSC v.1929 64 bit (AMD64)]
+Numpy 1.22.3
+pyerfa 2.0.0.1
+astropy 5.0.3
+Scipy 1.8.0
+Matplotlib 3.5.1
+```
+
+## The cheap model's fix (passed the repository's own tests)
+
+```diff
+diff --git a/astropy/timeseries/core.py b/astropy/timeseries/core.py
+index c279f35f8..3f4309dc0 100755
+--- a/astropy/timeseries/core.py
++++ b/astropy/timeseries/core.py
+@@ -76,9 +76,14 @@ class BaseTimeSeries(QTable):
+ 
+             elif self.colnames[:len(required_columns)] != required_columns:
+ 
+-                raise ValueError("{} object is invalid - expected '{}' "
+-                                 "as the first column{} but found '{}'"
+-                                 .format(self.__class__.__name__, required_columns[0], plural, self.colnames[0]))
++                missing = [col for col in required_columns if col not in self.colnames]
++                if missing:
++                    raise ValueError("{} object is invalid - required column{} {} missing"
++                                     .format(self.__class__.__name__, 's' if len(missing) > 1 else '', ', '.join(f"'{col}'" for col in missing)))
++                else:
++                    raise ValueError("{} object is invalid - expected '{}' "
++                                     "as the first column{} but found '{}'"
++                                     .format(self.__class__.__name__, required_columns[0], plural, self.colnames[0]))
+ 
+             if (self._required_columns_relax
+                     and self._required_columns == self.colnames[:len(self._required_columns)]):
+diff --git a/astropy/timeseries/tests/test_sampled.py b/astropy/timeseries/tests/test_sampled.py
+index bcc06d929..22cbfb3d8 100755
+--- a/astropy/timeseries/tests/test_sampled.py
++++ b/astropy/timeseries/tests/test_sampled.py
+@@ -34,8 +34,7 @@ def test_empty_initialization_invalid():
+     ts = TimeSeries()
+     with pytest.raises(ValueError) as exc:
+         ts['flux'] = [1, 2, 3]
+-    assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
+-                                 "'time' as the first column but found 'flux'")
++    assert exc.value.args[0] == ("TimeSeries object is invalid - required column 'time' missing")
+ 
+ 
+ def test_initialize_only_time():
+@@ -377,23 +376,19 @@ def test_required_columns():
+ 
+     with pytest.raises(ValueError) as exc:
+         ts.copy().keep_columns(['a', 'b'])
+-    assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
+-                                 "'time' as the first column but found 'a'")
++    assert exc.value.args[0] == ("TimeSeries object is invalid - required column 'time' missing")
+ 
+     with pytest.raises(ValueError) as exc:
+         ts.copy().remove_column('time')
+-    assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
+-                                 "'time' as the first column but found 'a'")
++    assert exc.value.args[0] == ("TimeSeries object is invalid - required column 'time' missing")
+ 
+     with pytest.raises(ValueError) as exc:
+         ts.copy().remove_columns(['time', 'a'])
+-    assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
+-                                 "'time' as the first column but found 'b'")
++    assert exc.value.args[0] == ("TimeSeries object is invalid - required column 'time' missing")
+ 
+     with pytest.raises(ValueError) as exc:
+         ts.copy().rename_column('time', 'banana')
+-    assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
+-                                 "'time' as the first column but found 'banana'")
++    assert exc.value.args[0] == ("TimeSeries object is invalid - required column 'time' missing")
+ 
+ 
+ @pytest.mark.parametrize('cls', [BoxLeastSquares, LombScargle])
+```
+
+## The official fix
+
+```diff
+diff --git a/astropy/timeseries/core.py b/astropy/timeseries/core.py
+--- a/astropy/timeseries/core.py
++++ b/astropy/timeseries/core.py
+@@ -55,6 +55,13 @@ class BaseTimeSeries(QTable):
+     _required_columns_relax = False
+ 
+     def _check_required_columns(self):
++        def as_scalar_or_list_str(obj):
++            if not hasattr(obj, "__len__"):
++                return f"'{obj}'"
++            elif len(obj) == 1:
++                return f"'{obj[0]}'"
++            else:
++                return str(obj)
+ 
+         if not self._required_columns_enabled:
+             return
+@@ -76,9 +83,10 @@ def _check_required_columns(self):
+ 
+             elif self.colnames[:len(required_columns)] != required_columns:
+ 
+-                raise ValueError("{} object is invalid - expected '{}' "
+-                                 "as the first column{} but found '{}'"
+-                                 .format(self.__class__.__name__, required_columns[0], plural, self.colnames[0]))
++                raise ValueError("{} object is invalid - expected {} "
++                                 "as the first column{} but found {}"
++                                 .format(self.__class__.__name__, as_scalar_or_list_str(required_columns),
++                                            plural, as_scalar_or_list_str(self.colnames[:len(required_columns)])))
+ 
+             if (self._required_columns_relax
+                     and self._required_columns == self.colnames[:len(self._required_columns)]):
+```
+
+## The official tests added or changed for this issue
+
+```diff
+diff --git a/astropy/timeseries/tests/test_sampled.py b/astropy/timeseries/tests/test_sampled.py
+--- a/astropy/timeseries/tests/test_sampled.py
++++ b/astropy/timeseries/tests/test_sampled.py
+@@ -395,6 +395,14 @@ def test_required_columns():
+     assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
+                                  "'time' as the first column but found 'banana'")
+ 
++    # https://github.com/astropy/astropy/issues/13009
++    ts_2cols_required = ts.copy()
++    ts_2cols_required._required_columns = ['time', 'a']
++    with pytest.raises(ValueError) as exc:
++        ts_2cols_required.remove_column('a')
++    assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
++                                 "['time', 'a'] as the first columns but found ['time', 'b']")
++
+ 
+ @pytest.mark.parametrize('cls', [BoxLeastSquares, LombScargle])
+ def test_periodogram(cls):
+```
+
+## Hidden tests the cheap fix failed
+
+- `astropy/timeseries/tests/test_sampled.py::test_required_columns`
+- `astropy/timeseries/tests/test_sampled.py::test_empty_initialization_invalid`
+
+## Test output for those tests (excerpt)
+
+```
+______________________ test_empty_initialization_invalid _______________________
+
+    def test_empty_initialization_invalid():
+        # Make sure things crash when the first column added is not a time column
+        ts = TimeSeries()
+        with pytest.raises(ValueError) as exc:
+            ts['flux'] = [1, 2, 3]
+>       assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
+                                     "'time' as the first column but found 'flux'")
+E       assert "TimeSeries o...time' missing" == "TimeSeries o... found 'flux'"
+E         - TimeSeries object is invalid - expected 'time' as the first column but found 'flux'
+E         + TimeSeries object is invalid - required column 'time' missing
+
+astropy/timeseries/tests/test_sampled.py:37: AssertionError
+_____________________ test_initialization_with_time_delta ______________________
+
+files = None
+
+    def update_leap_seconds(files=None):
+        """If the current ERFA leap second table is out of date, try to update it.
+    
+        Uses `astropy.utils.iers.LeapSeconds.auto_open` to try to find an
+        up-to-date table.  See that routine for the definition of "out of date".
+    
+        In order to make it safe to call this any time, all exceptions are turned
+        into warnings,
+    
+        Parameters
+        ----------
+        files : list of path-like, optional
+            List of files/URLs to attempt to open.  By default, uses defined by
+            `astropy.utils.iers.LeapSeconds.auto_open`, which includes the table
+            used by ERFA itself, so if that is up to date, nothing will happen.
+    
+        Returns
+        -------
+        n_update : int
+            Number of items updated.
+    
+        """
+____________________________ test_required_columns _____________________________
+
+    def test_required_columns():
+    
+        # Test the machinery that makes sure that the required columns are present
+    
+        ts = TimeSeries(time=INPUT_TIME,
+                        data=[[10, 2, 3], [4, 5, 6]],
+                        names=['a', 'b'])
+    
+        # In the examples below, the operation (e.g. remove_column) is actually
+        # carried out before the checks are made, so we need to use copy() so that
+        # we don't change the main version of the time series.
+    
+        # Make sure copy works fine
+        ts.copy()
+    
+        with pytest.raises(ValueError) as exc:
+            ts.copy().add_column(Column([3, 4, 5], name='c'), index=0)
+        assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
+                                     "'time' as the first column but found 'c'")
+    
+        with pytest.raises(ValueError) as exc:
+            ts.copy().add_columns([Column([3, 4, 5], name='d'),
+                                   Column([3, 4, 5], name='e')], indexes=[0, 1])
+        assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
+                                     "'time' as the first column but found 'd'")
+    
+        with pytest.raises(ValueError) as exc:
+            ts.copy().keep_columns(['a', 'b'])
+>       assert exc.value.args[0] == ("TimeSeries object is invalid - expected "
+                                     "'time' as the first column but found 'a'")
+E       assert "TimeSeries o...time' missing" == "TimeSeries o...but found 'a'"
+E         - TimeSeries object is invalid - expected 'time' as the first column but found 'a'
+E         + TimeSeries object is invalid - required column 'time' missing
+
+astropy/timeseries/tests/test_sampled.py:380: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED astropy/timeseries/tests/test_sampled.py::test_empty_initialization
+FAILED astropy/timeseries/tests/test_sampled.py::test_empty_initialization_invalid
+FAILED astropy/timeseries/tests/test_sampled.py::test_required_columns - asse...
+```

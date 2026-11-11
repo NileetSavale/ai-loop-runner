@@ -13,7 +13,7 @@
 set -uo pipefail
 BUGS=${1:?bugs file}; SIZE=${2:?batch size}; shift 2; [ "${1:-}" = "--" ] && shift
 SWE=/data/swe
-LOGS=~/fresh_logs; mkdir -p "$LOGS"
+LOGS=${LOGS:-~/fresh_logs}; mkdir -p "$LOGS"
 cd ~/loop_runner/backend
 mapfile -t IDS < <(grep -v '^\s*$' "$BUGS")
 

@@ -6,7 +6,8 @@
 #     bash benchmarks/cloud/fresh_run.sh BUGS_FILE BATCH_SIZE -- <swe_run options without --instances>
 #
 # BUGS_FILE has one instance id per line. Results go to benchmarks/results/ as one file per batch; a batch that
-# already has a "Saved to" line in its log is skipped, so the script can be restarted after a stop.
+# already has a "Saved to" line in its log is skipped, so the script can be restarted after a stop. BUILD_JOBS sets how
+# many images build at once (default 6: each build is mostly one core setting up its environment).
 set -uo pipefail
 BUGS=${1:?bugs file}; SIZE=${2:?batch size}; shift 2; [ "${1:-}" = "--" ] && shift
 SWE=/data/swe
@@ -20,7 +21,7 @@ for ((start = 0; start < ${#IDS[@]}; start += SIZE)); do
   if grep -q '^Saved to ' "$log" 2>/dev/null; then echo "batch $n done already"; continue; fi
   echo "batch $n: ${#batch[@]} bugs, building images $(date)"
   (cd $SWE && DOCKER_DEFAULT_PLATFORM=linux/amd64 venv/bin/swebench eval verified --gold \
-     $(printf -- '-i %s ' "${batch[@]}") --run-id "fresh-gold-$n" --task-repo ./swe-bench-tasks -j 4 \
+     $(printf -- '-i %s ' "${batch[@]}") --run-id "fresh-gold-$n" --task-repo ./swe-bench-tasks -j "${BUILD_JOBS:-6}" \
      > "$LOGS/build-$n.log" 2>&1)
   echo "batch $n: running $(date)"
   SWEBENCH_DIR=$SWE .venv/bin/python -m benchmarks.swe_run --yes --instances "$(IFS=,; echo "${batch[*]}")" "$@" \

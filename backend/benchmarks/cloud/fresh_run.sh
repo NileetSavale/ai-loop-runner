@@ -7,8 +7,8 @@
 #
 # Stage options are swe_run's, without --instances. A stage starting with `--only FILE` runs only on the batch's bugs
 # that are listed in FILE. BUGS_FILE and FILE have one instance id per line. Results go to benchmarks/results/ as
-# one file per batch and stage; a stage whose log already has a "Saved to" line is skipped, so the script can be
-# restarted after a stop. BUILD_JOBS sets how many images build at once (default 6: each build is mostly one core
+# one file per batch and stage; a stage whose log already has a "Saved to" line is skipped, and so is a build whose
+# log has SWE-bench's "Report written to" line, so the script can be restarted after a stop. BUILD_JOBS sets how many images build at once (default 6: each build is mostly one core
 # setting up its environment).
 set -uo pipefail
 BUGS=${1:?bugs file}; SIZE=${2:?batch size}; shift 2; [ "${1:-}" = "--" ] && shift
@@ -29,10 +29,11 @@ for ((start = 0; start < ${#IDS[@]}; start += SIZE)); do
   pending=0
   for k in "${!STAGES[@]}"; do grep -q '^Saved to ' "$LOGS/batch-$n-s$k.log" 2>/dev/null || pending=1; done
   if [ $pending = 0 ]; then echo "batch $n done already"; continue; fi
-  echo "batch $n: ${#batch[@]} bugs, building images $(date)"
+  if grep -q '^Report written to ' "$LOGS/build-$n.log" 2>/dev/null; then echo "batch $n: images built already"
+  else echo "batch $n: ${#batch[@]} bugs, building images $(date)"
   (cd $SWE && DOCKER_DEFAULT_PLATFORM=linux/amd64 venv/bin/swebench eval verified --gold \
      $(printf -- '-i %s ' "${batch[@]}") --run-id "fresh-gold-$n" --task-repo ./swe-bench-tasks -j "${BUILD_JOBS:-6}" \
-     > "$LOGS/build-$n.log" 2>&1)
+     > "$LOGS/build-$n.log" 2>&1); fi
   stopped=0
   for k in "${!STAGES[@]}"; do
     log="$LOGS/batch-$n-s$k.log"

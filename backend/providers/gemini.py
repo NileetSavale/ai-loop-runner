@@ -8,6 +8,7 @@ from .base import LLMProvider, LLMResult, MAX_OUTPUT_TOKENS, TokenCallback, Tool
 
 # Finish reasons that mean the model wouldn't answer, which the agent loop treats like Anthropic's "refusal"
 _REFUSED = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION"}
+REQUEST_TIMEOUT_MS = 300_000
 _LEVELS = {"low": "LOW", "medium": "MEDIUM", "high": "HIGH", "xhigh": "HIGH", "max": "HIGH"}
 
 
@@ -67,10 +68,12 @@ class GeminiProvider(LLMProvider):
     supports_tools = True
 
     def _client(self):
+        # Without a timeout, a connection that dies mid-reply leaves the call waiting forever (seen on a 5-hour stall)
+        http = genai_types.HttpOptions(timeout=REQUEST_TIMEOUT_MS)
         if self.api_key:
-            return genai.Client(api_key=self.api_key)
+            return genai.Client(api_key=self.api_key, http_options=http)
         return genai.Client(vertexai=True, project=os.environ["GOOGLE_CLOUD_PROJECT"],
-                            location=os.getenv("GOOGLE_CLOUD_LOCATION", "global"))
+                            location=os.getenv("GOOGLE_CLOUD_LOCATION", "global"), http_options=http)
 
     @staticmethod
     def _config(system: str, model: str, effort: str | None, **extra) -> genai_types.GenerateContentConfig:

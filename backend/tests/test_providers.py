@@ -141,8 +141,11 @@ def _make(name, url):
         from mistralai.client import Mistral
         return MistralProvider("k"), patch("providers.mistral.Mistral", partial(Mistral, server_url=f"{url}/mistral"))
     from google import genai
-    return GeminiProvider("k"), patch("providers.gemini.genai.Client",
-                                      partial(genai.Client, http_options={"base_url": f"{url}/gemini"}))
+    real = genai.Client
+
+    def client(http_options, **kwargs):  # the provider's own options (its timeout), pointed at the fake server
+        return real(http_options=http_options.model_copy(update={"base_url": f"{url}/gemini"}), **kwargs)
+    return GeminiProvider("k"), patch("providers.gemini.genai.Client", client)
 
 
 PROVIDERS = ["anthropic", "openai", "mistral", "gemini"]

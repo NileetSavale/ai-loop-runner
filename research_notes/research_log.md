@@ -704,3 +704,49 @@ at $0.062. To be confirmed by a real run on fresh bugs.
 
 Effort (60 bugs): loop-lean at low effort 42 solved, $0.037/bug; medium 40, $0.041; default 50, $0.062. A cascade over
 effort levels 43, $0.067: dominated. Lowering effort saves about 35% of cost and loses 8-10 bugs.
+
+## 2026-11-11 to 11-13: native check, fresh bugs (first 2 of 4 batches), cross-family reviewers
+
+Native check (cloud VM, x86, 10 pilot bugs, 4 Claude setups): 25 of 30 comparable runs agree with the Mac. The Mac's
+own run-vs-run difference is 22% of pairs, so the difference is within noise. django-16145's gold fix fails natively
+too (`test_honor_umask`): an evaluation artefact, excluded. The pilot and fresh sets are reported separately.
+
+Fresh set: the 436 SWE-bench Verified bugs not in the pilot (4 psf__requests bugs whose gold fix fails natively left
+out), shuffled with seed 7, run in 4 batches of 109 on the VM: the 4 Claude setups, Flash-Lite alone, and
+loop-lean-noattr on the 47 bugs whose tests already fail. The gold fix passed on all 218 bugs in batches 1-2.
+
+Batches 1-2, the 209 bugs every Claude setup finished:
+
+| Setup | Solved | $/bug |
+|---|---|---|
+| cheap-lean (Haiku) | 156 (74.6%) | 0.004 |
+| cascade-tried | 160 (76.6%) | 0.021 |
+| cascade-tried-review (live Sonnet reviewer, prompt v2) | 169 (80.9%) | 0.065 |
+| loop-lean-keywords (Sonnet) | 173 (82.8%) | 0.057 |
+
+- Accepted-but-wrong replicates: 21 of 83 Haiku fixes that passed the repo tests fail the hidden tests in batch 1
+  (25%; pilot 29%). Flash-Lite: 19 of 49 (39%).
+- The test-triggered cascade again barely beats Haiku: wrong fixes pass the tests and are never escalated.
+- The pilot's cost claim does not replicate. On the pilot (harder bugs) the simulated reviewed cascade was 22% cheaper
+  than Sonnet for 2 fewer solves; on fresh bugs the live reviewed cascade costs 13% more than Sonnet and solves 4
+  fewer. Haiku passes the tests on most fresh bugs, so the reviewer runs on most of them. Whether a reviewer saves
+  money depends on bug difficulty and the price ratio: write the break-even as a cost model, not one number.
+- Costs checked against the price table (Haiku 5.5 $0.10/$0.50, Sonnet 5.5 $2/$10 per M tokens): correct.
+
+Offline cross-family reviewers, batch 1, prompt v2:
+
+| Reviewer -> fixes | Reviewed | Wrong | Caught | Good rejected | $ |
+|---|---|---|---|---|---|
+| Gemini 4 Carbon -> Haiku (cheap-lean) | 83 | 21 | 19 (90%) | 23 of 62 (37%) | 8.83 |
+| Sonnet -> Flash-Lite | 49 | 19 | 16 (84%) | 5 of 30 (17%) | 0.82 |
+| pilot: Sonnet -> Haiku (prompt v1) | 165 | 46 | 25 (54%) | 33 of 119 (28%) | 3.41 |
+
+- Cross-family reviewers catch far more, but the pilot used prompt v1 and harder bugs: compare on the same bugs before
+  claiming a family effect.
+- Carbon costs about $0.10 a review and 9 of 83 replies hit the 16k output limit with no verdict (counted as reject).
+  To stay within the $60 approved, Carbon reviews only Haiku-alone fixes from batch 2 on.
+
+Run problems: 6 workers doubled the spending reserve, so batch 1's Claude stage stopped at $14.84 of $20 (about 28
+runs, ~7 bugs, left; 2 noattr bugs too) and the VM sat idle ~8h; caps raised to 25/10/10 and the missing bugs rerun at
+the end. A Gemini request with no timeout stalled the Carbon reviews ~5h; a 5-minute timeout added. Timeouts at 6
+workers (14% of runs) are below the native pilot at 3 (30%), so 6 workers don't slow runs.

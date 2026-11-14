@@ -1,14 +1,16 @@
 % Workshop paper draft. Target: AGENT 2027 (ICSE 2027 workshop on Agentic Engineering), full paper, up to 8 pages
 % including references, IEEE conference template, single-anonymous. Deadline Nov 20, 2026 AoE.
-% Numbers marked \pilot{} come from the 60-bug pilot and are replaced by fresh-bug results before submission.
+% Main-set numbers come from backend/benchmarks/paper_stats.py (results/stats/paper-stats-fresh.json).
+% \pilot{} marks numbers from the 59/60-bug pilot, kept where the main set did not run that setup.
 \documentclass[10pt,conference]{IEEEtran}
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{cite}
 \usepackage{url}
+\usepackage{amsmath}
 
 \newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
-\newcommand{\pilot}[1]{\textcolor{blue}{#1}}
+\newcommand{\pilot}[1]{#1}
 
 \begin{document}
 
@@ -20,10 +22,17 @@
 \maketitle
 
 \begin{abstract}
-\todo{Write last. One sentence each: setting (verify-and-retry agents gate on the repo's own tests; cascades send
-work to a cheap model first and escalate on test failure); what we measure (how often test-passing fixes are wrong,
-when test-gated cascades help, whether a reviewer is a better escalation trigger); data (SWE-bench Verified, $N$
-fresh bugs, Claude and Gemini families); the three headline numbers; the takeaway for practitioners.}
+Coding agents retry until the repository's tests pass, and model cascades reuse that signal to save money: a cheap
+model tries first and the task escalates to a strong model only if the tests fail. Both assume that passing tests
+mean a correct fix. We measure how often that is false and what it does to cascades, on 436 SWE-bench Verified bugs
+held out from development, with SWE-bench's hidden tests as ground truth. Of the fixes Claude Haiku 5.5's loop
+accepted, 22\% fail the hidden tests (32\% for Gemini 3.5 Flash-Lite). Because those failures pass the gate, a
+cascade that escalates on test failure solves 331 bugs against Haiku's 330, at 5.7 times the cost. Replacing the
+gate with a strong model's review of the cheap model's passing fix closes the gap to the strong model (361 against
+Claude Sonnet 5.5's 365, $p=0.58$), but not its cost: the reviewed cascade costs 7\% more than Sonnet alone, because
+36\% of bugs escalate and an escalated redo costs 1.8 times a fresh strong-model run. We give the break-even as a cost
+model, classify why test-passing fixes fail with two annotators ($\kappa=0.73$), and report what telling pre-existing
+test failures apart from the agent's own saves inside the loop.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -31,7 +40,6 @@ LLM agents, program repair, model cascades, patch correctness, SWE-bench, cost
 \end{IEEEkeywords}
 
 \section{Introduction}
-% ~1 page
 Coding agents increasingly work in a verify-and-retry loop: they edit the code, run the repository's tests, and
 retry until the tests pass~\cite{swebench}. Passing the tests is the loop's definition of done. The same signal is a
 natural basis for saving money. In a \emph{cascade}, a cheap model attempts the task first, and the task escalates
@@ -44,26 +52,28 @@ believes them. This is test overfitting, long studied in automated program repai
 place: inside the escalation decision of a multi-model agent.
 
 We measure how often this happens, what it costs, and what can be done about it, on SWE-bench
-Verified~\cite{swebenchverified} with models from two families (Anthropic's Claude and Google's Gemini). SWE-bench's
-hidden tests, which the agent never sees, serve as ground truth. We develop the agent and the reviewer on a
-\pilot{60-bug} pilot and report the main results on the \todo{$N$} remaining bugs. Our contributions:
+Verified~\cite{swebenchverified} with models from two families, Anthropic's Claude and Google's Gemini. SWE-bench's
+hidden tests, which the agent never sees, serve as ground truth. We developed the agent and the reviewer prompt on a
+60-bug pilot and report the main results on the 436 remaining bugs. Our contributions:
 \begin{itemize}
-\item \textbf{How often the tests lie (RQ1).} \pilot{28\%} of the fixes a cheap model's loop accepted fail the hidden
-tests; we classify why, with two human annotators.
+\item \textbf{How often the tests lie (RQ1).} 22\% of the fixes Claude Haiku's loop accepted fail the hidden tests,
+and 32\% of Gemini Flash-Lite's. Two annotators classified why ($\kappa=0.73$): most often the hidden test checks a
+detail the issue never states, or the fix misses a sibling code path.
 \item \textbf{When test-gated cascades help (RQ2).} A cheap model's failures are either \emph{visible}, ending with
-failing tests, or \emph{silent}, accepted but wrong. A test gate acts only on visible failures. In our pilot, Claude
-Haiku's failures were almost all silent and its cascade gained nothing; Gemini Flash-Lite's were mostly visible and
-its cascade gained \pilot{7} bugs.
+failing tests, or \emph{silent}, accepted but wrong. A test gate acts only on visible failures. 71\% of Haiku's
+failures are silent, and its cascade gains nothing; Flash-Lite's failures are mostly visible, and in our pilot its
+cascade gained 7 of 41 bugs.
 \item \textbf{A reviewer as the escalation trigger (RQ3).} A strong model reviewing the cheap model's test-passing
-diff catches silent failures that the tests miss. We report catch rate, false-rejection rate and end-to-end cost, for
-same-family and cross-family reviewers.
+diff catches 80--93\% of silent failures, against 40--49\% for a random rejector, and brings the cascade to within 4
+bugs of the strong model. Whether it also saves money depends on how often bugs escalate: we give the cost model and
+its break-even point.
 \item \textbf{Failure attribution (RQ4).} Some tests fail before the agent changes anything. Telling those apart from
-failures the agent caused, and stopping when only they remain, cut the cost of such bugs \pilot{4.4-fold} in our pilot.
-\item All runs, diffs, reviews and labels \todo{released at URL}.
+failures the agent caused, and stopping when only they remain, cut the cost of such bugs 4.4-fold in our pilot without
+losing fixes.
 \end{itemize}
 
 \section{Background and Related Work}
-% ~1 page. Every citation to be checked against its source before submission.
+% Every citation to be checked against its source before submission.
 \textbf{Plausible but incorrect patches.} Automated program repair has long distinguished \emph{plausible} patches,
 which pass the tests used during repair, from correct ones. Smith et al.\ showed that patches fitted to one test suite
 often break held-out tests~\cite{smith2015}, and Qi et al.\ found that most plausible patches from early repair tools
@@ -83,148 +93,249 @@ pays when the gate is the benchmark's own scoring tests~\cite{sun2026effort}. We
 is the repository's tests, and the question is which failures it can see.
 
 \textbf{LLMs as patch judges.} Closest to our reviewer, Cambronero et al.\ gate an agent's patches at Google with an
-LLM validator, rejecting \todo{58\%} of bad patches at a cost of rejecting about a quarter of good
+LLM validator, rejecting \todo{58\%, check} of bad patches at a cost of rejecting about a quarter of good
 ones~\cite{cambronero2025}. Re-evaluations of patch-overfitting detectors find that many do no better than random
-selection~\cite{williams2026}, so we compare our reviewer with a random rejector. To our knowledge, no prior work uses
-a strong model's review of a cheap model's \emph{test-passing} patch as the trigger for escalation, measures the
-end-to-end cost of doing so, or compares reviewers from the same and a different model family.
+selection~\cite{williams2026}, so we compare our reviewers with a random rejector. To our knowledge, no prior work
+uses a strong model's review of a cheap model's \emph{test-passing} patch as the trigger for escalation and measures
+the end-to-end cost of doing so.
 
 \textbf{Failure attribution.} Benchmarks usually remove instances whose tests fail even with the reference
 fix~\cite{tddbench}. A deployed agent cannot: it must decide whether a failing test is its fault. We measure what that
 decision saves inside the loop.
 
 \section{Study Design}
-% ~1.5 pages
 
 \subsection{Research Questions}
 \begin{description}
 \item[RQ1] How often does a cheap model's fix that passes the repository's tests fail SWE-bench's hidden tests, and why?
 \item[RQ2] When does a cascade that escalates on test failure improve on the cheap model alone, and at what cost?
-\item[RQ3] Is a reviewer model a better escalation trigger than the tests? How do same-family and cross-family
-reviewers differ?
+\item[RQ3] Is a reviewer model a better escalation trigger than the tests, and when does it save money?
 \item[RQ4] Does telling failures the agent caused from failures it did not (tests already failing before any change)
-cut wasted retries, without losing fixes?
+cut wasted retries without losing fixes?
 \end{description}
 
 \subsection{Benchmark and Ground Truth}
 We use SWE-bench Verified~\cite{swebenchverified}: 500 human-validated Python issues from 12 repositories, each with
 a gold patch and hidden tests (FAIL\_TO\_PASS and PASS\_TO\_PASS). The agent never sees the hidden tests; it sees the
 issue text and the repository, and may run the repository's existing tests. A run is \emph{resolved} if its final
-diff passes the hidden tests in the official SWE-bench harness. \todo{Pilot: 60 bugs, how chosen. Main set: the
-$N$ remaining bugs, never used while designing the loop or the reviewer prompt.}
+diff passes the hidden tests in the official SWE-bench harness.
+
+The \emph{pilot} is 60 bugs \todo{how they were chosen}, used to build the loop and write the reviewer prompt; we
+report it only where the main set did not run a setup. The \emph{main set} is the other 440 bugs less 4
+psf/requests instances whose gold patch fails in our harness, 436 in all. They were never used during development,
+shuffled with a fixed seed, and run in four batches on x86 machines with SWE-bench's own Docker images.
 
 Before any agent runs, we run each bug's existing tests on the original code and with the gold patch applied, to
-record which tests already fail and which fail even with the correct fix. The loop uses this to tell failures it
-caused from failures it did not (Section~\ref{sec:loop}). \todo{Say how many bugs have tests that fail with the gold
-patch.}
+record which tests already fail before any change. The loop uses this to tell failures it caused from failures it did
+not (Section~\ref{sec:loop}).
 
 \subsection{The Verify-and-Retry Loop}
 \label{sec:loop}
 One coder model works in a checkout of the repository with tools to search, read and edit files. After each attempt
 the loop runs the repository's tests that relate to the change and hands the failures back. An attempt has at most 25
 tool steps and a run at most 5 attempts. The loop stops when the tests pass, when the only failing tests were already
-failing before any change, after two attempts in a row with no changes, or when the same failure repeats.
-\todo{Name the remaining lean settings that matter: retry context continues the conversation; short test output; a
-low-effort test reviewer for proposed test changes; file listing capped at 100 entries; keyword pointers to likely
-files. Per-run budget and time limit (10 min Claude, 20 min Gemini).}
-As a sanity check that the loop is a realistic agent rather than a weak stand-in, on the pilot it resolved
-\pilot{50 of 60} bugs with Claude Sonnet 5.5, against \pilot{45} for Claude Code with the same model (exact McNemar
-$p=0.18$). On ImpossibleBench's ``conflicting'' tasks~\cite{impossiblebench}, whose visible tests contradict the issue,
-it changed a test to pass on \pilot{0 of 8}.
+failing before any change, after two attempts in a row with no changes, or when the same failure repeats. Retries
+continue the conversation, test output is shortened, and the agent starts with
+keyword pointers to likely files. \todo{Per-run budget and time limit.}
+As a sanity check that the loop is a realistic agent rather than a weak stand-in, on the pilot it resolved 50 of 60
+bugs with Claude Sonnet 5.5, against 45 for Claude Code with the same model (exact McNemar $p=0.18$). On
+ImpossibleBench's ``conflicting'' tasks~\cite{impossiblebench}, whose visible tests contradict the issue, it changed a
+test to pass on 0 of 8.
 
 \subsection{Setups}
 \begin{itemize}
-\item \textbf{Cheap alone}: the loop with the cheap model.
-\item \textbf{Strong alone}: the loop with the strong model.
+\item \textbf{Cheap alone} and \textbf{strong alone}: the loop with one model.
 \item \textbf{Test-gated cascade}: the cheap model first writes notes on where the bug is, then runs the loop. If the
 run does not end with passing tests, its changes are undone and the strong model runs the loop with the notes and a
 summary of what was tried.
 \item \textbf{Reviewed cascade}: as the test-gated cascade, but a cheap fix that passes the tests is also shown to a
-reviewer (the issue, the diff, and the original code 40 lines around each changed hunk). If the reviewer rejects it,
-the task escalates with the reviewer's reason. We wrote two reviewer prompts: v1, a plain accept-or-escalate prompt
-used throughout the pilot, and v2, which also asks whether the fix missed a sibling code path or bent an existing test
-to match itself. v2 was written after reading the pilot's failures, so it is evaluated only on the main set, where it
-was fixed before any run; v1 is reported only on the pilot.
+reviewer: the issue, the diff, and the original code 40 lines around each changed hunk. If the reviewer rejects it,
+the task escalates with the reviewer's reason. The reviewer prompt asks whether the fix resolves the issue, whether it
+misses a sibling code path, and whether it bends an existing test to match itself. It was written after reading the
+pilot's failures and frozen before any main-set run.
 \end{itemize}
 
 \subsection{Models}
+{\footnotesize\setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}lll@{}}
 \toprule
 Family & Cheap & Strong \\
 \midrule
 Anthropic & Claude Haiku 5.5 & Claude Sonnet 5.5 \\
-Google & Gemini 3.5 Flash-Lite & Gemini 3.8 Flash \\
+Google & Gemini 3.5 Flash-Lite & Gemini 3.8 Flash (pilot) \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 
-\noindent Reviewers: Claude Sonnet 5.5 and Gemini 4 Carbon, each reviewing both families' cheap fixes. All models at
-their default reasoning effort. \todo{Why Gemini 3.8 Flash rather than Carbon as the strong coder (cost).}
+\smallskip\noindent On the main set we ran all four Claude setups and Flash-Lite alone. The reviewed cascade uses
+Sonnet as its live reviewer. To compare reviewers across families we also reviewed every accepted cheap fix offline:
+Gemini 4 Carbon reviewed Haiku's, and Sonnet reviewed Flash-Lite's. All models run at their default reasoning effort.
+\todo{One line on why the Gemini strong coder is 3.8 Flash, and why the Gemini cascade ran on the pilot only (cost).}
 
 \subsection{Measures}
-Resolved rate with 95\% Wilson intervals~\cite{bowyer2025}; paired comparisons per bug (McNemar).
-Cost in US dollars from token counts at list prices, including cache reads. For RQ1, the false-accept rate is the share
-of runs the loop accepted whose fix fails the hidden tests. For RQ3, catch rate (rejected bad fixes / bad fixes),
+Resolved rate with 95\% Wilson intervals~\cite{bowyer2025}; paired comparisons per bug with the exact McNemar test;
+a paired bootstrap over bugs (10{,}000 resamples) for differences in resolved rate and cost. Cost is in US dollars
+from token counts at list prices, including cache reads and writes. For RQ1, the false-accept rate is the share of runs
+the loop accepted whose fix fails the hidden tests. For RQ3, catch rate (rejected bad fixes / bad fixes),
 false-rejection rate (rejected good fixes / good fixes), MCC, and a random rejector with the same rejection rate as a
-baseline~\cite{williams2026}. Failure causes for RQ1 were labelled by two annotators \todo{who; agreement $\kappa$}.
+baseline~\cite{williams2026}. A review whose reply cannot be parsed counts as a rejection, since that is what the
+cascade does with it. Each run is a single run per bug and setup.
 
 \section{Results}
-% ~2.5 pages
+
+\begin{table}[t]
+\caption{Main set, 436 bugs: resolved (95\% Wilson interval), cost, and accepted fixes that fail the hidden tests.}
+\label{tab:main}
+\centering
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{@{}lrcrr@{}}
+\toprule
+Setup & Resolved & 95\% CI & \$/bug & Wrong/accepted \\
+\midrule
+Haiku alone & 330 (75.7\%) & 71.4--79.5 & 0.004 & 75/337 (22\%) \\
+Test-gated cascade & 331 (75.9\%) & 71.7--79.7 & 0.023 & 83/359 (23\%) \\
+Reviewed cascade & 361 (82.8\%) & 79.0--86.1 & 0.059 & 56/360 (16\%) \\
+Sonnet alone & 365 (83.7\%) & 80.0--86.9 & 0.056 & 52/336 (15\%) \\
+\midrule
+Flash-Lite alone & 197 (45.2\%) & 40.6--49.9 & 0.052 & 80/250 (32\%) \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{RQ1: Test-Passing but Wrong}
-\pilot{Pilot: of 165 fixes Haiku's loop accepted, 46 (28\%) fail the hidden tests; Flash-Lite: 18 of 53 (34\%).}
-\todo{Fresh-bug numbers; table of failure causes (pilot, 44 cases: unstated detail in hidden test 19, incomplete /
-missed sibling 16, wrong location or symptom patch 4, evaluation artefact 5); compare with published overfitting rates.}
+Table~\ref{tab:main} gives the false-accept rate for every setup. Of the 337 fixes Haiku's loop accepted, 75 fail the
+hidden tests (22\%, 95\% CI 18--27\%); for Flash-Lite, 80 of 250 (32\%, 27--38\%). The strong model is not immune:
+52 of Sonnet's 336 accepted fixes (15\%) are also wrong. The pilot, on different bugs, gave 28\% for Haiku and 34\%
+for Flash-Lite. These rates sit inside the 22--33\% that Ahmed and Ganhotra report for overfitting to agent-written
+reproduction tests~\cite{ahmed2025overfitting}, although our gate is the repository's own tests.
+
+To see \emph{why} test-passing fixes fail, two annotators independently classified 64 accepted-but-wrong fixes from
+the pilot into five categories, without knowing which model wrote them: (A) the hidden test checks a detail the issue
+does not state, (B) the fix is incomplete, missing another input or a sibling code path, (C) the fix is wrong, patching
+a symptom or the wrong place, (D) an evaluation problem unrelated to the fix, and (E) can't tell. They agreed on 52 of
+64 (Cohen's $\kappa=0.73$, bootstrap 95\% CI 0.59--0.86), on all 29 cases both marked as sure, and on all five
+evaluation problems. Most disagreements were between A and B or C. \todo{Category counts after adjudication;
+independent counts were A 31/24, B 15/18, C 13/16, D 5/5, E 0/1.} Category A matters for what follows: no reviewer
+reading only the issue can be expected to catch it.
 
 \subsection{RQ2: When Test-Gated Cascades Help}
-\pilot{Pilot. Claude, 59 bugs, first recorded run of each: Haiku 43, cascade 42, Sonnet 49. Gemini, 41 bugs: Flash-Lite 17 (\$0.06/bug),
-cascade 24 (\$0.29), 3.8 Flash 30 (\$0.56).} The cascade helps only when the cheap model's failures are visible to the
-tests. We state this as an observation in two model families, not a general law. \todo{Fresh-bug table;
-accuracy--cost Pareto plot.}
+The test-gated cascade resolves 331 bugs against Haiku's 330. On the same bugs, each solves about 20 the other does
+not (exact McNemar $p=1.0$): the difference is run-to-run noise. The cascade costs 5.7 times as much.
 
-The unifying measure is each cheap model's split of failures into \emph{visible} (the loop ends with failing
-tests, so a test gate escalates) and \emph{silent} (the loop accepts a fix that fails the hidden tests, so only a
-reviewer can escalate). \todo{Figure: per family, resolved / visible failure / silent failure as stacked bars, cheap
-model alone.} \pilot{Pilot, cheap model alone: of Haiku's 16 failures on 59 bugs, 15 are silent and 1 visible; of
-Flash-Lite's 24 failures on 42 bugs, 10 are silent and 14 visible. A test gate can only act on the visible ones, which
-is why it helps Flash-Lite and not Haiku.}
+The reason is the split of the cheap model's failures. Of Haiku's 106 failures, 31 are \emph{visible}, ending with
+failing tests, and 75 are \emph{silent}, accepted but wrong: 71\% of its failures never reach the gate. Escalating the
+visible ones costs money on every bug the cheap model struggles with, and the silent ones pass through untouched. The
+cascade even accepts slightly more wrong fixes than Haiku alone (83 against 75), since its strong-model redos also
+end on passing tests.
+
+Flash-Lite fails differently: of its 237 failures, 157 are visible and 80 silent (34\%). A test gate has something to
+act on. In the pilot, where we ran the Gemini cascade, it raised Flash-Lite from 17 to 24 of 41 bugs, at \$0.29 against
+\$0.06 per bug, while Gemini 3.8 Flash alone resolved 30 at \$0.56. Whether a test-gated cascade helps is therefore
+a property of the cheap model's failure mode, not of cascading: we state this as an observation in two model families,
+not a general law. A practitioner can measure it cheaply by running the cheap model alone and counting how its
+failures end.
 
 \subsection{RQ3: A Reviewer as the Escalation Trigger}
-\pilot{Pilot, prompt v1. Sonnet on Haiku's fixes: catches 25/46, wrongly rejects 33/119. Carbon on Haiku's: 41/46,
-58/119. Sonnet on Flash-Lite's: 11/18, 4/35. Carbon on Flash-Lite's: 17/18, 18/35.} \todo{Reviewed cascade, live
-on the main set: resolved and cost against strong alone; random-rejector baseline; same- vs cross-family.}
+\textbf{The reviewers.} Table~\ref{tab:rev} judges every review by the hidden tests of the fix it read. Both reviewers
+are from the other family than the fix's author. Carbon rejects 93\% of Haiku's wrong fixes, but also 36\% of its good
+ones; Sonnet rejects 80\% of Flash-Lite's wrong fixes and 21\% of its good ones. A random rejector with the same
+rejection rate would catch 49\% and 40\% of the wrong fixes, so both reviewers carry real signal (MCC 0.48 and 0.56).
+A large share of false rejections are replies we could not parse, mostly the reviewer running out of output before
+giving a verdict: counting only readable replies, false rejections drop to 29\% and 10\%. A reviewer that must always
+answer would do better than these numbers.
+
+\begin{table}[t]
+\caption{Offline reviewers on every accepted cheap fix in the main set, judged by the hidden tests: Carbon caught
+80 of 86 wrong fixes and rejected 104 of 288 good ones; Sonnet 68 of 85 and 38 of 182. Random: a rejector with the
+same rejection rate. Unreadable replies count as rejections; ``Readable'' leaves them out.}
+\label{tab:rev}
+\centering
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+& \multicolumn{2}{c}{Wrong fixes caught} & \multicolumn{2}{c}{Good fixes rejected} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Reviewer $\rightarrow$ fixes & Reviewer & Random & All & Readable & MCC \\
+\midrule
+Carbon $\rightarrow$ Haiku & 93\% & 49\% & 36\% & 29\% & 0.48 \\
+Sonnet $\rightarrow$ F.-Lite & 80\% & 40\% & 21\% & 10\% & 0.56 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{The reviewed cascade.} With Sonnet reviewing Haiku's passing fixes live, the cascade resolves 361 bugs against
+Sonnet's 365 (Table~\ref{tab:main}). The difference is not significant (13 against 17 discordant bugs, $p=0.58$); the
+paired bootstrap puts it between $-3.4$ and $+1.6$ points. Against the test-gated cascade the reviewer is decisive: 37
+bugs are resolved only with it and 7 only without ($p<0.001$). Its accepted fixes are wrong as often as Sonnet's own
+(16\% against 15\%).
+
+\textbf{Cost.} The reviewed cascade costs \$0.059 per bug against Sonnet's \$0.056, 7\% more (bootstrap CI $-3\%$ to
+$+17\%$). Its cost decomposes as
+\[
+c = c_{\text{cheap}} + c_{\text{review}} + e \cdot c_{\text{redo}}
+  = 0.007 + 0.017 + 0.36 \times 0.098 ,
+\]
+where $e$ is the share of bugs that escalate, for failing tests or a rejection. Two terms decide the outcome. First,
+36\% of bugs escalate, 100 of them on a rejection. Second, an escalated redo costs \$0.098, 1.8 times a fresh Sonnet
+run: escalated bugs are the hard ones, and the redo carries the handover. Setting $c$ equal to the strong model's cost
+gives the break-even escalation rate,
+\[
+e^{*} = \frac{c_{\text{strong}} - c_{\text{cheap}} - c_{\text{review}}}{c_{\text{redo}}} = 32\%.
+\]
+Below it, a reviewed cascade is cheaper than the strong model; above it, dearer. The pilot illustrates the other side:
+there, a simulated reviewed cascade (the pilot's first reviewer prompt, rejected fixes scored by Sonnet's own run)
+was 22\% cheaper than Sonnet for 2 fewer bugs. The useful result is the formula, not either number: a team can
+measure its cheap model's escalation rate and the price ratio of its models and know in advance whether a reviewer
+saves money. Fewer false rejections lower $e$ directly, which is where a better reviewer pays off.
 
 \subsection{RQ4: Failure Attribution}
-% Keep to about a third of a column.
-\pilot{Pilot, 60 bugs, Sonnet 5.5. With attribution the loop resolved 50 at \$0.061/bug; with every failing test
-counted as the agent's, 52 at \$0.114 (difference in resolved within noise, $p=0.63$). On the 14 bugs whose tests
-already fail before any change, attribution cost \$0.83 against \$3.67 (1.0 vs 2.8 attempts). The stop on
-``only pre-existing failures left'' fired 12 times; 11 of those runs resolved the bug.} \todo{Repeat on the main set;
-how many of the $N$ bugs have pre-existing failures; the one loss (django-13837, stopped to flag a test for a human).}
+On the pilot, with attribution the loop resolved 50 of 60 bugs at \$0.061 per bug; with every failing test counted as
+the agent's, 52 at \$0.114 (difference within noise, $p=0.63$). On the 14 bugs whose tests already fail before any
+change, attribution cost \$0.83 against \$3.67 (1.0 against 2.8 attempts). The stop on ``only pre-existing failures
+left'' fired 12 times, and 11 of those runs resolved the bug. \todo{Main set: the 47 bugs whose tests already fail,
+with and without attribution. Only 12 are copied from the cloud machine so far: 10 against 11 resolved, \$0.060
+against \$0.128 per bug, 1.1 against 1.8 attempts.}
 
 \section{Discussion}
-% ~0.5 page
-\todo{Per-token price misleads: Gemini 3.8 Flash costs about 12x Sonnet per bug despite a lower token price (more
-steps, more thinking, weaker implicit caching). Failure attribution: stopping when only pre-existing failures remain.
-What a practitioner should do. Effort ladders: escalating from low to
-default reasoning effort on test failure resolved \pilot{43} at \$0.067/bug vs \pilot{50} at \$0.062 for default
-effort alone, the same blind spot as RQ2 on another axis; Sun et al.\ found ladders pay when the gate is the
-benchmark's own scoring tests.}
+\textbf{Measure the failure mode before building the cascade.} A test-gated cascade is only as good as the share of
+the cheap model's failures that end with failing tests. For Haiku on SWE-bench that share is 29\%, and the cascade is
+pure cost. Running the cheap model alone on a sample and counting visible against silent failures tells a team which
+case it is in before it pays for escalations.
+
+\textbf{A reviewer buys accuracy, not necessarily savings.} The review closes most of the gap to the strong model, and
+for a team that would otherwise run the cheap model alone that is the point. Savings depend on the escalation rate;
+on bugs the cheap model mostly solves, the review is paid on almost every bug and a redo costs more than a fresh run.
+
+\textbf{Per-token price misleads.} In the pilot, Gemini 3.8 Flash cost about nine times Sonnet per bug despite a lower
+token price, through more steps, more thinking and weaker caching. Cost per resolved bug, not per token, is the number
+to compare.
+
+\textbf{The same blind spot on another axis.} Escalating from low to default reasoning effort on test failure resolved
+43 pilot bugs at \$0.067 per bug against 50 at \$0.062 for default effort alone. A ladder that escalates on test
+failure inherits the gate's blindness whatever it escalates along. Sun et al.\ found effort ladders pay when the gate
+is the benchmark's own scoring tests~\cite{sun2026effort}, which a deployed agent does not have.
 
 \section{Threats to Validity}
-% ~0.5 page
-\todo{One benchmark, Python only, possibly contaminated (Verified); two model families, no open-weight model; single
-runs (repeats on a subset); the pilot was run on emulated x86 images on Apple Silicon, the main set natively; the v2
-reviewer prompt was shaped on the pilot, so only the main set tests it; the strong Gemini model is not the strongest
-available; cost at list prices of November 2026.}
+\textbf{External.} One benchmark of Python issues, possibly seen during training; two model families and no
+open-weight model; on the main set the Gemini family ran the cheap model only. \textbf{Internal.} One run per bug and
+setup: pairs of the same setup differ by run-to-run noise, which is why we report paired tests and intervals rather
+than point differences. The reviewer prompt was shaped on the pilot, so only the main set tests it; the failure
+categories come from pilot fixes. The pilot ran on emulated x86 images on Apple Silicon, the main set natively; 25 of
+30 runs repeated natively agreed, within the 22\% disagreement between two runs on the same machine.
+\textbf{Construct.} Hidden tests are an imperfect ground truth: category D shows fixes that fail for reasons unrelated
+to the fix, and category A fixes may be acceptable to a maintainer. Costs are at list prices of November 2026.
 
 \section{Conclusion}
-\todo{Two or three sentences.}
+A cascade that trusts the repository's tests escalates only the failures the tests can see, and for a strong cheap
+model most failures are silent. A strong model's review of the cheap model's passing fix restores most of the strong
+model's accuracy; whether it also saves money follows from a simple cost model that a team can fill in from its own
+escalation rate and prices.
 
 \section*{Data Availability}
-\todo{Runs, diffs, reviews and scripts: repository link once the user decides to release.}
+Runs, diffs, reviews, labels and analysis scripts are available from the author on request.
 
 \section*{Acknowledgment}
-\todo{Disclose AI assistance in drafting text, as IEEE requires.}
+\todo{Name the second annotator if they agree.} AI assistance (Claude) was used to build the experiment tooling and to
+draft and edit text; the author checked all results and is responsible for the content.
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}

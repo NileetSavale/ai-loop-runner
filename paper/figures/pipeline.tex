@@ -1,0 +1,33 @@
+% The setups as one pipeline: what the test gate escalates, what it lets through, and where the reviewer sits.
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    font=\footnotesize, >=Stealth,
+    box/.style={draw=black!65, rounded corners=2pt, align=center, inner sep=3pt, minimum height=8mm},
+    gate/.style={draw=black!65, diamond, aspect=2.2, align=center, inner sep=0.5pt},
+    accept/.style={box, fill=black!6},
+    note/.style={align=left, font=\scriptsize},
+    path/.style={->, thick, black!70},
+    lab/.style={font=\scriptsize, fill=white, inner sep=1pt},
+]
+\node[box] (issue) at (0,0) {Issue +\\repository};
+\node[box, minimum width=27mm] (cheap) at (3.0,0) {Cheap model (Haiku)\\edits, runs repo tests,\\retries};
+\node[gate] (tests) at (6.2,0) {Repo tests\\pass?};
+\coordinate (split) at (7.6,0);
+\node[accept] (acc1) at (11.3,0.95) {Accept};
+\node[box, minimum width=27mm] (rev) at (11.3,-0.75) {Reviewer (Sonnet)\\reads issue + diff};
+\node[accept] (acc2) at (14.2,-0.75) {Accept};
+\node[box, minimum width=27mm] (redo) at (11.3,-2.35) {Strong model (Sonnet)\\redoes the task\\with a handover};
+
+\draw[path] (issue) -- (cheap);
+\draw[path] (cheap) -- (tests);
+\draw[thick, black!70] (tests.east) -- node[lab, above, pos=0.35] {yes} (split);
+\draw[path, draw=orange!85!black] (split) |- node[lab, pos=0.72, above] {test-gated cascade} (acc1);
+\draw[path] (split) |- node[lab, pos=0.7, below] {reviewed cascade} (rev);
+\draw[path] (rev) -- node[lab, above] {accept} (acc2);
+\draw[path] (rev) -- node[lab, right] {reject} (redo);
+\draw[path, draw=blue!70!black] (tests.south) |- node[lab, pos=0.3, right] {no} (redo);
+
+\node[note, text=orange!85!black, anchor=west] at (12.0,0.95) {Silent failures end here: 75 of the\\337 fixes Haiku's loop accepted are wrong.};
+\node[note, text=blue!70!black, anchor=east] at (6.0,-1.7) {Visible failures:\\31 of Haiku's 106};
+\node[note, anchor=west] at (13.1,-2.35) {36\% of bugs escalate (100 on a\\rejection); a redo costs 1.8$\times$ a\\fresh Sonnet run.};
+\end{tikzpicture}}

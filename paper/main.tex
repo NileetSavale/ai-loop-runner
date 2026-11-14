@@ -9,6 +9,8 @@
 \usepackage{url}
 \usepackage{amsmath}
 \usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta}
 
 \newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
 \newcommand{\pilot}[1]{#1}
@@ -72,6 +74,15 @@ its break-even point.
 failures the agent caused, and stopping when only they remain, cuts the cost of such bugs 2.5-fold on the main set,
 while resolving more of them (37 against 32).
 \end{itemize}
+
+\begin{figure*}[t]
+\centering
+\input{figures/pipeline.tex}
+\caption{The setups on one pipeline, with main-set counts for Claude Haiku as the cheap model. Cheap alone stops after
+the test gate; the test-gated cascade accepts every fix that passes the repository's tests and escalates only visible
+failures; the reviewed cascade sends passing fixes to a reviewer first. Strong alone runs the loop with Sonnet from the start, with no handover.}
+\label{fig:pipeline}
+\end{figure*}
 
 \section{Background and Related Work}
 % Every citation to be checked against its source before submission.
@@ -149,7 +160,7 @@ assertions so that passing them means violating the issue, it changed a test to 
 
 \subsection{Setups}
 \begin{itemize}
-\item \textbf{Cheap alone} and \textbf{strong alone}: the loop with one model.
+\item \textbf{Cheap alone} and \textbf{strong alone}: the loop with one model (Fig.~\ref{fig:pipeline}).
 \item \textbf{Test-gated cascade}: the cheap model first writes notes on where the bug is, then runs the loop. If the
 run does not end with passing tests, its changes are undone and the strong model runs the loop with the notes and a
 summary of what was tried.
@@ -232,6 +243,14 @@ Flash-Lite alone & 197 (45.2\%) & 40.6--49.9 & 0.052 & 80/250 (32\%) \\
 \end{tabular}
 \end{table}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/failure-modes.pdf}
+\caption{How each model alone ends on the 436 main-set bugs. A visible failure ends with failing tests, so a test
+gate escalates it; a silent failure is accepted and fails only the hidden tests. Two Flash-Lite runs crashed.}
+\label{fig:modes}
+\end{figure}
+
 \subsection{RQ1: Test-Passing but Wrong}
 Table~\ref{tab:main} gives the false-accept rate for every setup. Of the 337 fixes Haiku's loop accepted, 75 fail the
 hidden tests (22\%, 95\% CI 18--27\%); for Flash-Lite, 80 of 250 (32\%, 27--38\%). The strong model is not immune:
@@ -266,17 +285,39 @@ prompt asks about.
 exception, but the issue's own $5\times5$ example still does not give 0: the hidden test asserts
 \texttt{M(5).det() == 0} and fails. The fix silenced the symptom and left the wrong answer.
 
+\begin{table}[t]
+\caption{Offline reviewers on every accepted cheap fix in the main set, judged by the hidden tests: Carbon caught
+80 of 86 wrong fixes and rejected 104 of 288 good ones; Sonnet 68 of 85 and 38 of 182. Random: a rejector with the
+same rejection rate. Unreadable replies count as rejections; ``Readable'' leaves them out.}
+\label{tab:rev}
+\centering
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+& \multicolumn{2}{c}{Wrong fixes caught} & \multicolumn{2}{c}{Good fixes rejected} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Reviewer $\rightarrow$ fixes & Reviewer & Random & All & Readable & MCC \\
+\midrule
+Carbon $\rightarrow$ Haiku & 93\% & 49\% & 36\% & 29\% & 0.48 \\
+Sonnet $\rightarrow$ F.-Lite & 80\% & 40\% & 21\% & 10\% & 0.56 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/cost.pdf}
+\caption{(a) Resolved rate (95\% Wilson interval) against cost per bug for the Claude setups. The test-gated cascade
+adds cost and no accuracy; adding the reviewer brings it to the strong model's accuracy. (b) The cost model: the
+reviewed cascade's cost per bug as the share of escalated bugs varies, with the main set's measured terms, against
+Sonnet alone. Flash-Lite alone (45.2\%, 5.2 cents) is left out of (a).}
+\label{fig:cost}
+\end{figure*}
+
 \subsection{RQ2: When Test-Gated Cascades Help}
 The test-gated cascade resolves 331 bugs against Haiku's 330. On the same bugs, each solves about 20 the other does
 not (exact McNemar $p=1.0$): the difference is run-to-run noise. The cascade costs 5.7 times as much.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{figures/failure-modes.pdf}
-\caption{How each model alone ends on the 436 main-set bugs. A visible failure ends with failing tests, so a test
-gate escalates it; a silent failure is accepted and fails only the hidden tests. Two Flash-Lite runs crashed.}
-\label{fig:modes}
-\end{figure}
 
 The reason is the split of the cheap model's failures (Fig.~\ref{fig:modes}). Of Haiku's 106 failures, 31 are \emph{visible}, ending with
 failing tests, and 75 are \emph{silent}, accepted but wrong: 71\% of its failures never reach the gate. Escalating the
@@ -332,34 +373,9 @@ two-digit year in the second half of a century), three claim the fix is wrong fo
 to where the fix was made. Some of these may be real gaps the hidden tests do not cover, so a ``false'' rejection is
 measured against an imperfect ground truth, in the reviewer's disfavour.
 
-\begin{table}[t]
-\caption{Offline reviewers on every accepted cheap fix in the main set, judged by the hidden tests: Carbon caught
-80 of 86 wrong fixes and rejected 104 of 288 good ones; Sonnet 68 of 85 and 38 of 182. Random: a rejector with the
-same rejection rate. Unreadable replies count as rejections; ``Readable'' leaves them out.}
-\label{tab:rev}
-\centering
-\setlength{\tabcolsep}{2.5pt}
-\begin{tabular}{@{}lccccc@{}}
-\toprule
-& \multicolumn{2}{c}{Wrong fixes caught} & \multicolumn{2}{c}{Good fixes rejected} & \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}
-Reviewer $\rightarrow$ fixes & Reviewer & Random & All & Readable & MCC \\
-\midrule
-Carbon $\rightarrow$ Haiku & 93\% & 49\% & 36\% & 29\% & 0.48 \\
-Sonnet $\rightarrow$ F.-Lite & 80\% & 40\% & 21\% & 10\% & 0.56 \\
-\bottomrule
-\end{tabular}
-\end{table}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{figures/accuracy-cost.pdf}
-\caption{Resolved rate (95\% Wilson interval) against cost per bug on the main set. The test-gated cascade adds cost
-and no accuracy; the reviewed cascade reaches the strong model's accuracy at about its cost.}
-\label{fig:acc}
-\end{figure}
 
-\textbf{The reviewed cascade.} With Sonnet reviewing Haiku's passing fixes live (Fig.~\ref{fig:acc}), the cascade resolves 361 bugs against
+\textbf{The reviewed cascade.} With Sonnet reviewing Haiku's passing fixes live (Fig.~\ref{fig:cost}a), the cascade resolves 361 bugs against
 Sonnet's 365 (Table~\ref{tab:main}). The difference is not significant (13 against 17 discordant bugs, $p=0.58$); the
 paired bootstrap puts it between $-3.4$ and $+1.6$ points. Against the test-gated cascade the reviewer is decisive: 37
 bugs are resolved only with it and 7 only without ($p<0.001$). Its accepted fixes are wrong as often as Sonnet's own
@@ -378,15 +394,9 @@ gives the break-even escalation rate,
 \[
 e^{*} = \frac{c_{\text{strong}} - c_{\text{cheap}} - c_{\text{review}}}{c_{\text{redo}}} = 32\%.
 \]
-Below it, a reviewed cascade is cheaper than the strong model; above it, dearer (Fig.~\ref{fig:be}).
+Below it, a reviewed cascade is cheaper than the strong model; above it, dearer (Fig.~\ref{fig:cost}b).
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{figures/break-even.pdf}
-\caption{The cost model: the reviewed cascade's cost per bug as the share of escalated bugs varies, with the main
-set's measured terms, against Sonnet alone.}
-\label{fig:be}
-\end{figure} The pilot illustrates the other side:
+The pilot illustrates the other side:
 there, a simulated reviewed cascade (the pilot's first reviewer prompt, rejected fixes scored by Sonnet's own run)
 was 22\% cheaper than Sonnet for 2 fewer bugs. The useful result is the formula, not either number: a team can
 measure its cheap model's escalation rate and the price ratio of its models and know in advance whether a reviewer

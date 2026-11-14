@@ -765,3 +765,10 @@ caps had left 12 Haiku and 59 Flash-Lite fixes, reviewed afterwards for $2.72): 
 wrongly rejected 104/288 (36%); readable replies only 63/69 and 76/260 (29%); 45 of 374 replies unreadable.
 Sonnet -> Flash-Lite caught 68/85 (80%), wrongly rejected 38/182 (21%); readable only 64/81 and 16/160 (10%);
 26 of 267 unreadable. Unreadable replies (output-limit hits) count as rejects, so they inflate false rejects most.
+
+## 2026-11-14: second labeller
+
+Second labeller's sheet in (64 of 64 cases, labelled independently). Agreement 52/64 (81.2%), Cohen's kappa 0.73
+(bootstrap 95% CI 0.59-0.86): substantial. On the 29 cases both marked sure: 29/29 agree. All 5 evaluation problems
+(D) agree. Disagreements are between A (unstated detail) and B/C: 7 of the 12 are cases first labelled A. Counts:
+first labeller A 31, B 15, C 13, D 5; second A 24, B 18, C 16, D 5, E 1.

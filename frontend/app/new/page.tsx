@@ -48,6 +48,7 @@ export default function NewSession() {
         max_iterations: Number(f.get("max_iterations")),
         max_cost_usd: f.get("max_cost_usd") ? Number(f.get("max_cost_usd")) : undefined,
         add_tests: f.get("add_tests") === "on",
+        cascade: f.get("cascade") === "on",
         model: f.get("model"),
         task: {
           title: f.get("task_title"),
@@ -108,6 +109,17 @@ export default function NewSession() {
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input name="add_tests" type="checkbox" />
           Also write tests for the change
+        </label>
+
+        <label className="flex items-start gap-2 text-sm text-gray-700">
+          <input name="cascade" type="checkbox" className="mt-0.5" />
+          <span>
+            Try a cheap model first
+            <span className="block text-xs text-gray-500">
+              Haiku explores and tries the fix. If its fix passes, Sonnet reviews it; the model below redoes the task
+              only if the fix fails or the review rejects it. Needs a Claude model below and no uncommitted changes.
+            </span>
+          </span>
         </label>
 
         <div className="flex gap-4">

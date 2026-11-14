@@ -25,6 +25,10 @@ CARBON = ["20261112-100604-review-offline.json", "20261113-061943-review-offline
 SONNET_ON_LITE = ["20261112-194618-review-offline.json", "20261113-074600-review-offline.json",
                   "20261113-202930-review-offline.json", "20261114-084153-review-offline.json",
                   "20261114-214842-review-offline.json"]
+# Sonnet with every failing test counted as its own, on the 47 bugs whose tests already fail before any change
+NOATTR = ["20261112-112937-swe-claude-sonnet-5-5.json", "20261113-074306-swe-claude-sonnet-5-5.json",
+          "20261113-202820-swe-claude-sonnet-5-5.json", "20261114-083705-swe-claude-sonnet-5-5.json",
+          "20261114-115710-swe-claude-sonnet-5-5.json"]
 ARMS = {"swe-cheap-lean": "haiku", "swe-cascade-tried": "cascade", "swe-cascade-tried-review": "reviewed",
         "swe-loop-lean-keywords": "sonnet"}
 SETUPS = ["haiku", "cascade", "reviewed", "sonnet", "lite"]
@@ -186,6 +190,30 @@ def main():
           f"{fixed + e * redo:.4f}  (Sonnet alone {sonnet:.4f})")
     print(f"  Cheaper than Sonnet only if under {100 * break_even:.0f}% of bugs escalate; here {100 * e:.0f}% do."
           f" A redo costs {redo / sonnet:.1f}x a Sonnet run from scratch.")
+
+    # RQ4: the same model with and without telling pre-existing failures apart, on the bugs that have them
+    noattr = {}
+    for f in NOATTR:
+        for run in json.loads((RESULTS / f).read_text())["runs"]:
+            noattr[run["task"]] = run
+    ts = sorted(t for t in noattr if t in bugs)
+    rows = {}
+    for name, get in (("attribution", lambda t: bugs[t]["sonnet"]), ("no_attribution", lambda t: noattr[t])):
+        rs = [get(t) for t in ts]
+        rows[name] = {"resolved": sum(r["hidden_passed"] is True for r in rs), "cost_usd": sum(r["cost_usd"] for r in rs),
+                      "attempts": sum(r.get("attempts") or 0 for r in rs) / len(rs)}
+    only_a = sum(bugs[t]["sonnet"]["hidden_passed"] is True and noattr[t]["hidden_passed"] is not True for t in ts)
+    only_n = sum(noattr[t]["hidden_passed"] is True and bugs[t]["sonnet"]["hidden_passed"] is not True for t in ts)
+    stops = [t for t in ts if "already failing before any change" in (bugs[t]["sonnet"].get("note") or "")]
+    out["attribution"] = {"bugs": len(ts), **rows, "only_attribution": only_a, "only_no_attribution": only_n,
+                          "p": mcnemar(only_a, only_n), "stops": len(stops),
+                          "stops_resolved": sum(bugs[t]["sonnet"]["hidden_passed"] is True for t in stops)}
+    print(f"\nFailure attribution, Sonnet, {len(ts)} bugs whose tests already fail before any change")
+    for name, r in rows.items():
+        print(f"  {name:15} resolved {r['resolved']}/{len(ts)}  ${r['cost_usd']:.2f} (${r['cost_usd'] / len(ts):.3f}/bug)"
+              f"  {r['attempts']:.2f} attempts")
+    print(f"  only with attribution {only_a}, only without {only_n}, p={mcnemar(only_a, only_n):.2f};"
+          f" stopped on pre-existing failures {len(stops)} times, {out['attribution']['stops_resolved']} resolved")
 
     if args.json:
         Path(args.json).write_text(json.dumps(out, indent=2))

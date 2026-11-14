@@ -31,8 +31,8 @@ cascade that escalates on test failure solves 331 bugs against Haiku's 330, at 5
 gate with a strong model's review of the cheap model's passing fix closes the gap to the strong model (361 against
 Claude Sonnet 5.5's 365, $p=0.58$), but not its cost: the reviewed cascade costs 7\% more than Sonnet alone, because
 36\% of bugs escalate and an escalated redo costs 1.8 times a fresh strong-model run. We give the break-even as a cost
-model, classify why test-passing fixes fail with two annotators ($\kappa=0.73$), and report what telling pre-existing
-test failures apart from the agent's own saves inside the loop.
+model, classify why test-passing fixes fail with two annotators ($\kappa=0.73$), and show that telling pre-existing
+test failures apart from the agent's own cuts the cost of such bugs 2.5-fold.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -68,8 +68,8 @@ diff catches 80--93\% of silent failures, against 40--49\% for a random rejector
 bugs of the strong model. Whether it also saves money depends on how often bugs escalate: we give the cost model and
 its break-even point.
 \item \textbf{Failure attribution (RQ4).} Some tests fail before the agent changes anything. Telling those apart from
-failures the agent caused, and stopping when only they remain, cut the cost of such bugs 4.4-fold in our pilot without
-losing fixes.
+failures the agent caused, and stopping when only they remain, cuts the cost of such bugs 2.5-fold on the main set,
+while resolving more of them (37 against 32).
 \end{itemize}
 
 \section{Background and Related Work}
@@ -92,9 +92,9 @@ agreement with generated tests~\cite{chen2024cascade}. Sun et al.\ find that esc
 pays when the gate is the benchmark's own scoring tests~\cite{sun2026effort}. We study the deployable case: the gate
 is the repository's tests, and the question is which failures it can see.
 
-\textbf{LLMs as patch judges.} Closest to our reviewer, Cambronero et al.\ gate an agent's patches at Google with an
-LLM validator, rejecting \todo{58\%, check} of bad patches at a cost of rejecting about a quarter of good
-ones~\cite{cambronero2025}. Re-evaluations of patch-overfitting detectors find that many do no better than random
+\textbf{LLMs as patch judges.} Closest to our reviewer, Cambronero et al.\ add an LLM patch validator to Google's
+agentic repair system: its binary judgment has modest precision (0.3), and stricter thresholds raise precision up to
+three times the base rate at the cost of rejecting more correct patches~\cite{cambronero2025}. Re-evaluations of patch-overfitting detectors find that many do no better than random
 selection~\cite{williams2026}, so we compare our reviewers with a random rejector. To our knowledge, no prior work
 uses a strong model's review of a cheap model's \emph{test-passing} patch as the trigger for escalation and measures
 the end-to-end cost of doing so.
@@ -120,8 +120,8 @@ a gold patch and hidden tests (FAIL\_TO\_PASS and PASS\_TO\_PASS). The agent nev
 issue text and the repository, and may run the repository's existing tests. A run is \emph{resolved} if its final
 diff passes the hidden tests in the official SWE-bench harness.
 
-The \emph{pilot} is 60 bugs \todo{how they were chosen}, used to build the loop and write the reviewer prompt; we
-report it only where the main set did not run a setup. The \emph{main set} is the other 440 bugs less 4
+The \emph{pilot} is 60 bugs picked to be hard, used to build the loop and write the reviewer prompt; we report it
+only where the main set did not run a setup. The \emph{main set} is the other 440 bugs less 4
 psf/requests instances whose gold patch fails in our harness, 436 in all. They were never used during development,
 shuffled with a fixed seed, and run in four batches on x86 machines with SWE-bench's own Docker images.
 
@@ -136,7 +136,8 @@ the loop runs the repository's tests that relate to the change and hands the fai
 tool steps and a run at most 5 attempts. The loop stops when the tests pass, when the only failing tests were already
 failing before any change, after two attempts in a row with no changes, or when the same failure repeats. Retries
 continue the conversation, test output is shortened, and the agent starts with
-keyword pointers to likely files. \todo{Per-run budget and time limit.}
+keyword pointers to likely files. A run is stopped at \$1 or 10 minutes for Claude models and \$0.50 or 20 minutes
+for Flash-Lite, which is slower.
 As a sanity check that the loop is a realistic agent rather than a weak stand-in, on the pilot it resolved 50 of 60
 bugs with Claude Sonnet 5.5, against 45 for Claude Code with the same model (exact McNemar $p=0.18$). On
 ImpossibleBench's ``conflicting'' tasks~\cite{impossiblebench}, whose visible tests contradict the issue, it changed a
@@ -169,7 +170,8 @@ Google & Gemini 3.5 Flash-Lite & Gemini 3.8 Flash (pilot) \\
 \smallskip\noindent On the main set we ran all four Claude setups and Flash-Lite alone. The reviewed cascade uses
 Sonnet as its live reviewer. To compare reviewers across families we also reviewed every accepted cheap fix offline:
 Gemini 4 Carbon reviewed Haiku's, and Sonnet reviewed Flash-Lite's. All models run at their default reasoning effort.
-\todo{One line on why the Gemini strong coder is 3.8 Flash, and why the Gemini cascade ran on the pilot only (cost).}
+On the pilot, Gemini 3.8 Flash already cost \$0.56 per bug, about nine times Sonnet, so we did not run the Gemini
+strong model or cascade on the main set.
 
 \subsection{Measures}
 Resolved rate with 95\% Wilson intervals~\cite{bowyer2025}; paired comparisons per bug with the exact McNemar test;
@@ -288,12 +290,17 @@ measure its cheap model's escalation rate and the price ratio of its models and 
 saves money. Fewer false rejections lower $e$ directly, which is where a better reviewer pays off.
 
 \subsection{RQ4: Failure Attribution}
-On the pilot, with attribution the loop resolved 50 of 60 bugs at \$0.061 per bug; with every failing test counted as
+47 of the 436 main-set bugs have tests that already fail before any change. On them, Sonnet with attribution resolved
+37 at \$0.072 per bug; with every failing test counted as its own, 32 at \$0.183, 2.5 times as much (0.96 against
+1.77 attempts). Without attribution the agent spends its retries on tests it did not break. Attribution resolved 7
+bugs the other did not and lost 2 ($p=0.18$). The stop on ``only pre-existing failures left'' fired 36 times, and 32
+of those runs resolved the bug. Both losses are such stops whose fix then failed the hidden tests: the stop is only as
+good as the record of which failures came first.
+
+The pilot agrees: with attribution the loop resolved 50 of 60 bugs at \$0.061 per bug; with every failing test counted as
 the agent's, 52 at \$0.114 (difference within noise, $p=0.63$). On the 14 bugs whose tests already fail before any
 change, attribution cost \$0.83 against \$3.67 (1.0 against 2.8 attempts). The stop on ``only pre-existing failures
-left'' fired 12 times, and 11 of those runs resolved the bug. \todo{Main set: the 47 bugs whose tests already fail,
-with and without attribution. Only 12 are copied from the cloud machine so far: 10 against 11 resolved, \$0.060
-against \$0.128 per bug, 1.1 against 1.8 attempts.}
+left'' fired 12 times, and 11 of those runs resolved the bug.
 
 \section{Discussion}
 \textbf{Measure the failure mode before building the cascade.} A test-gated cascade is only as good as the share of
@@ -334,7 +341,7 @@ escalation rate and prices.
 Runs, diffs, reviews, labels and analysis scripts are available from the author on request.
 
 \section*{Acknowledgment}
-\todo{Name the second annotator if they agree.} AI assistance (Claude) was used to build the experiment tooling and to
+We thank Atharva Malji for labelling the failure cases. AI assistance (Claude) was used to build the experiment tooling and to
 draft and edit text; the author checked all results and is responsible for the content.
 
 \bibliographystyle{IEEEtran}

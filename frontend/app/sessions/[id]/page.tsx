@@ -19,7 +19,9 @@ export default async function SessionPage({ params }: { params: { id: string } }
             <h1 className="text-xl font-bold text-gray-900">{session.name}</h1>
             <StatusBadge status={session.status} />
           </div>
-          <p className="text-sm text-gray-500 mt-1 break-all">{session.repo_path}</p>
+          <p className="text-sm text-gray-500 mt-1 break-all">
+            {session.repo_url ? `${session.repo_url}${session.branch ? ` @ ${session.branch}` : ""}` : session.repo_path}
+          </p>
           <p className="text-xs text-gray-400 font-mono mt-0.5 break-all">{session.verify_command}</p>
         </div>
         {session.status === "running" && <StopButton sessionId={session.id} />}

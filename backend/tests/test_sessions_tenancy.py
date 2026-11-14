@@ -118,3 +118,23 @@ def test_session_create_accepts_max_boundary():
         task={"title": "t", "spec": "s"},
     )
     assert body.max_iterations == 50
+
+
+# --- Hosted: every session runs on its user's own key ---
+
+def test_hosted_server_refuses_a_session_without_the_users_own_key(monkeypatch):
+    import routes.sessions as sessions
+    from auth import get_optional_user
+    monkeypatch.setattr(sessions, "HOSTED", True)
+    monkeypatch.setattr(sessions, "get_user_api_key", lambda uid, model: None)
+    cloned = []
+    monkeypatch.setattr(sessions, "clone", lambda *a: cloned.append(a))
+    app.dependency_overrides[get_optional_user] = lambda: {"sub": "u1"}
+    try:
+        r = client.post("/sessions", json={
+            "name": "x", "repo_url": "https://github.com/a/b", "verify_command": "pytest",
+            "model": "claude-sonnet-5-5", "task": {"title": "t", "spec": "s"}})
+    finally:
+        app.dependency_overrides.clear()
+    assert r.status_code == 400 and "your own anthropic API key" in r.json()["detail"]
+    assert not cloned

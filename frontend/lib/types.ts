@@ -2,6 +2,8 @@ export interface Session {
   id: string;
   name: string;
   repo_path: string;
+  repo_url?: string | null;
+  branch?: string | null;
   status: "running" | "passed" | "failed" | "stopped";
   created_at: string;
   completed_at: string | null;

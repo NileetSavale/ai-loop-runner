@@ -351,6 +351,28 @@ npm install
 npm run dev
 ```
 
+### Run it on your own repo
+
+Everything runs on your machine and your own API keys; there is no shared server.
+
+1. Start Redis (`docker run -d --rm -p 127.0.0.1:6379:6379 redis:7-alpine`), then the backend on the host with
+   `ALLOW_ANONYMOUS=true` and your `ANTHROPIC_API_KEY` in `backend/.env`. Run the backend outside Docker Compose
+   for GitHub sessions: their tests run in sandbox containers, which need the host's Docker.
+2. Open **New Session** and pick either:
+   - **GitHub repo**: a URL, an optional branch, and a token if it's private. The repo is cloned per session, its
+     dependencies are installed into a container, and every test run happens in a container with no network.
+     Supported now: npm projects with a `package-lock.json`, and Python projects (`pyproject.toml`, `setup.py` or
+     `requirements*.txt`).
+   - **Folder on this machine**: its checks run directly on your machine (the API's `sandbox: true` puts them in a
+     container instead).
+3. Tick **Try a cheap model first** to have Haiku try first, Sonnet review a passing fix, and your main model redo
+   the task only if the fix fails or the review rejects it. It needs a Claude main model.
+4. When the session ends, **Download changes (.diff)** gives you a `.diff` to apply with `git apply`.
+
+**Cost limit (USD)** caps what a session spends. To let other people use your instance, set
+`LOOP_RUNNER_HOSTED=1` and real auth (no `ALLOW_ANONYMOUS`): sessions then must come from GitHub, and each one
+runs on its user's own key from Settings, never yours.
+
 ### Running Tests
 
 ```bash

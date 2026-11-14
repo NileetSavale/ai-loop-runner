@@ -772,3 +772,9 @@ Second labeller's sheet in (64 of 64 cases, labelled independently). Agreement 5
 (bootstrap 95% CI 0.59-0.86): substantial. On the 29 cases both marked sure: 29/29 agree. All 5 evaluation problems
 (D) agree. Disagreements are between A (unstated detail) and B/C: 7 of the 12 are cases first labelled A. Counts:
 first labeller A 31, B 15, C 13, D 5; second A 24, B 18, C 16, D 5, E 1.
+
+Pilot counts reconciled: the 2026-11-10 table's Sonnet 50 (and the simulated reviewed cascade's 48) counted a later
+run of django-15127, which Sonnet failed on its first run and solved on a rerun (20261110-152755). With the first
+recorded run of every bug, as the explorer and the fresh set use: Sonnet 49/59, simulated reviewed cascade 47/59.
+Haiku 43 and cascade 42 are the same either way. The paper uses first runs. (The 50/60 of loop-lean against Claude
+Code is a different arm and stands.)

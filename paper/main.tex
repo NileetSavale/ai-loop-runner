@@ -77,31 +77,34 @@ while resolving more of them (37 against 32).
 % Every citation to be checked against its source before submission.
 \textbf{Plausible but incorrect patches.} Automated program repair has long distinguished \emph{plausible} patches,
 which pass the tests used during repair, from correct ones. Smith et al.\ showed that patches fitted to one test suite
-often break held-out tests~\cite{smith2015}, and Qi et al.\ found that most plausible patches from early repair tools
-were wrong~\cite{qi2015}. For LLM agents on SWE-bench, Ahmed and Ganhotra measure overfitting to reproduction tests
-the agent generates, at 21.8--33\%, and find that iterative refinement raises it~\cite{ahmed2025overfitting}. Other
-work strengthens SWE-bench's own tests: PatchDiff finds that many ``solved'' patches behave differently from the
-reference~\cite{wang2025patchdiff}, and UTBoost adds tests to instances whose tests are
-insufficient~\cite{utboost}. Our gate is weaker still: the repository's existing tests, which is what a deployed
+fail to generalise to held-out tests~\cite{smith2015}, and Qi et al.\ found that the overwhelming majority of
+patches reported by three early repair tools were not correct~\cite{qi2015}. On SWE-bench, Ahmed et al.\ find that
+21.8--33\% of patches that pass generated reproduction tests fail the hidden ones, and that test-based refinement
+raises this~\cite{ahmed2025overfitting}. Other work strengthens SWE-bench's own tests: PatchDiff finds that 29.6\% of
+plausible patches behave differently from the reference~\cite{wang2025patchdiff}, and UTBoost adds tests to instances
+whose tests are insufficient~\cite{utboost}. Our gate is weaker still: the repository's existing tests, which is what a deployed
 agent actually has.
 
-\textbf{Cascades and routing.} FrugalGPT cascades LLMs with a learned scorer~\cite{frugalgpt}; Dekoninck et al.\ show
-that the quality estimator decides whether cascading pays~\cite{dekoninck2025}. For code, Kapoor et al.\ ran an
-escalation baseline that moved to a stronger model when example tests failed, and noted that cheap models' solutions
-can pass the example tests and fail the evaluation tests~\cite{kapoor2024}. Chen et al.\ cascade code models on
-agreement with generated tests~\cite{chen2024cascade}. Sun et al.\ find that escalating reasoning effort on failure
-pays when the gate is the benchmark's own scoring tests~\cite{sun2026effort}. We study the deployable case: the gate
+\textbf{Cascades and routing.} FrugalGPT cascades LLMs with a learned scorer~\cite{frugalgpt}; Dekoninck et al.\ identify
+good quality estimators as the critical factor for when routing and cascading succeed~\cite{dekoninck2025}. For code,
+Kapoor et al.\ ran an escalation baseline that switched to a more expensive model when a solution failed an example
+test, and noted that cheaper models' solutions might pass the example tests but fail the evaluation
+tests~\cite{kapoor2024}. Chen et al.\ cascade on whether a solution passes a threshold share of self-generated
+tests~\cite{chen2024cascade}. Sun et al.\ find that retrying at the highest reasoning effort only after a failed
+correctness check matches or improves on fixed top effort, and note that this needs a reliable external check, which
+many deployments lack~\cite{sun2026effort}. We study the deployable case: the gate
 is the repository's tests, and the question is which failures it can see.
 
 \textbf{LLMs as patch judges.} Closest to our reviewer, Cambronero et al.\ add an LLM patch validator to Google's
 agentic repair system: its binary judgment has modest precision (0.3), and stricter thresholds raise precision up to
-three times the base rate at the cost of rejecting more correct patches~\cite{cambronero2025}. Re-evaluations of patch-overfitting detectors find that many do no better than random
-selection~\cite{williams2026}, so we compare our reviewers with a random rejector. To our knowledge, no prior work
+three times the base rate at the cost of rejecting more correct patches~\cite{cambronero2025}. A benchmarking study of patch-overfitting detectors finds that simple random selection outperforms all of them in
+71--96\% of cases~\cite{williams2026}, so we compare our reviewers with a random rejector. To our knowledge, no prior work
 uses a strong model's review of a cheap model's \emph{test-passing} patch as the trigger for escalation and measures
 the end-to-end cost of doing so.
 
-\textbf{Failure attribution.} Benchmarks usually remove instances whose tests fail even with the reference
-fix~\cite{tddbench}. A deployed agent cannot: it must decide whether a failing test is its fault. We measure what that
+\textbf{Failure attribution.} Benchmarks filter instances by how their tests behave with the reference fix, keeping
+those whose tests go from failing to passing~\cite{swebench,tddbench}. A deployed agent has no reference fix: it must
+decide whether a failing test is its fault. We measure what that
 decision saves inside the loop.
 
 \section{Study Design}
@@ -141,8 +144,8 @@ keyword pointers to likely files. A run is stopped at \$1 or 10 minutes for Clau
 for Flash-Lite, which is slower.
 As a sanity check that the loop is a realistic agent rather than a weak stand-in, on the pilot it resolved 50 of 60
 bugs with Claude Sonnet 5.5, against 45 for Claude Code with the same model (exact McNemar $p=0.18$). On
-ImpossibleBench's ``conflicting'' tasks~\cite{impossiblebench}, whose visible tests contradict the issue, it changed a
-test to pass on 0 of 8.
+ImpossibleBench's Conflicting-SWEbench tasks~\cite{impossiblebench}, whose visible tests contain contradictory
+assertions so that passing them means violating the issue, it changed a test to pass on 0 of 8.
 
 \subsection{Setups}
 \begin{itemize}
@@ -233,8 +236,8 @@ Flash-Lite alone & 197 (45.2\%) & 40.6--49.9 & 0.052 & 80/250 (32\%) \\
 Table~\ref{tab:main} gives the false-accept rate for every setup. Of the 337 fixes Haiku's loop accepted, 75 fail the
 hidden tests (22\%, 95\% CI 18--27\%); for Flash-Lite, 80 of 250 (32\%, 27--38\%). The strong model is not immune:
 52 of Sonnet's 336 accepted fixes (15\%) are also wrong. The pilot, on different bugs, gave 28\% for Haiku and 34\%
-for Flash-Lite. These rates sit inside the 22--33\% that Ahmed and Ganhotra report for overfitting to agent-written
-reproduction tests~\cite{ahmed2025overfitting}, although our gate is the repository's own tests.
+for Flash-Lite. The cheap models' rates sit inside the 21.8--33\% that Ahmed et al.\ report for patches that pass
+generated reproduction tests~\cite{ahmed2025overfitting}, although our gate is the repository's own tests.
 
 To see \emph{why} test-passing fixes fail, two annotators independently classified 64 accepted-but-wrong fixes from
 the pilot into five categories, without knowing which model wrote them: (A) the hidden test checks a detail the issue
@@ -418,8 +421,8 @@ to compare.
 
 \textbf{The same blind spot on another axis.} Escalating from low to default reasoning effort on test failure resolved
 43 pilot bugs at \$0.067 per bug against 50 at \$0.062 for default effort alone. A ladder that escalates on test
-failure inherits the gate's blindness whatever it escalates along. Sun et al.\ found effort ladders pay when the gate
-is the benchmark's own scoring tests~\cite{sun2026effort}, which a deployed agent does not have.
+failure inherits the gate's blindness whatever it escalates along. Sun et al.\ found effort ladders pay when the trigger is a
+reliable external correctness check~\cite{sun2026effort}; the repository's tests are not one.
 
 \section{Threats to Validity}
 \textbf{External.} One benchmark of Python issues, possibly seen during training; two model families and no

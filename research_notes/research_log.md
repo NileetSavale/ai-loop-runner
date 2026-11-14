@@ -750,3 +750,16 @@ Run problems: 6 workers doubled the spending reserve, so batch 1's Claude stage 
 runs, ~7 bugs, left; 2 noattr bugs too) and the VM sat idle ~8h; caps raised to 25/10/10 and the missing bugs rerun at
 the end. A Gemini request with no timeout stalled the Carbon reviews ~5h; a 5-minute timeout added. Timeouts at 6
 workers (14% of runs) are below the native pilot at 3 (30%), so 6 workers don't slow runs.
+
+## 2026-11-14: fresh set complete, statistics
+
+All 436 fresh bugs done (no Claude crashes; 2 Flash-Lite crashes). `benchmarks/paper_stats.py` writes
+`results/paper-stats-fresh.json`. Solved (Wilson 95% CI), $/bug: Haiku 330 (71.4-79.5) $0.0041; cascade 331
+(71.7-79.7) $0.0232; reviewed 361 (79.0-86.1) $0.0592; Sonnet 365 (80.0-86.9) $0.0555; Flash-Lite 197 (40.6-49.9).
+Exact McNemar: Haiku vs cascade 20/21, p=1.0; cascade vs reviewed 7/37, p<0.001; reviewed vs Sonnet 13/17, p=0.58.
+Reviewed minus Sonnet (paired bootstrap): solve rate -3.4 to +1.6 points, cost +$0.0037/bug (-0.0019 to +0.0095).
+Cost model: Haiku $0.0068 + review $0.0173 + 36% escalated x $0.0978 redo; cheaper than Sonnet only below 32%
+escalation. A redo costs 1.8x a Sonnet run from scratch (handover plus a harder bug).
+Reviewers, judged by the hidden tests of the fix read: Carbon -> Haiku caught 74/80, wrongly rejected 100/279
+(readable only: 57/63, 74/253; 43 of 359 replies unreadable). Sonnet -> Flash-Lite caught 54/66, wrongly rejected
+27/144 (readable: 50/62, 11/128). Not reviewed at the spending caps: 12 Haiku and 59 Flash-Lite accepted fixes.

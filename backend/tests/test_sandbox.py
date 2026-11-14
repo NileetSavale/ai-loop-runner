@@ -85,3 +85,40 @@ def test_timeout_kills_the_container(tmp_path):
         result = asyncio.run(run_verify("sleep 5", str(tmp_path), _LocalSandbox(image="", repo=str(tmp_path))))
     assert not result.passed and "TIMEOUT" in result.output
     assert kill.call_args.args[0].startswith("loop-runner-check-")
+
+
+# --- Python repos ---
+
+from core.sandbox import SandboxError, python_sandbox, python_test_sets
+
+
+def _pyproject(root, text):
+    (root / "pyproject.toml").write_text(text)
+
+
+def test_a_dependency_group_named_tests_is_installed(tmp_path):
+    _pyproject(tmp_path, '[project]\nname = "x"\n[dependency-groups]\ndev = ["tox"]\ntests = ["freezegun", "pytest"]\n')
+    assert python_test_sets(tmp_path) == (["tests"], [], [])
+    sandbox = python_sandbox(str(tmp_path), str(tmp_path))
+    assert "pip install -q --group tests" in sandbox.python_install and "--group dev" not in sandbox.python_install
+    assert "pip install -q -e ." in sandbox.python_install
+
+
+def test_a_test_extra_goes_into_the_editable_install(tmp_path):
+    _pyproject(tmp_path, '[project]\nname = "x"\n[project.optional-dependencies]\ntest = ["hypothesis"]\n')
+    assert "pip install -q -e '.[test]'" in python_sandbox(str(tmp_path), str(tmp_path)).python_install
+
+
+def test_requirements_folder_files_and_dev_as_a_fallback(tmp_path):
+    (tmp_path / "requirements.txt").write_text("requests\n")
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "dev.txt").write_text("pytest-mock\n")
+    (tmp_path / "requirements" / "docs.txt").write_text("sphinx\n")
+    install = python_sandbox(str(tmp_path), str(tmp_path)).python_install
+    assert "-r requirements.txt" in install and "-r requirements/dev.txt" in install and "docs.txt" not in install
+
+
+def test_a_repo_with_nothing_to_install_from_is_refused(tmp_path):
+    (tmp_path / "main.py").write_text("x = 1\n")
+    with pytest.raises(SandboxError):
+        python_sandbox(str(tmp_path), str(tmp_path))

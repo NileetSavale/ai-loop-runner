@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import tomllib
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +20,9 @@ DEFAULT_NODE_IMAGE = "node:22-bookworm-slim"
 DEFAULT_PYTHON_IMAGE = "python:3.12-slim"
 _PYTHON_PROJECT = ("pyproject.toml", "setup.py", "setup.cfg")
 _REQUIREMENTS = re.compile(r"^requirements[\w.-]*\.txt$")
+# Where Python repos keep what their tests need, most specific first; "dev" only when there is no test set
+_TEST_SETS = ("test", "tests", "testing")
+_DEV_SETS = ("dev",)
 _SKIPPED_DIRS = {".git", "node_modules", ".next", ".venv", "venv", "dist", "build", "__pycache__"}
 _DOCKERFILE_NODE = re.compile(r"^FROM\s+node:(\d+)", re.M | re.I)
 # Limits for a check run: enough for a type-check of a large app, not enough to take the machine down
@@ -130,23 +134,29 @@ def node_sandbox(repo: str, scratch: str, image: str | None = None) -> Sandbox:
 
 def python_sandbox(repo: str, scratch: str, image: str | None = None) -> Sandbox:
     """A sandbox for a Python repo: a virtualenv with pytest, the root's requirements*.txt files, and the project
-    itself installed in editable mode if it is one, so tests import the code being edited. The volume is named after
-    the repo and those files' contents, so changed dependencies get a fresh install."""
+    itself installed in editable mode if it is one, so tests import the code being edited. Test dependencies come
+    from wherever the repo keeps them (python_test_sets). The volume is named after the repo and those files'
+    contents, so changed dependencies get a fresh install."""
     root = Path(repo).resolve()
     requirements = sorted(p.name for p in root.iterdir() if p.is_file() and _REQUIREMENTS.match(p.name))
     project = any((root / name).is_file() for name in _PYTHON_PROJECT)
     if not requirements and not project:
         raise SandboxError("No requirements.txt, pyproject.toml or setup.py at the repo's root.")
+    groups, extras, files = python_test_sets(root)
+    requirements += [f for f in files if f not in requirements]
     steps = ["python -m venv /deps", "pip install -q --upgrade pip", "pip install -q pytest",
              *(f"pip install -q -r {name}" for name in requirements)]
     if project:
-        steps.append("pip install -q -e .")
+        steps.append("pip install -q -e ." if not extras else f"pip install -q -e '.[{','.join(extras)}]'")
+    steps += [f"pip install -q --group {group}" for group in groups]
+    if project:
         # The editable install leaves build metadata in the repo; keep it out of the session's diff
         exclude = root / ".git" / "info" / "exclude"
         if exclude.parent.is_dir():
             with exclude.open("a") as f:
                 f.write("\n*.egg-info/\nbuild/\n")
-    digest = hashlib.sha256()
+    # The install command is part of the name too, so a change in what gets installed means a fresh install
+    digest = hashlib.sha256(" && ".join(steps).encode())
     for name in [*requirements, *_PYTHON_PROJECT]:
         if (root / name).is_file():
             digest.update(name.encode() + (root / name).read_bytes())
@@ -158,6 +168,25 @@ def python_sandbox(repo: str, scratch: str, image: str | None = None) -> Sandbox
                    volumes={".": f"loop-runner-py-{slug}-{repo_id}-{digest.hexdigest()[:8]}"}, installs=["."],
                    secrets=[str(p.relative_to(root)) for p in _walk(root) if is_secret_path(str(p.relative_to(root)))],
                    empty_file=str(empty), kind="python", python_install=" && ".join(steps))
+
+
+def python_test_sets(root: Path) -> tuple[list[str], list[str], list[str]]:
+    """What a Python repo's tests need beyond the project: pyproject dependency groups (PEP 735), extras, and
+    requirements/ files, named test, tests or testing, or dev when none of those exist."""
+    try:
+        pyproject = tomllib.loads((root / "pyproject.toml").read_text())
+    except (OSError, ValueError):
+        pyproject = {}
+    declared_groups = pyproject.get("dependency-groups") or {}
+    declared_extras = (pyproject.get("project") or {}).get("optional-dependencies") or {}
+    folder = root / "requirements"
+    declared_files = {p.stem: f"requirements/{p.name}" for p in sorted(folder.glob("*.txt"))} if folder.is_dir() else {}
+    for names in (_TEST_SETS, _DEV_SETS):
+        found = ([n for n in names if n in declared_groups], [n for n in names if n in declared_extras],
+                 [declared_files[n] for n in names if n in declared_files])
+        if any(found):
+            return found
+    return [], [], []
 
 
 def sandbox_for(repo: str, scratch: str) -> Sandbox:

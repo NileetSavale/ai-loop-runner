@@ -12,13 +12,14 @@ from models import Session, SessionEvent, Task, Iteration
 from database import get_session as db_session
 from core.cascade import cascade_problem
 from core.loop import stop_loop
-from core.workspace import (HOSTED, WORKSPACES, CloneError, base_commit, clone, diff, github_repo, head,
+from core.workspace import (HOSTED, WORKSPACES, CloneError, base_commit, clone, diff, github_repo, head, workspace,
                             owns_workspace, record, start_session)
 from core.repo_map import build_repo_map
 from routes.ws import broadcast
 from auth import get_optional_user, get_current_user, user_id
 from routes.keys import get_user_api_key
 from providers.base import SUPPORTED_MODELS
+from providers.router import _provider_for
 import os
 
 router = APIRouter()
@@ -105,6 +106,9 @@ async def create_session(body: SessionCreate, user: dict | None = Depends(get_op
 
     uid = user_id(user) if user else None
     api_key = get_user_api_key(uid, body.model) if uid else None
+    if HOSTED and api_key is None:
+        raise HTTPException(status_code=400, detail=f"Add your own {_provider_for(body.model)} API key in Settings "
+                                                    "first: sessions here run on your key.")
 
     session_id = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
@@ -159,6 +163,7 @@ def get_session(session_id: str, user: dict | None = Depends(get_optional_user))
         task = db.exec(select(Task).where(Task.session_id == session_id)).first()
         return {
             **session.model_dump(),
+            **{k: v for k, v in workspace(session_id).items() if k in ("repo_url", "branch")},
             "task": task.model_dump() if task else None,
             "iterations": [i.model_dump() for i in iterations],
         }

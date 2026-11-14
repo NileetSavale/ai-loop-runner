@@ -6,7 +6,8 @@ reaches git through the environment, so it never appears in a command line, the 
 
 Running a stranger's tests runs their code, so a cloned repo's checks always run in the sandbox (core/sandbox.py):
 its dependencies are installed into a container first, then every test run is a container with no network.
-LOOP_RUNNER_HOSTED=1 is for a deployment other people use: sessions must come from GitHub there.
+LOOP_RUNNER_HOSTED=1 is for a deployment other people use: sessions must come from GitHub there, and each one runs
+on its user's own API key, never the server's.
 """
 import asyncio
 import base64
@@ -95,11 +96,16 @@ def record(session_id: str, repo_url: str | None, branch: str | None, base: str 
         db.commit()
 
 
-def base_commit(session_id: str) -> str | None:
+def workspace(session_id: str) -> dict:
+    """What record() kept: repo_url, branch and base, or {} for an older session."""
     with db_session() as db:
         event = db.exec(select(SessionEvent).where(SessionEvent.session_id == session_id,
                                                    SessionEvent.kind == "workspace")).first()
-    return json.loads(event.data).get("base") if event else None
+    return json.loads(event.data) if event else {}
+
+
+def base_commit(session_id: str) -> str | None:
+    return workspace(session_id).get("base")
 
 
 def diff(repo: str, base: str) -> str:

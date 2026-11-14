@@ -47,6 +47,11 @@ export function createApi(base: string, getToken: () => Promise<string>) {
       delete: (id: string) => del(`/sessions/${id}`),
       map: (id: string) => get<RepoMap>(`/sessions/${id}/map`),
       events: (id: string) => get<AgentEvent[]>(`/sessions/${id}/events`),
+      diff: async (id: string) => {
+        const res = await fetch(`${base}/sessions/${id}/diff`, { headers: await authHeaders() });
+        if (!res.ok) throw new Error(await res.text());
+        return res.text();
+      },
       repoMap: (repoPath: string) => get<RepoMap>(`/repo-map?repo_path=${encodeURIComponent(repoPath)}`),
     },
     analytics: {

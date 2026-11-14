@@ -94,7 +94,7 @@ export interface AgentEvent {
 }
 
 export interface WsMessage {
-  event: "iteration_start" | "iteration_complete" | "verify_output" | "session_complete" | "agent_token" | "cancelled" | "cascade" | AgentEventKind;
+  event: "iteration_start" | "iteration_complete" | "verify_output" | "session_complete" | "agent_token" | "cancelled" | "cascade" | "setup" | AgentEventKind;
   data: Record<string, unknown>;
   message_id?: string;
 }

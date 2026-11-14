@@ -94,9 +94,24 @@ export interface AgentEvent {
 }
 
 export interface WsMessage {
-  event: "iteration_start" | "iteration_complete" | "verify_output" | "session_complete" | "agent_token" | "cancelled" | AgentEventKind;
+  event: "iteration_start" | "iteration_complete" | "verify_output" | "session_complete" | "agent_token" | "cancelled" | "cascade" | AgentEventKind;
   data: Record<string, unknown>;
   message_id?: string;
+}
+
+// A step of a cascade session (backend core/cascade.py), saved as an event of kind "cascade"
+export interface CascadeStep {
+  id: number;
+  kind: "cascade";
+  step: "scout" | "cheap" | "review" | "reviewed" | "escalated";
+  model: string;
+  notes?: string;
+  accept?: boolean;
+  why?: string;
+  edited_tests?: string[];
+  reason?: string;
+  cheap_iterations?: number;
+  cost_usd?: number;
 }
 
 export interface ChatSession {

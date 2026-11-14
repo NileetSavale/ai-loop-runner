@@ -7,6 +7,7 @@ from sqlmodel import select
 
 from models import Session, SessionEvent, Task, Iteration
 from database import get_session as db_session
+from core.cascade import cascade_problem, start_cascade
 from core.loop import start_loop, stop_loop
 from core.repo_map import build_repo_map
 from routes.ws import broadcast
@@ -33,6 +34,7 @@ class SessionCreate(BaseModel):
     max_iterations: int = 10
     max_cost_usd: float | None = Field(None, gt=0)  # None = server default
     add_tests: bool = False
+    cascade: bool = False  # a cheap model tries first; see core/cascade.py
     model: str = "claude-sonnet-4-6"
     task: TaskCreate
 
@@ -78,6 +80,8 @@ def list_sessions(user: dict | None = Depends(get_optional_user)):
 async def create_session(body: SessionCreate, user: dict | None = Depends(get_optional_user)):
     if not os.path.isdir(body.repo_path):
         raise HTTPException(status_code=400, detail=f"repo_path does not exist: {body.repo_path}")
+    if body.cascade and (problem := cascade_problem(body.model)):
+        raise HTTPException(status_code=400, detail=problem)
 
     uid = user_id(user) if user else None
     api_key = get_user_api_key(uid, body.model) if uid else None
@@ -109,7 +113,8 @@ async def create_session(body: SessionCreate, user: dict | None = Depends(get_op
     async def broadcast_fn(msg: dict):
         await broadcast(session_id, msg)
 
-    start_loop(session_id, broadcast_fn, user_api_key=api_key, max_cost_usd=body.max_cost_usd, add_tests=body.add_tests)
+    start = start_cascade if body.cascade else start_loop
+    start(session_id, broadcast_fn, user_api_key=api_key, max_cost_usd=body.max_cost_usd, add_tests=body.add_tests)
     return {"id": session_id}
 
 
@@ -119,7 +124,7 @@ def get_session(session_id: str, user: dict | None = Depends(get_optional_user))
     with db_session() as db:
         session = _own_session(session_id, uid, db)
         iterations = db.exec(
-            select(Iteration).where(Iteration.session_id == session_id).order_by(Iteration.iteration_number)
+            select(Iteration).where(Iteration.session_id == session_id).order_by(Iteration.started_at)
         ).all()
         task = db.exec(select(Task).where(Task.session_id == session_id)).first()
         return {
@@ -165,7 +170,7 @@ def list_iterations(session_id: str, user: dict | None = Depends(get_optional_us
     with db_session() as db:
         _own_session(session_id, uid, db)  # ownership check
         iterations = db.exec(
-            select(Iteration).where(Iteration.session_id == session_id).order_by(Iteration.iteration_number)
+            select(Iteration).where(Iteration.session_id == session_id).order_by(Iteration.started_at)
         ).all()
         return [i.model_dump() for i in iterations]
 

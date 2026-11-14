@@ -8,6 +8,7 @@
 \usepackage{cite}
 \usepackage{url}
 \usepackage{amsmath}
+\usepackage{graphicx}
 
 \newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
 \newcommand{\pilot}[1]{#1}
@@ -61,7 +62,7 @@ and 32\% of Gemini Flash-Lite's. Two annotators classified why ($\kappa=0.73$): 
 detail the issue never states, or the fix misses a sibling code path.
 \item \textbf{When test-gated cascades help (RQ2).} A cheap model's failures are either \emph{visible}, ending with
 failing tests, or \emph{silent}, accepted but wrong. A test gate acts only on visible failures. 71\% of Haiku's
-failures are silent, and its cascade gains nothing; Flash-Lite's failures are mostly visible, and in our pilot its
+failures are silent, and its cascade gains nothing (Fig.~\ref{fig:modes}); Flash-Lite's failures are mostly visible, and in our pilot its
 cascade gained 7 of 41 bugs.
 \item \textbf{A reviewer as the escalation trigger (RQ3).} A strong model reviewing the cheap model's test-passing
 diff catches 80--93\% of silent failures, against 40--49\% for a random rejector, and brings the cascade to within 4
@@ -153,8 +154,33 @@ summary of what was tried.
 reviewer: the issue, the diff, and the original code 40 lines around each changed hunk. If the reviewer rejects it,
 the task escalates with the reviewer's reason. The reviewer prompt asks whether the fix resolves the issue, whether it
 misses a sibling code path, and whether it bends an existing test to match itself. It was written after reading the
-pilot's failures and frozen before any main-set run.
+pilot's failures and frozen before any main-set run (Fig.~\ref{fig:prompt}).
 \end{itemize}
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.94\columnwidth}\footnotesize
+You review a bug fix written by a cheaper, less careful model, before it's accepted. The fix already passes the
+repo's existing tests, but those often don't exercise the bug. Decide whether the fix actually resolves the issue as
+the task describes it: the reported case and any cases the task names, without breaking nearby behaviour. If you're
+confident it does, accept it. If it misses part of the issue, fixes a symptom instead of the cause, special-cases the
+example, or you can't tell, escalate it: a stronger model will redo the task. [\ldots]
+
+Cheaper models most often stop at the first place the task points to. Check in particular:
+\begin{itemize}\setlength{\itemsep}{0pt}
+\item Does the same logic appear in a sibling the fix didn't touch: a twin function, the other factory or class that
+shares the code, the reverse operator, the short form of an option, another code path that leads to the bug?
+\item If the fix changes an existing test's expected value, does the task really ask for that behaviour to change, or
+did the fix bend the test to match itself?
+\item Does it use the repo's own mechanism (a setting, a hook, an accessor) where the task implies one?
+\end{itemize}
+Don't escalate over style or over details the task leaves open. Reply with only JSON: \{"accept": true or false,
+"why": "one or two sentences"\}
+\end{minipage}}
+\caption{The reviewer prompt, lightly abridged. The reviewer also sees the issue, the diff, and the original code 40
+lines around each changed hunk.}
+\label{fig:prompt}
+\end{figure}
 
 \subsection{Models}
 {\footnotesize\setlength{\tabcolsep}{4pt}
@@ -219,15 +245,65 @@ evaluation problems. Most disagreements were between A and B or C. \todo{Categor
 independent counts were A 31/24, B 15/18, C 13/16, D 5/5, E 0/1.} Category A matters for what follows: no reviewer
 reading only the issue can be expected to catch it.
 
+\textbf{Three examples.} Each is a case both annotators placed in the same category and were sure of.
+
+\emph{A, unstated detail} (django-14725). The issue asks for a way for model formsets to ``disallow new object
+creation''. Haiku added a \texttt{can\_create=False} option to both formset factories, enforced it when counting and
+saving forms, and passed the repository's tests. The hidden tests call \texttt{modelformset\_factory(\ldots,
+edit\_only=True)}: the fix works, under a name the issue never gives.
+
+\emph{B, incomplete} (django-13794). The \texttt{add} template filter returns an empty string when given a lazy
+string, because \texttt{str + \_\_proxy\_\_} raises. A cascade's cheap stage added \texttt{\_\_radd\_\_} to
+the lazy proxy, which fixes \texttt{"string" + lazy}. The hidden tests also add two lazy strings, which needs
+\texttt{\_\_add\_\_} as well: the reverse operator was fixed and its twin missed, exactly the sibling the reviewer
+prompt asks about.
+
+\emph{C, wrong fix} (sympy-13877). The determinant of a symbolic matrix returns \texttt{nan} or raises
+``Invalid NaN comparison'' from size 5. Haiku changed how the Bareiss elimination picks a pivot, which avoids the
+exception, but the issue's own $5\times5$ example still does not give 0: the hidden test asserts
+\texttt{M(5).det() == 0} and fails. The fix silenced the symptom and left the wrong answer.
+
 \subsection{RQ2: When Test-Gated Cascades Help}
 The test-gated cascade resolves 331 bugs against Haiku's 330. On the same bugs, each solves about 20 the other does
 not (exact McNemar $p=1.0$): the difference is run-to-run noise. The cascade costs 5.7 times as much.
 
-The reason is the split of the cheap model's failures. Of Haiku's 106 failures, 31 are \emph{visible}, ending with
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/failure-modes.pdf}
+\caption{How each model alone ends on the 436 main-set bugs. A visible failure ends with failing tests, so a test
+gate escalates it; a silent failure is accepted and fails only the hidden tests. Two Flash-Lite runs crashed.}
+\label{fig:modes}
+\end{figure}
+
+The reason is the split of the cheap model's failures (Fig.~\ref{fig:modes}). Of Haiku's 106 failures, 31 are \emph{visible}, ending with
 failing tests, and 75 are \emph{silent}, accepted but wrong: 71\% of its failures never reach the gate. Escalating the
 visible ones costs money on every bug the cheap model struggles with, and the silent ones pass through untouched. The
 cascade even accepts slightly more wrong fixes than Haiku alone (83 against 75), since its strong-model redos also
-end on passing tests.
+end on passing tests. The pattern is not one repository's: Table~\ref{tab:repo} shows silent failures outnumbering
+visible ones for Haiku in Django, SymPy, Matplotlib and most smaller projects.
+
+\begin{table}[t]
+\caption{By repository: resolved bugs per setup, and Haiku's silent failures (of its accepted fixes) and visible
+failures. Repositories with fewer than 15 bugs are grouped.}
+\label{tab:repo}
+\centering
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+Repository & Bugs & Haiku & Casc. & Rev. & Sonnet & Silent & Visible \\
+\midrule
+django & 207 & 164 & 164 & 174 & 180 & 36/175 & 7 \\
+sympy & 66 & 44 & 47 & 55 & 52 & 14/49 & 8 \\
+sphinx & 36 & 26 & 25 & 26 & 30 & 5/25 & 5 \\
+matplotlib & 29 & 22 & 21 & 26 & 24 & 4/15 & 3 \\
+scikit-learn & 29 & 25 & 25 & 26 & 26 & 3/25 & 1 \\
+astropy & 20 & 14 & 12 & 16 & 15 & 2/13 & 4 \\
+xarray & 19 & 15 & 16 & 16 & 16 & 3/13 & 1 \\
+pytest & 17 & 14 & 13 & 14 & 14 & 3/16 & 0 \\
+other (3) & 13 & 6 & 8 & 8 & 8 & 5/6 & 2 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 Flash-Lite fails differently: of its 237 failures, 157 are visible and 80 silent (34\%). A test gate has something to
 act on. In the pilot, where we ran the Gemini cascade, it raised Flash-Lite from 17 to 24 of 41 bugs, at \$0.29 against
@@ -244,6 +320,14 @@ rejection rate would catch 49\% and 40\% of the wrong fixes, so both reviewers c
 A large share of false rejections are replies we could not parse, mostly the reviewer running out of output before
 giving a verdict: counting only readable replies, false rejections drop to 29\% and 10\%. A reviewer that must always
 answer would do better than these numbers.
+
+\textbf{What the reviewers get wrong.} Carbon's six misses are confident accepts: each reply explains the fix's
+mechanism correctly and concludes it resolves the issue, while the hidden tests check behaviour the explanation does
+not cover. Its false rejections are mostly the opposite error, asking for more than the hidden tests check. Of ten
+readable false rejections we sampled, six ask for another code path or an edge case (combined enum flags, a
+two-digit year in the second half of a century), three claim the fix is wrong for the reported case, and one objects
+to where the fix was made. Some of these may be real gaps the hidden tests do not cover, so a ``false'' rejection is
+measured against an imperfect ground truth, in the reviewer's disfavour.
 
 \begin{table}[t]
 \caption{Offline reviewers on every accepted cheap fix in the main set, judged by the hidden tests: Carbon caught
@@ -264,7 +348,15 @@ Sonnet $\rightarrow$ F.-Lite & 80\% & 40\% & 21\% & 10\% & 0.56 \\
 \end{tabular}
 \end{table}
 
-\textbf{The reviewed cascade.} With Sonnet reviewing Haiku's passing fixes live, the cascade resolves 361 bugs against
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/accuracy-cost.pdf}
+\caption{Resolved rate (95\% Wilson interval) against cost per bug on the main set. The test-gated cascade adds cost
+and no accuracy; the reviewed cascade reaches the strong model's accuracy at about its cost.}
+\label{fig:acc}
+\end{figure}
+
+\textbf{The reviewed cascade.} With Sonnet reviewing Haiku's passing fixes live (Fig.~\ref{fig:acc}), the cascade resolves 361 bugs against
 Sonnet's 365 (Table~\ref{tab:main}). The difference is not significant (13 against 17 discordant bugs, $p=0.58$); the
 paired bootstrap puts it between $-3.4$ and $+1.6$ points. Against the test-gated cascade the reviewer is decisive: 37
 bugs are resolved only with it and 7 only without ($p<0.001$). Its accepted fixes are wrong as often as Sonnet's own
@@ -283,7 +375,15 @@ gives the break-even escalation rate,
 \[
 e^{*} = \frac{c_{\text{strong}} - c_{\text{cheap}} - c_{\text{review}}}{c_{\text{redo}}} = 32\%.
 \]
-Below it, a reviewed cascade is cheaper than the strong model; above it, dearer. The pilot illustrates the other side:
+Below it, a reviewed cascade is cheaper than the strong model; above it, dearer (Fig.~\ref{fig:be}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/break-even.pdf}
+\caption{The cost model: the reviewed cascade's cost per bug as the share of escalated bugs varies, with the main
+set's measured terms, against Sonnet alone.}
+\label{fig:be}
+\end{figure} The pilot illustrates the other side:
 there, a simulated reviewed cascade (the pilot's first reviewer prompt, rejected fixes scored by Sonnet's own run)
 was 22\% cheaper than Sonnet for 2 fewer bugs. The useful result is the formula, not either number: a team can
 measure its cheap model's escalation rate and the price ratio of its models and know in advance whether a reviewer

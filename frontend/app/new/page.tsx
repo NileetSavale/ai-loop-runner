@@ -12,6 +12,7 @@ export default function NewSession() {
   const [loading, setLoading] = useState(false);
   const [repoMap, setRepoMap] = useState<RepoMap | null>(null);
   const [mapError, setMapError] = useState("");
+  const [source, setSource] = useState<"github" | "local">("github");
   const formRef = useRef<HTMLFormElement>(null);
 
   async function showMap() {
@@ -43,7 +44,9 @@ export default function NewSession() {
     try {
       const { id } = await api.sessions.create({
         name: f.get("name"),
-        repo_path: f.get("repo_path"),
+        ...(source === "github"
+          ? { repo_url: f.get("repo_url"), branch: f.get("branch") || undefined, github_token: f.get("github_token") || undefined }
+          : { repo_path: f.get("repo_path") }),
         verify_command: f.get("verify_command"),
         max_iterations: Number(f.get("max_iterations")),
         max_cost_usd: f.get("max_cost_usd") ? Number(f.get("max_cost_usd")) : undefined,
@@ -68,6 +71,35 @@ export default function NewSession() {
       <h1 className="text-xl font-bold text-gray-900 mb-6">New Session</h1>
       <form ref={formRef} onSubmit={submit} className="space-y-5">
         <Field label="Session name" name="name" placeholder="e.g. Add rate limiting" required />
+        <div>
+          <span className="block text-sm font-medium text-gray-700 mb-1">Repo</span>
+          <div className="inline-flex border rounded overflow-hidden text-sm" role="group">
+            {(["github", "local"] as const).map((s) => (
+              <button key={s} type="button" onClick={() => setSource(s)} aria-pressed={source === s}
+                className={`px-3 py-1.5 ${source === s ? "bg-indigo-600 text-white" : "bg-white text-gray-700"}`}>
+                {s === "github" ? "GitHub repo" : "Folder on this machine"}
+              </button>
+            ))}
+          </div>
+        </div>
+        {source === "github" ? (
+          <div className="space-y-3">
+            <Field label="GitHub URL" name="repo_url" placeholder="https://github.com/you/your-repo" required />
+            <div className="flex gap-4">
+              <div className="flex-1"><Field label="Branch (optional)" name="branch" placeholder="Default branch" /></div>
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Token for a private repo (optional)</label>
+                <input name="github_token" type="password" autoComplete="off" placeholder="Read-only token"
+                  className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">
+              The repo is cloned for this session only. Its tests run in a sandbox with no network; the token is used
+              once to clone and isn&apos;t stored. When the session ends, download the changes as a .diff.
+            </p>
+          </div>
+        ) : (
+        <>
         <Field label="Repo path" name="repo_path" placeholder="/Users/you/projects/my-app" required />
         <div>
           <button type="button" onClick={showMap} className="text-sm text-indigo-600 hover:underline">
@@ -81,6 +113,8 @@ export default function NewSession() {
             </div>
           )}
         </div>
+        </>
+        )}
         <Field label="Task title" name="task_title" placeholder="e.g. Rate limit auth endpoints" required />
 
         <div>

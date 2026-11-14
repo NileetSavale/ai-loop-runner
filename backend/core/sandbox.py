@@ -2,7 +2,7 @@
 
 The container gets the repo and nothing else: no network, no home folder, no host environment, and the repo's
 credential files covered by empty ones. Dependencies are installed once, for Linux, into Docker volumes that checks
-can only read, so agent code can't change them.
+can only read, so agent code can't change them: node_modules for an npm repo, a virtualenv at /deps for a Python one.
 """
 import hashlib
 import json
@@ -16,6 +16,9 @@ from pathlib import Path
 from core.edits import is_secret_path
 
 DEFAULT_NODE_IMAGE = "node:22-bookworm-slim"
+DEFAULT_PYTHON_IMAGE = "python:3.12-slim"
+_PYTHON_PROJECT = ("pyproject.toml", "setup.py", "setup.cfg")
+_REQUIREMENTS = re.compile(r"^requirements[\w.-]*\.txt$")
 _SKIPPED_DIRS = {".git", "node_modules", ".next", ".venv", "venv", "dist", "build", "__pycache__"}
 _DOCKERFILE_NODE = re.compile(r"^FROM\s+node:(\d+)", re.M | re.I)
 # Limits for a check run: enough for a type-check of a large app, not enough to take the machine down
@@ -41,6 +44,9 @@ class Sandbox:
     # Repo-relative credential files, covered inside the container
     secrets: list[str] = field(default_factory=list)
     empty_file: str = ""
+    # "node", or "python": one volume, a virtualenv mounted at /deps, and the install command that fills it
+    kind: str = "node"
+    python_install: str = ""
 
     def argv(self, command: str, cwd: str, name: str | None = None, network: bool = False,
              writable_deps: bool = False, workdir: str = ".") -> list[str]:
@@ -52,7 +58,13 @@ class Sandbox:
                 "-v", f"{os.path.abspath(cwd)}:/work"]
         if not network:
             args += ["--network", "none"]
+        if self.kind == "python":
+            args += ["-e", "VIRTUAL_ENV=/deps", "-e", "PATH=/deps/bin:/usr/local/bin:/usr/bin:/bin",
+                     "-e", "PYTHONDONTWRITEBYTECODE=1", "-e", "PIP_CACHE_DIR=/tmp/.pip"]
         for folder, volume in self.volumes.items():
+            if self.kind == "python":
+                args += ["-v", f"{volume}:/deps" + ("" if writable_deps else ":ro")]
+                continue
             target = "/work/node_modules" if folder == "." else f"/work/{folder}/node_modules"
             args += ["-v", f"{volume}:{target}" + ("" if writable_deps else ":ro")]
             if not writable_deps:
@@ -76,13 +88,16 @@ class Sandbox:
             log(f"Installing dependencies for {folder} into {volume}...")
             for v in self.volumes.values():
                 subprocess.run(["docker", "volume", "create", v], capture_output=True, check=True)
-            # npm ci empties node_modules first, which works on a mounted volume. The marker records a finished
-            # install, so an interrupted one is redone.
-            # The cache folders must exist to be mounted over during checks
-            caches = " ".join(f"{f}/node_modules/{d}" for f in self.volumes for d in CACHE_DIRS)
-            result = subprocess.run(self.argv(f"npm ci --no-audit --no-fund && cd /work && mkdir -p {caches}"
-                                              f" && touch {folder}/node_modules/.loop-runner-ready",
-                                              self.repo, network=True, writable_deps=True, workdir=folder),
+            if self.kind == "python":
+                command = f"{self.python_install} && touch /deps/.loop-runner-ready"
+            else:
+                # npm ci empties node_modules first, which works on a mounted volume. The marker records a finished
+                # install, so an interrupted one is redone.
+                # The cache folders must exist to be mounted over during checks
+                caches = " ".join(f"{f}/node_modules/{d}" for f in self.volumes for d in CACHE_DIRS)
+                command = (f"npm ci --no-audit --no-fund && cd /work && mkdir -p {caches}"
+                           f" && touch {folder}/node_modules/.loop-runner-ready")
+            result = subprocess.run(self.argv(command, self.repo, network=True, writable_deps=True, workdir=folder),
                                     capture_output=True, text=True)
             if result.returncode != 0:
                 subprocess.run(["docker", "volume", "rm", "-f", volume], capture_output=True)
@@ -111,6 +126,57 @@ def node_sandbox(repo: str, scratch: str, image: str | None = None) -> Sandbox:
     return Sandbox(image=image or _node_image(root), repo=str(root), volumes=volumes, installs=installs,
                    secrets=[str(p.relative_to(root)) for p in _walk(root) if is_secret_path(str(p.relative_to(root)))],
                    empty_file=str(empty))
+
+
+def python_sandbox(repo: str, scratch: str, image: str | None = None) -> Sandbox:
+    """A sandbox for a Python repo: a virtualenv with pytest, the root's requirements*.txt files, and the project
+    itself installed in editable mode if it is one, so tests import the code being edited. The volume is named after
+    the repo and those files' contents, so changed dependencies get a fresh install."""
+    root = Path(repo).resolve()
+    requirements = sorted(p.name for p in root.iterdir() if p.is_file() and _REQUIREMENTS.match(p.name))
+    project = any((root / name).is_file() for name in _PYTHON_PROJECT)
+    if not requirements and not project:
+        raise SandboxError("No requirements.txt, pyproject.toml or setup.py at the repo's root.")
+    steps = ["python -m venv /deps", "pip install -q --upgrade pip", "pip install -q pytest",
+             *(f"pip install -q -r {name}" for name in requirements)]
+    if project:
+        steps.append("pip install -q -e .")
+        # The editable install leaves build metadata in the repo; keep it out of the session's diff
+        exclude = root / ".git" / "info" / "exclude"
+        if exclude.parent.is_dir():
+            with exclude.open("a") as f:
+                f.write("\n*.egg-info/\nbuild/\n")
+    digest = hashlib.sha256()
+    for name in [*requirements, *_PYTHON_PROJECT]:
+        if (root / name).is_file():
+            digest.update(name.encode() + (root / name).read_bytes())
+    repo_id = hashlib.sha256(str(root).encode()).hexdigest()[:8]
+    slug = re.sub(r"[^a-z0-9]+", "-", root.name.lower()).strip("-")
+    empty = Path(scratch) / "loop-runner-empty"
+    empty.write_text("")
+    return Sandbox(image=image or _python_image(root), repo=str(root),
+                   volumes={".": f"loop-runner-py-{slug}-{repo_id}-{digest.hexdigest()[:8]}"}, installs=["."],
+                   secrets=[str(p.relative_to(root)) for p in _walk(root) if is_secret_path(str(p.relative_to(root)))],
+                   empty_file=str(empty), kind="python", python_install=" && ".join(steps))
+
+
+def sandbox_for(repo: str, scratch: str) -> Sandbox:
+    """The sandbox for whatever kind of repo this is: npm if it has a package-lock.json, otherwise Python."""
+    if any(p.name == "package-lock.json" for p in _walk(Path(repo))):
+        return node_sandbox(repo, scratch)
+    try:
+        return python_sandbox(repo, scratch)
+    except SandboxError:
+        raise SandboxError("Couldn't tell how to install this repo's dependencies. Supported so far: npm repos with "
+                           "a package-lock.json, and Python repos with requirements.txt, pyproject.toml or setup.py.")
+
+
+def _python_image(root: Path) -> str:
+    """The Python version in .python-version, or a current one."""
+    pinned = root / ".python-version"
+    if pinned.is_file() and (m := re.match(r"(3\.\d+)", pinned.read_text().strip())):
+        return f"python:{m.group(1)}-slim"
+    return DEFAULT_PYTHON_IMAGE
 
 
 def kill(name: str) -> None:

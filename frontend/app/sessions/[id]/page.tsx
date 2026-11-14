@@ -2,6 +2,7 @@ import { api } from "@/lib/api-server";
 import { StatusBadge } from "@/components/StatusBadge";
 import { LiveLoop } from "@/components/LiveLoop";
 import { StopButton } from "./StopButton";
+import { DownloadDiff } from "@/components/DownloadDiff";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,7 @@ export default async function SessionPage({ params }: { params: { id: string } }
           <span>Total cost: <strong className="text-gray-900">${session.total_cost_usd.toFixed(4)}</strong></span>
           <span>Iterations: <strong className="text-gray-900">{session.total_iterations}</strong></span>
           <span>Tokens: <strong className="text-gray-900">{session.total_tokens.toLocaleString()}</strong></span>
+          <span className="ml-auto"><DownloadDiff sessionId={session.id} /></span>
         </div>
       )}
     </div>

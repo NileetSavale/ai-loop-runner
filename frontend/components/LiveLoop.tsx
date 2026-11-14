@@ -23,6 +23,7 @@ export function LiveLoop({ sessionId, initialIterations }: { sessionId: string; 
   const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
   const [cascade, setCascade] = useState<CascadeStep[]>([]);
   const [finalStatus, setFinalStatus] = useState<string | null>(null);
+  const [setup, setSetup] = useState<string | null>(null);
   const stage = useRef<1 | 2>(1);
   const wsRef = useRef<WebSocket | null>(null);
   const router = useRouter();
@@ -68,6 +69,8 @@ export function LiveLoop({ sessionId, initialIterations }: { sessionId: string; 
         addAgentEvents([event]);
       }
 
+      if (msg.event === "setup") setSetup(msg.data.text as string);
+
       if (msg.event === "cascade") {
         addCascadeSteps([{ ...msg.data, kind: "cascade" } as unknown as CascadeStep]);
       }
@@ -112,6 +115,7 @@ export function LiveLoop({ sessionId, initialIterations }: { sessionId: string; 
 
   return (
     <div className="space-y-4">
+      {setup && iterations.length === 0 && !done && <p className="text-sm text-blue-500 animate-pulse">{setup}...</p>}
       {cascade.length > 0 && <CascadeTrack steps={cascade} finalStatus={finalStatus} />}
       <AgentView sessionId={sessionId} events={agentEvents} />
       {iterations.map((iter) => (

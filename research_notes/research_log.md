@@ -760,6 +760,8 @@ Exact McNemar: Haiku vs cascade 20/21, p=1.0; cascade vs reviewed 7/37, p<0.001;
 Reviewed minus Sonnet (paired bootstrap): solve rate -3.4 to +1.6 points, cost +$0.0037/bug (-0.0019 to +0.0095).
 Cost model: Haiku $0.0068 + review $0.0173 + 36% escalated x $0.0978 redo; cheaper than Sonnet only below 32%
 escalation. A redo costs 1.8x a Sonnet run from scratch (handover plus a harder bug).
-Reviewers, judged by the hidden tests of the fix read: Carbon -> Haiku caught 74/80, wrongly rejected 100/279
-(readable only: 57/63, 74/253; 43 of 359 replies unreadable). Sonnet -> Flash-Lite caught 54/66, wrongly rejected
-27/144 (readable: 50/62, 11/128). Not reviewed at the spending caps: 12 Haiku and 59 Flash-Lite accepted fixes.
+Reviewers, judged by the hidden tests of the fix read (every accepted fix with a non-empty diff reviewed; the
+caps had left 12 Haiku and 59 Flash-Lite fixes, reviewed afterwards for $2.72): Carbon -> Haiku caught 80/86 (93%),
+wrongly rejected 104/288 (36%); readable replies only 63/69 and 76/260 (29%); 45 of 374 replies unreadable.
+Sonnet -> Flash-Lite caught 68/85 (80%), wrongly rejected 38/182 (21%); readable only 64/81 and 16/160 (10%);
+26 of 267 unreadable. Unreadable replies (output-limit hits) count as rejects, so they inflate false rejects most.

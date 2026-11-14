@@ -4,7 +4,7 @@ Solve rates and accepted-but-wrong rates with Wilson 95% intervals, exact McNema
 bugs, a paired bootstrap for the reviewed cascade against Sonnet, the reviewers' catch and false-reject rates, and
 the reviewed cascade's cost split into its stages with the break-even escalation rate.
 
-    .venv/bin/python -m benchmarks.paper_stats [--json out.json]
+    .venv/bin/python -m benchmarks.paper_stats [--json results/stats/out.json]
 """
 import argparse
 import json
@@ -20,9 +20,11 @@ LITE = ["20261112-100346-swe-gemini-3.5-flash-lite.json", "20261113-061845-swe-g
         "20261113-185251-swe-gemini-3.5-flash-lite.json", "20261114-065045-swe-gemini-3.5-flash-lite.json"]
 CARBON = ["20261112-100604-review-offline.json", "20261113-061943-review-offline.json",
           "20261113-185255-review-offline.json", "20261114-065415-review-offline.json",
-          "20261114-211612-review-offline.json"]
+          "20261114-211612-review-offline.json",
+          "20261114-214427-review-offline.json"]
 SONNET_ON_LITE = ["20261112-194618-review-offline.json", "20261113-074600-review-offline.json",
-                  "20261113-202930-review-offline.json", "20261114-084153-review-offline.json"]
+                  "20261113-202930-review-offline.json", "20261114-084153-review-offline.json",
+                  "20261114-214842-review-offline.json"]
 ARMS = {"swe-cheap-lean": "haiku", "swe-cascade-tried": "cascade", "swe-cascade-tried-review": "reviewed",
         "swe-loop-lean-keywords": "sonnet"}
 SETUPS = ["haiku", "cascade", "reviewed", "sonnet", "lite"]
@@ -146,7 +148,10 @@ def main():
     for name, source in (("carbon", "haiku"), ("sonnet_on_lite", "lite")):
         revs = {t: reviews[name][t] for t in tasks if t in reviews[name]}
         accepted = [t for t in tasks if bugs[t][source].get("agent_status") == "passed"]
-        row = {"accepted_not_reviewed": sum(t not in revs for t in accepted)}
+        # An accepted run with an empty diff changed nothing, so there is nothing to review
+        row = {"accepted_not_reviewed": sum(t not in revs and (bugs[t][source].get("diff") or "").strip() != ""
+                                            for t in accepted),
+               "accepted_empty_diff": sum(not (bugs[t][source].get("diff") or "").strip() for t in accepted)}
         for label, keep in (("all", lambda r: True), ("readable", lambda r: r["why"] != UNREADABLE)):
             wrong = [t for t, r in revs.items() if keep(r) and not r["hidden_passed"]]
             good = [t for t, r in revs.items() if keep(r) and r["hidden_passed"]]
@@ -157,7 +162,8 @@ def main():
         row.update({"reviews": len(revs), "unreadable": unread, "cost_usd": cost})
         out["reviewers"][name] = row
         print(f"  {name}: {len(revs)} reviews, {unread} unreadable, ${cost:.2f} (${cost / len(revs):.3f} each);"
-              f" {row['accepted_not_reviewed']} accepted fixes not reviewed (spending cap)")
+              f" {row['accepted_not_reviewed']} accepted fixes not reviewed, {row['accepted_empty_diff']} accepted with"
+              " an empty diff")
         for label in ("all", "readable"):
             c, f = row[label]["caught"], row[label]["false_reject"]
             print(f"    {label:8} caught {c['k']}/{c['n']} ({100 * c['rate']:.0f}%, CI {100 * c['ci95'][0]:.0f}-"

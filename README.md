@@ -2,6 +2,10 @@
 
 **An autonomous AI coding agent that writes code, runs your tests, learns from failures, and commits when it passes — all in a real-time web UI.**
 
+> **Research:** *When Tests Lie: Cascades, Reviewers and Failure Attribution in Coding Agents* uses Loop Runner on
+> 436 SWE-bench Verified bugs. Browse every bug, run, review and label in the
+> [interactive explorer](https://nileetsavale.github.io/ai-loop-runner/).
+
 Loop Runner is a full-stack SaaS platform built around a deceptively simple idea: what if you could point an LLM at a failing test suite and have it keep rewriting code until the tests go green? No human in the loop. No copy-pasting from a chat window. Just a tight agent → verify → retry cycle, streaming live to your browser.
 
 ---

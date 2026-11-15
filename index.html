@@ -244,7 +244,12 @@ pre .add { color: var(--solved); } pre .del { color: var(--crash); } pre .hunk {
 .box code { font: 500 11px var(--mono); color: var(--muted); }
 .arrow { align-self: center; color: var(--muted); font: 500 14px var(--mono); flex: 0 0 auto; }
 @media (max-width: 700px) { .arrow { display: none; } }
-.foot { border-top: 1px solid var(--line); padding-top: 18px; display: grid; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.foot { border-top: 1px solid var(--line); padding-top: 24px; display: grid; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.foot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; }
+.foot-grid p { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; line-height: 1.55; }
+.foot-grid p b { display: block; color: var(--ink); font-size: 14px; margin-bottom: 4px; }
+.foot-links { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; justify-content: space-between; padding-top: 4px; }
+.foot-links span { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .tile:hover { transform: none; } }
 
 /* Guided tour: one card at a time, pinned to the bottom, with the section it describes outlined */
@@ -292,13 +297,79 @@ pre .add { color: var(--solved); } pre .del { color: var(--crash); } pre .hunk {
   .pb-example, .pb-findings > div { grid-template-columns: minmax(0, 1fr); }
   .pb-split .pb-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
+/* Hero: text on the left, a replay of one real bug on the right */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px); gap: 40px; align-items: start; }
+.hero-text { display: grid; gap: 14px; align-content: start; }
+.hero-cta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.glance { display: grid; gap: 0; margin-top: 18px; border-top: 1px solid var(--line); }
+.glance > div { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+.glance .n { font-size: 34px; font-weight: 750; font-stretch: 75%; line-height: 1; font-variant-numeric: tabular-nums; }
+.glance .n small { font-size: 18px; color: var(--ink-2); font-weight: 600; }
+.glance p { margin: 0; font-size: 14px; color: var(--ink-2); }
+.glance p b { color: var(--ink); }
+.glance a { font-size: 12px; }
+@media (max-width: 980px) { .hero { grid-template-columns: minmax(0, 1fr); } }
+.rp { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: grid; gap: 12px; }
+.rp-head { display: grid; gap: 4px; }
+.rp-head h3 { font-size: 16px; }
+.rp-head a { font-size: 12px; }
+.rp-controls { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.rp-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.rp-seg button { font: 600 12.5px var(--display); padding: 7px 11px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; }
+.rp-seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.rp-play { font: 600 12.5px var(--display); padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--sunken); color: var(--ink); cursor: pointer; }
+.rp-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; position: relative; }
+.rp-step { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; padding: 9px 0; border-top: 1px dashed var(--line);
+  opacity: 0; transform: translateY(6px); transition: opacity .35s ease, transform .35s ease; }
+.rp-step:first-child { border-top: 0; }
+.rp-step.on { opacity: 1; transform: none; }
+.rp-ico { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 700 12px var(--display); background: var(--sunken); color: var(--ink-2); }
+.rp-ico.ok { background: color-mix(in srgb, var(--solved) 22%, transparent); color: var(--solved); }
+.rp-ico.bad { background: color-mix(in srgb, var(--lied) 25%, transparent); color: var(--lied-ink); }
+.rp-ico.rev { background: var(--accent-soft); color: var(--accent); }
+.rp-body { min-width: 0; display: block; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+.rp-body b { color: var(--ink); }
+.rp-body q { font-style: italic; quotes: "\201C" "\201D"; }
+.rp-body pre { margin: 6px 0 0; font: 11.5px/1.5 var(--mono); background: var(--sunken); border-radius: 4px; padding: 6px 8px; overflow-x: auto; white-space: pre; }
+.rp-body pre .add { color: var(--solved); } .rp-body pre .del { color: var(--crash); }
+.rp-cost { font: 500 11.5px var(--mono); color: var(--muted); white-space: nowrap; padding-top: 3px; }
+.rp-result { border-radius: 6px; padding: 10px 12px; font-size: 13.5px; display: flex; gap: 10px; align-items: baseline; justify-content: space-between; flex-wrap: wrap;
+  opacity: 0; transition: opacity .35s ease; }
+.rp-result.on { opacity: 1; }
+.rp-result.bad { background: color-mix(in srgb, var(--lied) 16%, transparent); color: var(--lied-ink); border: 1px solid color-mix(in srgb, var(--lied) 45%, transparent); }
+.rp-result.ok { background: color-mix(in srgb, var(--solved) 13%, transparent); color: var(--solved); border: 1px solid color-mix(in srgb, var(--solved) 40%, transparent); }
+.rp-result b { font-size: 15px; }
+.rp-result span { color: var(--ink-2); font-size: 12.5px; }
+.rp-note { font-size: 12px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .rp-step, .rp-result { transition: none; } }
 </style>
 
 <div class="wrap">
-  <header class="prose" style="display:grid;gap:14px">
-    <div class="eyebrow">Loop Runner · SWE-bench Verified study</div>
-    <h1>When Tests Lie</h1>
-    <p class="lede">A coding agent writes a fix, runs the repository's tests, and stops when they pass. SWE-bench then checks the fix against <strong>hidden tests</strong> the agent never saw. This page follows real bugs through cheap models, strong models, cascades and reviewers, and shows how often <strong>passing the tests does not mean the fix is right</strong>, and what that costs.</p>
+  <header class="hero">
+    <div class="hero-text">
+      <div class="eyebrow">Loop Runner · SWE-bench Verified study</div>
+      <h1>When Tests Lie</h1>
+      <p class="lede">A coding agent writes a fix, runs the repository's tests, and stops when they pass. SWE-bench then checks the fix against <strong>hidden tests</strong> the agent never saw. This page follows real bugs through cheap models, strong models, cascades and reviewers, and shows how often <strong>passing the tests does not mean the fix is right</strong>, and what that costs.</p>
+      <div class="hero-cta"><a class="btn" href="#problem-s">The problem in four steps</a><button class="btn ghost" type="button" id="hero-tour">Take the tour</button></div>
+      <div class="glance" aria-label="Main findings on 436 fresh bugs">
+        <div><span class="n">22%</span><p>of the fixes <b>Claude Haiku</b> accepted because the tests passed are <b>wrong</b> by SWE-bench's hidden tests. <a href="#rev-s">How reviewers do</a></p></div>
+        <div><span class="n">331 <small>vs 330</small></span><p>bugs solved by a <b>cheap-first cascade</b> that escalates on failing tests, against Haiku alone, at <b>5.7×</b> the cost. <a href="#cost-s">See the costs</a></p></div>
+        <div><span class="n">361 <small>vs 365</small></span><p>with a <b>reviewer</b> deciding instead, against Claude Sonnet alone. Close on accuracy, but 7% dearer. <a href="#calc-s">When it pays off</a></p></div>
+      </div>
+    </div>
+    <aside class="rp" aria-labelledby="rp-h">
+      <div class="rp-head">
+        <span class="eyebrow">Replay a real bug · django-14376</span>
+        <h3 id="rp-h">"MySQL backend uses deprecated db and passwd kwargs"</h3>
+      </div>
+      <div class="rp-controls">
+        <div class="rp-seg" role="group" aria-label="Escalation trigger"><button type="button" data-rp="gate" aria-pressed="true">Tests decide</button><button type="button" data-rp="review" aria-pressed="false">Tests + reviewer</button></div>
+        <button type="button" class="rp-play" id="rp-play">Replay ▸</button>
+      </div>
+      <ol class="rp-steps" id="rp-steps" aria-live="polite"></ol>
+      <div class="rp-result" id="rp-result"></div>
+      <p class="rp-note" id="rp-note"></p>
+    </aside>
   </header>
 
 
@@ -506,7 +577,7 @@ lazy + lazy     # still fails: no __add__</pre>
     </div>
   </section>
 
-  <footer class="foot prose" id="foot"></footer>
+  <footer class="foot" id="foot"></footer>
   <div class="tour" id="tour" role="dialog" aria-live="polite" aria-labelledby="tour-h" hidden>
     <span class="eyebrow" id="tour-n"></span><h3 id="tour-h"></h3><p id="tour-p"></p>
     <div class="tour-nav"><button type="button" id="tour-close">Close</button><button type="button" id="tour-back">Back</button><button type="button" class="next" id="tour-next">Next</button></div>
@@ -1044,12 +1115,14 @@ function showDetail() {
 }
 listeners.push(buildMap);
 
-$("foot").innerHTML = `
+$("foot").innerHTML = `<span class="eyebrow">About the data</span><div class="foot-grid">
   <p><b>Fresh set.</b> Bugs from SWE-bench Verified that were not in the pilot, run on a cloud machine with SWE-bench's own Docker images: ${SETS.fresh.bugs.length} in 4 batches, with runs that crashed rerun at the end. Two Flash-Lite runs still crashed and are shown as crashes.</p>
   <p><b>Pilot.</b> 60 bugs picked to be hard for the cheap model, run on a Mac; one bug is left out because two of its runs crashed. Its reviewer used an earlier prompt (v1) than the fresh set's (v2).</p>
-  <p><b>Accepted but wrong</b> means the agent's own run of the repository's tests passed, so it stopped, but SWE-bench's hidden tests for the issue fail.</p>
-  <p><b>Simulated setups</b> reuse recorded runs: the cheap model's run, an offline review of its fix, and, when the fix is rejected or never passes, the result Sonnet got when it ran alone on that bug. Costs are list prices; Haiku 5.5 is $0.10/$0.50 and Sonnet 5.5 $2/$10 per million tokens.</p>
-  <p>One run per bug and setup. On a few hundred bugs, percentages move by a few points between runs; the head-to-head test says when a gap is bigger than that.</p>`;
+  <p><b>Accepted but wrong.</b> The agent's own run of the repository's tests passed, so it stopped, but SWE-bench's hidden tests for the issue fail.</p>
+  <p><b>Simulated setups.</b> These reuse recorded runs: the cheap model's run, an offline review of its fix, and, when the fix is rejected or never passes, the result Sonnet got when it ran alone on that bug. Costs are list prices; Haiku 5.5 is $0.10/$0.50 and Sonnet 5.5 $2/$10 per million tokens.</p>
+  <p><b>Failure labels.</b> 64 accepted-but-wrong pilot fixes, each labelled by two people working independently (Cohen's κ = 0.73). They settled the 12 disagreements together.</p>
+  <p><b>Noise.</b> One run per bug and setup. On a few hundred bugs, percentages move by a few points between runs; the head-to-head test says when a gap is bigger than that.</p></div>
+  <div class="foot-links"><span>From the paper <i>When Tests Lie: Cascades, Reviewers and Failure Attribution in Coding Agents</i>, Nileet Savale.</span><a href="https://github.com/NileetSavale/ai-loop-runner">Source code on GitHub</a></div>`;
 
 // Guided tour: eight stops, each scrolls to a section and says what to look at there
 const TOUR = [
@@ -1090,5 +1163,62 @@ document.addEventListener("keydown", e => {
 });
 
 setSet("fresh");
+})();
+</script>
+
+<script>
+// Hero replay: the recorded runs of django-14376 in the test-gated and the reviewed cascade (fresh set)
+(function () {
+  const diff = (lines) => "<pre>" + lines.map(([k, t]) => `<span class="${k}">${t.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</span>`).join("\n") + "</pre>";
+  const haikuEdit = { ico: "1", cls: "", cost: "$0.0035", body: "<b>Claude Haiku edits one file</b>, <code>mysql/base.py</code>, renaming the two arguments:" + diff([["del", "-  kwargs['db'] = settings_dict['NAME']"], ["add", "+  kwargs['database'] = settings_dict['NAME']"], ["del", "-  kwargs['passwd'] = settings_dict['PASSWORD']"], ["add", "+  kwargs['password'] = settings_dict['PASSWORD']"]]) };
+  const tests = { ico: "✓", cls: "ok", cost: "", body: "<b>The project's tests pass.</b> To the loop, the bug is fixed." };
+  const RUNS = {
+    gate: {
+      steps: [haikuEdit, tests,
+        { ico: "→", cls: "", cost: "", body: "<b>Accepted.</b> Tests passed, so the cascade never calls the strong model." },
+        { ico: "✗", cls: "bad", cost: "", body: "<b>SWE-bench's hidden tests fail</b> (3 tests in <code>dbshell/test_mysql</code>). The sibling file <code>mysql/client.py</code>, used by <code>manage.py dbshell</code>, still reads <code>OPTIONS['db']</code> and <code>OPTIONS['passwd']</code>." }],
+      result: ["bad", "Accepted but wrong", "$0.0033 for the whole run"],
+      note: "One of 75 fixes Haiku's own loop accepted that fail the hidden tests on the 436 fresh bugs. The test gate never sees them."
+    },
+    review: {
+      steps: [haikuEdit, tests,
+        { ico: "R", cls: "rev", cost: "$0.0141", body: "<b>Claude Sonnet reviews the diff and rejects it:</b> <q>The sibling <code>mysql/client.py</code> (dbshell) reads <code>OPTIONS['db']</code> and <code>OPTIONS['passwd']</code> and never handles the new option names.</q>" },
+        { ico: "2", cls: "", cost: "$0.0326", body: "<b>Sonnet redoes the fix</b> with the reviewer's reason, and also updates <code>mysql/client.py</code>:" + diff([["del", "-  db = settings_dict['OPTIONS'].get('db', ...)"], ["add", "+  db = settings_dict['OPTIONS'].get('database',"], ["add", "+       settings_dict['OPTIONS'].get('db', ...))"]]) },
+        { ico: "✓", cls: "ok", cost: "", body: "<b>SWE-bench's hidden tests pass.</b>" }],
+      result: ["ok", "Solved", "$0.050 in all; Sonnet alone solved it for $0.028"],
+      note: "The reviewer caught it, but it costs more than running Sonnet alone. Whether a reviewer saves money depends on how often bugs escalate: see the break-even section."
+    }
+  };
+  const stepsEl = document.getElementById("rp-steps"), resEl = document.getElementById("rp-result"), noteEl = document.getElementById("rp-note");
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let mode = "gate", timers = [];
+  function play() {
+    timers.forEach(clearTimeout); timers = [];
+    const run = RUNS[mode];
+    stepsEl.innerHTML = run.steps.map(st => `<li class="rp-step"><span class="rp-ico ${st.cls}">${st.ico}</span><div class="rp-body">${st.body}</div><span class="rp-cost">${st.cost}</span></li>`).join("");
+    resEl.className = "rp-result " + run.result[0];
+    resEl.innerHTML = `<b>${run.result[1]}</b><span>${run.result[2]}</span>`;
+    noteEl.textContent = "";
+    const items = [...stepsEl.children, resEl], gap = reduce ? 0 : 750;
+    items.forEach((el, i) => timers.push(setTimeout(() => el.classList.add("on"), 150 + i * gap)));
+    timers.push(setTimeout(() => {
+      noteEl.textContent = run.note + " ";
+      if (mode === "gate") {
+        const next = document.createElement("button");
+        next.type = "button"; next.className = "rp-play"; next.style.marginTop = "6px"; next.textContent = "Now add a reviewer ▸";
+        next.addEventListener("click", () => document.querySelector('[data-rp="review"]').click());
+        noteEl.append(document.createElement("br"), next);
+      }
+    }, 150 + items.length * gap));
+  }
+  document.querySelectorAll("[data-rp]").forEach(b => b.addEventListener("click", () => {
+    mode = b.dataset.rp;
+    document.querySelectorAll("[data-rp]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    play();
+  }));
+  document.getElementById("rp-play").addEventListener("click", play);
+  const tourBtn = document.getElementById("tour-btn");
+  document.getElementById("hero-tour").addEventListener("click", () => tourBtn && tourBtn.click());
+  play();
 })();
 </script>

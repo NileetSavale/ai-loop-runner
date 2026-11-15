@@ -491,4 +491,4 @@ Fernet is AES-256-CBC + HMAC-SHA256 with built-in key rotation support. It's the
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE). The paper in `paper/` is not covered by it.

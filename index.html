@@ -1,0 +1,1094 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Interactive companion to the paper When Tests Lie: Cascades, Reviewers and Failure Attribution in Coding Agents.">
+<title>When Tests Lie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a lab notebook for one study. Narrow reading column for prose, full-width instruments (flow, charts, map) below it. */
+:root {
+  --bg: #f4f6f8; --surface: #ffffff; --sunken: #eaeef2;
+  --ink: #17212b; --ink-2: #4a5765; --muted: #7f8b97; --line: #d8dee5;
+  --accent: #2f5bd3; --accent-soft: #e3eafc;
+  --solved: #0c8f0c; --lied: #e09a00; --lied-ink: #8a5b00; --failed: #b4bec8; --crash: #d03b3b;
+  --dot: #9aa6b2;
+  --heat-0: #eef3fd; --heat-1: #b7d3f6; --heat-2: #6da7ec; --heat-3: #2a78d6; --heat-4: #184f95;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1419; --surface: #161e26; --sunken: #1d2731;
+  --ink: #e7edf3; --ink-2: #a9b5c1; --muted: #75828f; --line: #2a3541;
+  --accent: #7ea0ff; --accent-soft: #1d2a4a;
+  --solved: #2fbf3a; --lied: #f4b324; --lied-ink: #f4c35a; --failed: #4b5764; --crash: #e66767;
+  --dot: #5d6a77;
+  --heat-0: #1a2433; --heat-1: #1c3a66; --heat-2: #1c5cab; --heat-3: #3987e5; --heat-4: #86b6ef;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1419; --surface: #161e26; --sunken: #1d2731;
+  --ink: #e7edf3; --ink-2: #a9b5c1; --muted: #75828f; --line: #2a3541;
+  --accent: #7ea0ff; --accent-soft: #1d2a4a;
+  --solved: #2fbf3a; --lied: #f4b324; --lied-ink: #f4c35a; --failed: #4b5764; --crash: #e66767;
+  --dot: #5d6a77;
+  --heat-0: #1a2433; --heat-1: #1c3a66; --heat-2: #1c5cab; --heat-3: #3987e5; --heat-4: #86b6ef;
+  color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font-family: var(--display); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 56px; }
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 64px; }
+.prose { max-width: 68ch; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(40px, 7vw, 72px); font-stretch: 72%; font-weight: 800; line-height: .95; letter-spacing: -.01em; }
+h2 { font-size: 28px; font-stretch: 80%; font-weight: 750; line-height: 1.1; }
+h3 { font-size: 15px; font-weight: 700; }
+p { margin: 0; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.lede { font-size: 18px; color: var(--ink-2); }
+.lede strong { color: var(--ink); }
+section { display: grid; gap: 18px; min-width: 0; scroll-margin-top: 72px; }
+.sec-head { display: grid; gap: 8px; }
+.sec-head p { color: var(--ink-2); max-width: 70ch; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; min-width: 0; }
+.caption { font-size: 13px; color: var(--ink-2); max-width: 72ch; }
+.note { font-size: 13px; color: var(--ink-2); }
+
+/* Sticky bar: which set of bugs, and the section index */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 9; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line); padding-block: 10px; margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px))); padding-inline: max(16px, env(safe-area-inset-left, 0px)); }
+.bar-in { max-width: 1080px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.seg button { font: 600 13px var(--display); padding: 7px 12px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.toc { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.toc a { color: var(--ink-2); text-decoration: none; }
+.toc a:hover { color: var(--ink); text-decoration: underline; }
+
+/* Key figures: a test-report summary line */
+.report { scroll-margin-top: 72px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); border: 1px solid var(--line); background: var(--surface); border-radius: 6px; }
+.report > div { padding: 16px 18px; border-right: 1px solid var(--line); display: grid; gap: 4px; align-content: start; }
+.report > div:last-child { border-right: 0; }
+.report .big { font-size: 34px; font-weight: 750; font-stretch: 75%; line-height: 1; font-variant-numeric: tabular-nums; }
+.report .lbl { font-size: 13px; color: var(--ink-2); }
+.report .src { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+@media (max-width: 640px) { .report > div { border-right: 0; border-bottom: 1px solid var(--line); } .report > div:last-child { border-bottom: 0; } }
+
+/* Setup chooser */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 13px/1 var(--display); padding: 8px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.chip:hover { border-color: var(--ink-2); }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.chip .tag { font: 500 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .05em; padding: 3px 5px; border-radius: 3px; background: var(--sunken); color: var(--ink-2); }
+.chip[aria-pressed="true"] .tag { background: transparent; color: inherit; border: 1px solid currentColor; }
+.chip-group { display: grid; gap: 6px; }
+.chip-group .eyebrow { font-size: 11px; }
+
+/* Flow */
+.flow-wrap { overflow-x: auto; }
+.flow-wrap svg { min-width: 640px; width: 100%; height: auto; display: block; }
+.node rect { fill: var(--sunken); stroke: var(--line); }
+.node.on rect { fill: var(--surface); stroke: var(--ink-2); }
+.node.off { opacity: .25; }
+.node text { fill: var(--ink); font: 600 13px var(--display); }
+.node .sub { fill: var(--ink-2); font: 400 11px var(--mono); }
+.edge { stroke: var(--line); stroke-width: 1.5; fill: none; }
+.edge.on { stroke: var(--muted); }
+.elabel { font: 500 11px var(--mono); fill: var(--ink-2); }
+.binlabel { font: 600 13px var(--display); fill: var(--ink); }
+.bincount { font: 500 12px var(--mono); fill: var(--ink-2); }
+.row-between { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; }
+.btn { font: 600 13px var(--display); padding: 8px 14px; border-radius: 4px; border: 1px solid var(--ink); background: var(--ink); color: var(--bg); cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+
+/* Legend */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.s-solved { background: var(--solved); } .s-lied { background: var(--lied); } .s-failed { background: var(--failed); }
+.s-crash { background: repeating-linear-gradient(45deg, var(--crash) 0 2px, transparent 2px 4px); border: 1px solid var(--crash); }
+
+/* Charts */
+.two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
+.chart svg { width: 100%; height: auto; display: block; }
+.axis text { font: 400 11px var(--mono); fill: var(--muted); }
+.grid line { stroke: var(--line); stroke-width: 1; }
+.pt text { font: 600 12px var(--display); fill: var(--ink); }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font: 500 12px/1.4 var(--display); padding: 8px 10px; border-radius: 4px; max-width: 240px; z-index: 5; }
+.tablebox { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+.simtag { font: 500 10px var(--mono); color: var(--muted); margin-left: 4px; }
+
+/* Calculator */
+.calc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .calc { grid-template-columns: 1fr; } }
+.sliders { display: grid; gap: 16px; }
+.sgroup { display: grid; gap: 10px; }
+.slider { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; font-size: 13px; }
+.slider label { color: var(--ink); }
+.slider output { font: 500 13px var(--mono); font-variant-numeric: tabular-nums; }
+.slider input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.slider small { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.verdict { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.verdict > div { padding: 12px 14px; display: grid; gap: 2px; }
+.verdict > div + div { border-left: 1px solid var(--line); }
+.verdict .k { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
+.verdict .v { font-size: 26px; font-weight: 750; font-stretch: 78%; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.verdict .s { font-size: 12px; color: var(--ink-2); }
+.callout { font-size: 15px; font-weight: 600; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Scorecard */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.cm { display: grid; grid-template-columns: auto 1fr 1fr; gap: 4px; font-size: 13px; }
+.cm .h { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); padding: 4px 6px; }
+.cm button { border: 1px solid var(--line); background: var(--sunken); border-radius: 4px; padding: 10px; text-align: left; cursor: pointer; color: var(--ink); display: grid; gap: 2px; font: inherit; }
+.cm button:hover { border-color: var(--ink-2); }
+.cm button[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.cm button b { font-size: 22px; font-stretch: 78%; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.cm button span { font-size: 12px; color: var(--ink-2); }
+.cm .good b { color: var(--solved); } .cm .bad b { color: var(--lied-ink); }
+.buglist { display: flex; flex-wrap: wrap; gap: 4px; }
+.bug { font: 500 11.5px var(--mono); padding: 4px 7px; border-radius: 3px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.bug:hover { border-color: var(--ink-2); }
+
+/* Head to head */
+.hh-pick { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 14px; }
+select { font: 500 13px var(--display); padding: 7px 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); max-width: 100%; }
+.split { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.split > div { padding: 12px; display: grid; gap: 2px; }
+.split > div + div { border-left: 1px solid var(--line); }
+.split b { font-size: 26px; font-stretch: 78%; font-variant-numeric: tabular-nums; }
+.split span { font-size: 12px; color: var(--ink-2); }
+@media (max-width: 560px) { .split { grid-template-columns: 1fr 1fr; } .split > div:nth-child(3) { border-left: 0; } .split > div:nth-child(n+3) { border-top: 1px solid var(--line); } }
+
+/* Categories */
+.cats { display: grid; gap: 12px; }
+.cat { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 8px 16px; align-items: start; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.cat:last-child { border-bottom: 0; padding-bottom: 0; }
+@media (max-width: 700px) { .cat { grid-template-columns: 1fr; } }
+.cat h3 { display: flex; gap: 8px; align-items: baseline; }
+.cat h3 .letter { font: 600 12px var(--mono); color: var(--ink-2); }
+.bartrack { height: 10px; background: var(--sunken); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+.bartrack i { display: block; height: 100%; background: var(--ink-2); border-radius: 0 4px 4px 0; }
+.cat .count { font: 500 12px var(--mono); color: var(--ink-2); margin-top: 4px; }
+.examples { display: grid; gap: 6px; font-size: 13px; }
+.examples button { all: unset; cursor: pointer; display: grid; grid-template-columns: auto 1fr; gap: 8px; }
+.examples button:focus-visible { outline: 2px solid var(--accent); }
+.examples code { font: 500 11.5px var(--mono); color: var(--accent); white-space: nowrap; }
+.examples button span { color: var(--ink-2); }
+
+/* Heatmap */
+.heat { border-collapse: separate; border-spacing: 3px; font-size: 13px; width: auto; min-width: 100%; }
+.heat th, .heat td { border: 0; padding: 6px 8px; }
+.heat th.rot { font: 500 11px var(--mono); text-transform: none; letter-spacing: 0; color: var(--ink-2); vertical-align: bottom; max-width: 110px; }
+.heat td.cell { text-align: center; font: 500 12px var(--mono); font-variant-numeric: tabular-nums; border-radius: 3px; min-width: 56px; }
+.heat td.repo { font: 500 12px var(--mono); white-space: nowrap; }
+.heat td.repo span { color: var(--muted); }
+
+/* Map */
+.map-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: 16px; align-items: start; }
+@media (max-width: 960px) { .map-layout { grid-template-columns: 1fr; } }
+.repos { display: grid; gap: 14px; }
+.repo h3 { font: 500 12px var(--mono); color: var(--ink-2); margin-bottom: 6px; }
+.repo h3 b { color: var(--ink); font-weight: 600; }
+.tiles { display: flex; flex-wrap: wrap; gap: 3px; }
+.tile { width: 14px; height: 14px; border-radius: 2px; border: 0; padding: 0; cursor: pointer; background: var(--failed); }
+.tile.solved { background: var(--solved); } .tile.lied { background: var(--lied); }
+.tile.crash { background: repeating-linear-gradient(45deg, var(--crash) 0 2px, transparent 2px 4px); box-shadow: inset 0 0 0 1px var(--crash); }
+.tile.dim { opacity: .18; }
+.tile.sel { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.tile:hover { transform: scale(1.25); }
+.map-tools { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between; }
+label.toggle { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+input[type="search"] { font: 500 13px var(--mono); padding: 7px 10px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); width: 260px; max-width: 100%; }
+
+/* Detail */
+.detail { display: grid; gap: 14px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 70px); max-height: calc(100vh - 90px); overflow-y: auto; }
+.detail h3 { font: 600 16px var(--mono); word-break: break-all; }
+.story { display: grid; gap: 0; border-left: 2px solid var(--line); margin-left: 6px; }
+.step { position: relative; padding: 0 0 12px 18px; font-size: 14px; }
+.step::before { content: ""; position: absolute; left: -7px; top: 5px; width: 12px; height: 12px; border-radius: 50%; background: var(--surface); border: 2px solid var(--muted); }
+.step.solved::before { border-color: var(--solved); background: var(--solved); }
+.step.lied::before { border-color: var(--lied); background: var(--lied); }
+.step b { display: block; }
+.step .why { color: var(--ink-2); font-size: 13px; margin-top: 2px; }
+.pill { font: 500 11px var(--mono); padding: 3px 7px; border-radius: 3px; display: inline-block; white-space: nowrap; }
+.pill.solved { background: color-mix(in srgb, var(--solved) 18%, transparent); color: var(--solved); }
+.pill.lied { background: color-mix(in srgb, var(--lied) 22%, transparent); color: var(--lied-ink); }
+.pill.failed { background: var(--sunken); color: var(--ink-2); }
+.pill.crash { background: color-mix(in srgb, var(--crash) 15%, transparent); color: var(--crash); }
+details { border-top: 1px solid var(--line); padding-top: 8px; }
+summary { cursor: pointer; font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+summary .who { font-weight: 600; min-width: 9.5em; }
+summary .meta { font: 400 11px var(--mono); color: var(--muted); }
+pre { font: 400 11.5px/1.45 var(--mono); background: var(--sunken); padding: 10px; border-radius: 4px; overflow-x: auto; margin: 8px 0 4px; max-height: 320px; }
+pre .add { color: var(--solved); } pre .del { color: var(--crash); } pre .hunk { color: var(--accent); }
+
+/* Architecture */
+.arch { display: grid; gap: 16px; }
+.lane { display: grid; gap: 10px; }
+.lane-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.box { border: 1px solid var(--line); background: var(--surface); border-radius: 5px; padding: 10px 12px; display: grid; gap: 2px; flex: 1 1 150px; min-width: 0; }
+.box b { font-size: 14px; }
+.box span { font-size: 12px; color: var(--ink-2); }
+.box code { font: 500 11px var(--mono); color: var(--muted); }
+.arrow { align-self: center; color: var(--muted); font: 500 14px var(--mono); flex: 0 0 auto; }
+@media (max-width: 700px) { .arrow { display: none; } }
+.foot { border-top: 1px solid var(--line); padding-top: 18px; display: grid; gap: 8px; font-size: 13px; color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { .tile:hover { transform: none; } }
+
+/* Guided tour: one card at a time, pinned to the bottom, with the section it describes outlined */
+.tour-on { outline: 2px solid var(--accent); outline-offset: 10px; border-radius: 6px; }
+.tour { position: fixed; z-index: 20; left: 50%; transform: translateX(-50%); bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  width: min(460px, calc(100vw - 32px)); background: var(--ink); color: var(--bg); border-radius: 8px; padding: 16px 18px;
+  display: grid; gap: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+.tour[hidden] { display: none; }
+.tour .eyebrow { color: color-mix(in srgb, var(--bg) 70%, transparent); }
+.tour h3 { font-size: 17px; }
+.tour p { font-size: 14px; line-height: 1.5; color: color-mix(in srgb, var(--bg) 88%, transparent); }
+.tour-nav { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+.tour-nav button { font: 600 13px var(--display); padding: 7px 12px; border-radius: 4px; cursor: pointer; border: 1px solid color-mix(in srgb, var(--bg) 40%, transparent); background: transparent; color: var(--bg); }
+.tour-nav button.next { background: var(--bg); color: var(--ink); border-color: var(--bg); }
+.tour-nav button:disabled { opacity: .35; cursor: default; }
+.bar-left { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+@media (max-width: 640px) { .toc { display: none; } }
+/* The problem: a plain-language primer above the instruments */
+.pb-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+.pb-step { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: grid; gap: 8px; align-content: start; }
+.pb-step .pb-num { font: 500 12px var(--mono); color: var(--muted); }
+.pb-step p { font-size: 14px; color: var(--ink-2); margin: 0; }
+.pb-step.pb-turn { border-color: var(--lied); box-shadow: inset 3px 0 0 var(--lied); }
+.pb-example { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.pb-example pre { margin: 0; font: 12.5px/1.55 var(--mono); background: var(--sunken); border-radius: 4px; padding: 10px 12px; overflow-x: auto; white-space: pre; }
+.pb-example .pb-verdict { display: flex; gap: 8px; align-items: center; font-size: 14px; font-weight: 600; }
+.pb-example .pb-ok { color: var(--solved); } .pb-example .pb-bad { color: var(--lied-ink); }
+.pb-example .pb-col { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.pb-split { display: grid; gap: 10px; }
+.pb-split .pb-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 110px; gap: 10px; align-items: center; font-size: 13px; }
+.pb-split .pb-track { display: flex; height: 22px; border-radius: 4px; overflow: hidden; gap: 2px; }
+.pb-split .pb-vis { background: var(--accent); color: #fff; } .pb-split .pb-sil { background: var(--lied); color: #241800; }
+.pb-split .pb-track span { display: flex; align-items: center; justify-content: center; font: 600 12px var(--display); min-width: 24px; }
+.pb-split .pb-share { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.pb-findings { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.pb-findings > div { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr); gap: 16px; padding: 14px 16px; border-top: 1px solid var(--line); }
+.pb-findings > div:first-child { border-top: 0; }
+.pb-findings .pb-q { font-weight: 700; font-size: 15px; }
+.pb-findings .pb-q small { display: block; font: 500 11px var(--mono); color: var(--muted); letter-spacing: .05em; margin-bottom: 2px; }
+.pb-findings .pb-a { font-size: 14px; color: var(--ink-2); }
+.pb-findings .pb-a b { color: var(--ink); }
+.pb-terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 6px 20px; font-size: 13px; color: var(--ink-2); }
+.pb-terms b { color: var(--ink); }
+@media (max-width: 720px) {
+  .pb-example, .pb-findings > div { grid-template-columns: minmax(0, 1fr); }
+  .pb-split .pb-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+</style>
+
+<div class="wrap">
+  <header class="prose" style="display:grid;gap:14px">
+    <div class="eyebrow">Loop Runner · SWE-bench Verified study</div>
+    <h1>When Tests Lie</h1>
+    <p class="lede">A coding agent writes a fix, runs the repository's tests, and stops when they pass. SWE-bench then checks the fix against <strong>hidden tests</strong> the agent never saw. This page follows real bugs through cheap models, strong models, cascades and reviewers, and shows how often <strong>passing the tests does not mean the fix is right</strong>, and what that costs.</p>
+  </header>
+
+
+  <section id="problem-s" aria-labelledby="problem-h">
+    <div class="sec-head">
+      <h2 id="problem-h">The problem, in four steps</h2>
+      <p>Coding agents grade their own work with the project's tests, and cost-saving setups trust that grade. This study measures how often the grade is wrong and what that does to them.</p>
+    </div>
+    <div class="pb-steps">
+      <div class="pb-step"><span class="pb-num">1 · How agents work</span><h3>The agent checks its own fix</h3><p>It reads the bug report, edits the code, runs the project's existing tests, and tries again until they pass. Passing tests means "done".</p></div>
+      <div class="pb-step"><span class="pb-num">2 · How teams save money</span><h3>Cheap model first, strong model if needed</h3><p>A <b>cascade</b> lets a cheap model (Claude Haiku) try first. Only if its fix fails the tests is the bug handed to a strong model (Claude Sonnet), which costs about 14 times as much per bug.</p></div>
+      <div class="pb-step pb-turn"><span class="pb-num">3 · The catch</span><h3>Tests can pass when the fix is wrong</h3><p>The project's tests were written before the bug was reported, so they often don't exercise it. SWE-bench keeps <b>hidden tests</b>, written with the real fix, that the agent never sees. We use them as the answer key.</p></div>
+      <div class="pb-step pb-turn"><span class="pb-num">4 · The consequence</span><h3>The cascade never sees those failures</h3><p>A wrong fix that passes the tests is accepted and never escalated. The cascade pays for the strong model on the failures it can see, and ships the ones it can't.</p></div>
+    </div>
+
+    <div class="panel" style="display:grid;gap:12px">
+      <span class="eyebrow">A real example · django-13794</span>
+      <p class="note" style="font-size:14px;margin:0">The bug report: Django's <code>add</code> template filter gives an empty string when you add a normal string and a <i>lazy</i> (translatable) string.</p>
+      <div class="pb-example">
+        <div class="pb-col">
+          <span class="note">The cheap model's fix (simplified): teach the lazy string to be added <i>to</i> a normal one.</span>
+<pre>class __proxy__:
++   def __radd__(self, other):
++       return other + str(self)</pre>
+          <span class="pb-verdict pb-ok">✓ Project's tests pass → fix accepted</span>
+        </div>
+        <div class="pb-col">
+          <span class="note">The hidden test also adds two lazy strings, which needs the twin method the fix never wrote.</span>
+<pre>"text" + lazy   # works now
+lazy + lazy     # still fails: no __add__</pre>
+          <span class="pb-verdict pb-bad">✗ Hidden test fails → wrong, and nobody noticed</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel pb-split">
+      <span class="eyebrow">Why it matters: how the cheap models fail (436 fresh bugs)</span>
+      <p class="note" style="margin:0">A <b style="color:var(--accent)">visible</b> failure ends with failing tests, so a cascade escalates it. A <b style="color:var(--lied-ink)">silent</b> failure passes the tests and fails only the hidden ones, so it goes through untouched.</p>
+      <div class="pb-row"><b>Claude Haiku</b><div class="pb-track" role="img" aria-label="Haiku: 31 visible, 75 silent failures"><span class="pb-vis" style="flex:31">31</span><span class="pb-sil" style="flex:75">75</span></div><span class="pb-share">71% silent</span></div>
+      <div class="pb-row"><b>Gemini Flash-Lite</b><div class="pb-track" role="img" aria-label="Flash-Lite: 157 visible, 80 silent failures"><span class="pb-vis" style="flex:157">157</span><span class="pb-sil" style="flex:80">80</span></div><span class="pb-share">34% silent</span></div>
+      <p class="note" style="margin:0">Most of Haiku's mistakes are invisible to the tests, so a cascade built on the tests has little to act on.</p>
+    </div>
+
+    <div class="pb-findings">
+      <div><div class="pb-q"><small>QUESTION 1</small>How often do the tests lie?</div><div class="pb-a"><b>22%</b> of the fixes Haiku's loop accepted fail the hidden tests (32% for Flash-Lite, 15% even for Sonnet). Most often the hidden test checks a detail the bug report never states (47%), or the fix misses a twin code path, as above (28%).</div></div>
+      <div><div class="pb-q"><small>QUESTION 2</small>Does "cheap first, escalate on failing tests" help?</div><div class="pb-a">Not for Haiku: <b>331 bugs solved against 330</b> for Haiku alone, at <b>5.7×</b> the cost. It helps only when the cheap model's failures are mostly visible: in the pilot, Flash-Lite's cascade went from 16 to 24 of 41 bugs.</div></div>
+      <div><div class="pb-q"><small>QUESTION 3</small>Can a reviewer catch the lies?</div><div class="pb-a">Having the strong model read the cheap model's passing fix before accepting it lifts the cascade to <b>361 against Sonnet's 365</b> (a difference within noise). It catches 80–93% of wrong fixes but also rejects 21–36% of good ones, so 36% of bugs escalate and it costs 7% <i>more</i> than Sonnet alone. It would save money below 32% escalation.</div></div>
+      <div><div class="pb-q"><small>QUESTION 4</small>Does it help to know which tests were already broken?</div><div class="pb-a">On the 47 bugs whose tests fail before the agent changes anything, telling those failures apart from the agent's own cut the cost per bug <b>2.5×</b> ($0.072 against $0.183) and resolved 37 bugs against 32.</div></div>
+    </div>
+
+    <div class="pb-terms">
+      <span><b>Hidden tests</b>: SWE-bench's tests for each bug, written with the real fix; the answer key.</span>
+      <span><b>Accepted but wrong</b>: the project's tests passed, the agent stopped, the hidden tests fail.</span>
+      <span><b>Escalate</b>: hand the bug from the cheap model to the strong one.</span>
+      <span><b>Reviewer</b>: a model that reads a passing fix and accepts it or sends it on.</span>
+      <span><b>Fresh set</b>: 436 bugs never used while building the agent. <b>Pilot</b>: 60 hard bugs used to build it.</span>
+    </div>
+  </section>
+
+  <div class="bar"><div class="bar-in">
+    <div class="bar-left"><span class="eyebrow">Bugs</span>
+      <div class="seg" role="group" aria-label="Which bugs"><button type="button" data-set="fresh" aria-pressed="true">Fresh set</button><button type="button" data-set="pilot" aria-pressed="false">Pilot: 60 hard bugs</button></div>
+      <button class="btn ghost" id="tour-btn" type="button">Take the tour</button></div>
+    <nav class="toc" aria-label="Sections"><a href="#problem-s">Problem</a><a href="#flow-s">Flow</a><a href="#cost-s">Cost</a><a href="#calc-s">Break-even</a><a href="#rev-s">Reviewers</a><a href="#hh-s">Head to head</a><a href="#why-s">Why</a><a href="#heat-s">Projects</a><a href="#map-s">Every bug</a><a href="#arch-s">The system</a></nav>
+  </div></div>
+
+  <div class="report" id="report"></div>
+
+  <section id="flow-s" aria-labelledby="flow-h">
+    <div class="sec-head">
+      <h2 id="flow-h">Follow the bugs</h2>
+      <p>Each dot is one bug. Pick a setup and watch where every bug goes: the cheap model's loop, the repository's tests, a reviewer if there is one, the strong model if the bug is escalated, and finally SWE-bench's hidden tests.</p>
+    </div>
+    <div class="chooser" data-for="setup"></div>
+    <div class="panel">
+      <div class="flow-wrap"><svg id="flow" viewBox="0 0 1000 440" role="img" aria-labelledby="flow-title"><title id="flow-title">Bugs flowing through the selected setup</title></svg></div>
+      <div class="row-between" style="margin-top:10px">
+        <div class="legend"><span><i class="sw s-solved"></i>Solved (hidden tests pass)</span><span><i class="sw s-lied"></i>Accepted but wrong: the tests lied</span><span><i class="sw s-failed"></i>Not solved</span></div>
+        <button class="btn" id="replay" type="button">Run again</button>
+      </div>
+      <p class="caption" id="flow-caption" style="margin-top:10px"></p>
+    </div>
+  </section>
+
+  <section id="cost-s" aria-labelledby="cost-h">
+    <div class="sec-head">
+      <h2 id="cost-h">What each setup costs</h2>
+      <p>Bugs solved against the average cost per bug, on the same bugs. Up and to the left is better. Hollow points are simulated: they reuse recorded runs and reviews instead of running the cascade live.</p>
+    </div>
+    <div class="two">
+      <div class="panel chart" style="position:relative"><svg id="chart" viewBox="0 0 640 400" role="img" aria-labelledby="chart-title"><title id="chart-title">Bugs solved against cost per bug for each setup</title></svg><div class="tip" id="tip" hidden></div></div>
+      <div class="panel tablebox"><table id="cost-table"><thead><tr><th>Setup</th><th class="r">Solved</th><th class="r">$ / bug</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="calc-s" aria-labelledby="calc-h">
+    <div class="sec-head">
+      <h2 id="calc-h">When does a reviewed cascade pay off?</h2>
+      <p>A cheap model tries first. If its fix passes the tests, a reviewer reads it; a rejected fix, or one that never passes, goes to the strong model. Move the sliders to see when that beats running the strong model on everything. Start from a measured setup, then change one thing at a time.</p>
+    </div>
+    <div class="presets" id="presets"></div>
+    <div class="calc">
+      <div class="panel sliders" id="sliders"></div>
+      <div class="panel" style="display:grid;gap:14px">
+        <div class="verdict" id="verdict"></div>
+        <p class="callout" id="callout"></p>
+        <div class="chart"><svg id="be" viewBox="0 0 560 300" role="img" aria-labelledby="be-title"><title id="be-title">Cost per bug against how often the cheap model passes the tests</title></svg></div>
+        <p class="caption" id="be-caption"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="rev-s" aria-labelledby="rev-h">
+    <div class="sec-head">
+      <h2 id="rev-h">How good are the reviewers?</h2>
+      <p>Each reviewer read fixes that had already passed the repository's tests, then approved or rejected them. The hidden tests say which fixes were actually right. As in the paper, each review is judged by the hidden tests of the fix it read, which includes fixes the loop accepted on bugs whose tests were already failing. Select a square to list those bugs.</p>
+    </div>
+    <div class="cards" id="cards"></div>
+    <div class="panel" id="rev-list" style="display:grid;gap:10px"></div>
+  </section>
+
+  <section id="hh-s" aria-labelledby="hh-h">
+    <div class="sec-head">
+      <h2 id="hh-h">Head to head</h2>
+      <p>Two setups on the same bugs. Most bugs both solve or both miss; the bugs where they disagree are what the difference rests on.</p>
+    </div>
+    <div class="hh-pick"><select id="hh-a" aria-label="First setup"></select><span>against</span><select id="hh-b" aria-label="Second setup"></select></div>
+    <div class="split" id="hh-split"></div>
+    <div class="two" style="align-items:start">
+      <div class="panel" style="display:grid;gap:8px"><span class="eyebrow" id="hh-onlya-h"></span><div class="buglist" id="hh-onlya"></div></div>
+      <div class="panel" style="display:grid;gap:8px"><span class="eyebrow" id="hh-onlyb-h"></span><div class="buglist" id="hh-onlyb"></div></div>
+    </div>
+    <p class="caption" id="hh-caption"></p>
+  </section>
+
+  <section id="why-s" aria-labelledby="why-h">
+    <div class="sec-head">
+      <h2 id="why-h">Why the tests lied</h2>
+      <p>64 accepted-but-wrong fixes from the pilot, each read by hand with the issue, the official fix and the failing hidden test, and put in one category by two labellers working independently. They agreed on 52 of 64 (Cohen's κ = 0.73) and on all 29 cases both were sure of, then settled the other 12 together. The counts below are the settled labels.</p>
+    </div>
+    <div class="panel cats" id="cats"></div>
+  </section>
+
+  <section id="heat-s" aria-labelledby="heat-h">
+    <div class="sec-head">
+      <h2 id="heat-h">By project</h2>
+      <p>Share of each project's bugs solved by each setup. Projects with fewer than 5 bugs are grouped as "other". Small projects swing a lot: one bug can move a cell by 20 points.</p>
+    </div>
+    <div class="panel tablebox"><table class="heat" id="heat"></table></div>
+  </section>
+
+  <section id="map-s" aria-labelledby="map-h">
+    <div class="sec-head">
+      <h2 id="map-h">Every bug</h2>
+      <p>One square per bug, grouped by project. The colour is that bug's result under the setup you pick. Select a square, or search for a bug, to replay what happened to it.</p>
+    </div>
+    <div class="chooser" data-for="setup"></div>
+    <div class="map-tools">
+      <div class="legend"><span><i class="sw s-solved"></i>Solved</span><span><i class="sw s-lied"></i>Accepted but wrong</span><span><i class="sw s-failed"></i>Not solved</span><span><i class="sw s-crash"></i>Run crashed</span></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+        <input type="search" id="search" placeholder="Find a bug, e.g. django-14376" aria-label="Find a bug" list="bug-ids">
+        <datalist id="bug-ids"></datalist>
+        <label class="toggle"><input type="checkbox" id="only-lied"> Only bugs where the tests lied</label>
+      </div>
+    </div>
+    <div class="map-layout">
+      <div class="panel repos" id="repos"></div>
+      <aside class="panel detail" id="detail" aria-live="polite"></aside>
+    </div>
+  </section>
+
+  <section id="arch-s" aria-labelledby="arch-h">
+    <div class="sec-head">
+      <h2 id="arch-h">The system behind it</h2>
+      <p>Loop Runner is the product: an agent that fixes code until the tests pass, streamed live to the browser. The study runs the same agent loop at scale against SWE-bench.</p>
+    </div>
+    <div class="panel arch">
+      <div class="lane"><span class="eyebrow">The product</span>
+        <div class="lane-row">
+          <div class="box"><b>Web app</b><span>Next.js 14: start a session, watch the agent's tokens live, history and analytics</span></div>
+          <span class="arrow">⇄</span>
+          <div class="box"><b>API</b><span>FastAPI, WebSocket streaming, auth, rate limits, encrypted bring-your-own-key vault</span></div>
+          <span class="arrow">⇄</span>
+          <div class="box"><b>Redis</b><span>pub/sub fan-out, so any pod can stream any session; analytics cache</span></div>
+        </div>
+        <div class="lane-row">
+          <div class="box"><b>Agent loop</b><span>write a fix → run the verify command → feed the failure output back → retry; commit on green</span><code>core/loop.py · core/agent.py</code></div>
+          <span class="arrow">→</span>
+          <div class="box"><b>Model providers</b><span>Anthropic, OpenAI, Gemini, Mistral behind one interface, with per-call cost tracking</span><code>providers/</code></div>
+          <span class="arrow">→</span>
+          <div class="box"><b>Kubernetes</b><span>one Job per session, resource limits, autoscaling; PostgreSQL in production</span><code>k8s/</code></div>
+        </div>
+      </div>
+      <div class="lane"><span class="eyebrow">The study</span>
+        <div class="lane-row">
+          <div class="box"><b>SWE-bench Verified</b><span>real GitHub issues; the official Docker image for each bug</span></div>
+          <span class="arrow">→</span>
+          <div class="box"><b>Batch runner</b><span>a cloud VM builds ~109 images at a time, runs every setup on them, then frees the disk</span><code>benchmarks/cloud/fresh_run.sh</code></div>
+          <span class="arrow">→</span>
+          <div class="box"><b>Setups</b><span>Haiku, Flash-Lite and Sonnet alone; cascades that escalate on failing tests; a live reviewer</span><code>benchmarks/swe_run.py</code></div>
+          <span class="arrow">→</span>
+          <div class="box"><b>Offline reviewers</b><span>Carbon and Sonnet re-read recorded fixes, so cross-company cascades can be simulated without new runs</span><code>benchmarks/review_offline.py</code></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot prose" id="foot"></footer>
+  <div class="tour" id="tour" role="dialog" aria-live="polite" aria-labelledby="tour-h" hidden>
+    <span class="eyebrow" id="tour-n"></span><h3 id="tour-h"></h3><p id="tour-p"></p>
+    <div class="tour-nav"><button type="button" id="tour-close">Close</button><button type="button" id="tour-back">Back</button><button type="button" class="next" id="tour-next">Next</button></div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+(() => {
+const STUDY = window.STUDY || {};
+const SETS = {
+  fresh: { bugs: (STUDY.fresh && STUDY.fresh.bugs) || [], runKeys: ["haiku", "lite", "cascade", "reviewed", "sonnet"],
+    setups: ["haiku", "lite", "cascade", "reviewed", "sonnet", "simCarbon", "simLiteRev", "simLiteTests"] },
+  pilot: { bugs: (STUDY.pilot && STUDY.pilot.bugs) || [], runKeys: ["haiku", "cascade", "sonnet"],
+    setups: ["haiku", "cascade", "sonnet", "simSonnetRev"] },
+};
+const BATCHES = (STUDY.fresh && STUDY.fresh.batches) || 0;
+const LABELS = STUDY.labels || [];
+const ALL_SETUPS = [
+  { key: "haiku", name: "Haiku alone", short: "Haiku", kind: "real", cheap: "Haiku 5.5" },
+  { key: "lite", name: "Flash-Lite alone", short: "Flash-Lite", kind: "real", cheap: "Flash-Lite 3.5" },
+  { key: "cascade", name: "Haiku → Sonnet", short: "Cascade", kind: "real", cheap: "Haiku 5.5", strong: true },
+  { key: "reviewed", name: "Haiku → Sonnet review → Sonnet", short: "Reviewed cascade", kind: "real", cheap: "Haiku 5.5", reviewer: "Sonnet 5.5", strong: true },
+  { key: "sonnet", name: "Sonnet alone", short: "Sonnet", kind: "real", cheap: "Sonnet 5.5" },
+  { key: "simCarbon", name: "Haiku → Carbon review → Sonnet", short: "Haiku + Carbon", kind: "sim", cheap: "Haiku 5.5", reviewer: "Gemini 4 Carbon", strong: true, cheapRun: "haiku", rev: "carbon" },
+  { key: "simLiteRev", name: "Flash-Lite → Sonnet review → Sonnet", short: "Flash-Lite + review", kind: "sim", cheap: "Flash-Lite 3.5", reviewer: "Sonnet 5.5", strong: true, cheapRun: "lite", rev: "sonnetLite" },
+  { key: "simLiteTests", name: "Flash-Lite → Sonnet", short: "Flash-Lite cascade", kind: "sim", cheap: "Flash-Lite 3.5", strong: true, cheapRun: "lite" },
+  { key: "simSonnetRev", name: "Haiku → Sonnet review → Sonnet", short: "Reviewed cascade", kind: "sim", cheap: "Haiku 5.5", reviewer: "Sonnet 5.5", strong: true, cheapRun: "haiku", rev: "sonnet" },
+];
+const BY_KEY = Object.fromEntries(ALL_SETUPS.map(s => [s.key, s]));
+const RUN_NAMES = { haiku: "Haiku alone", lite: "Flash-Lite alone", cascade: "Haiku → Sonnet", reviewed: "Reviewed cascade", sonnet: "Sonnet alone" };
+const REVIEWERS = {
+  fresh: [{ rev: "carbon", run: "haiku", name: "Gemini 4 Carbon reviewing Haiku", note: "different company, prompt v2" },
+          { rev: "sonnetLite", run: "lite", name: "Sonnet reviewing Flash-Lite", note: "different company, prompt v2" }],
+  pilot: [{ rev: "sonnet", run: "haiku", name: "Sonnet reviewing Haiku", note: "same company, prompt v1" }],
+};
+const OUT_TEXT = { solved: "Solved", lied: "Accepted but wrong", failed: "Not solved", crash: "Run crashed" };
+const bin = o => (o === "solved" ? "solved" : o === "lied" ? "lied" : "failed");
+const usd = v => "$" + (v < 0.01 ? v.toFixed(4) : v.toFixed(3));
+const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0) + "%";
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const $ = id => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+const mk = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+
+let SET = "fresh", BUGS = SETS.fresh.bugs, N = BUGS.length, STATS = {};
+let current = "reviewed";
+const setupsHere = () => SETS[SET].setups.map(k => BY_KEY[k]);
+
+// Where one bug goes under one setup: the path through the flow, the final outcome and the cost.
+function trace(b, key) {
+  const R = b.runs, s = BY_KEY[key];
+  if (!s.strong) { const run = R[key]; return { path: ["in", "cheap", "gate", "hidden"], o: run.o, c: run.c }; }
+  if (s.kind === "real") {
+    const run = R[key];
+    const p = run.r === "rejected" ? ["in", "cheap", "gate", "rev", "strong", "hidden"]
+      : run.r === "escalated" ? ["in", "cheap", "gate", "strong", "hidden"]
+      : key === "reviewed" && run.r === "kept" ? ["in", "cheap", "gate", "rev", "hidden"]
+      : ["in", "cheap", "gate", "hidden"];
+    return { path: p, o: run.o, c: run.c };
+  }
+  const cheap = R[s.cheapRun], review = s.rev ? b.rev[s.rev] : null, strong = R.sonnet;
+  if (!cheap.p) return { path: ["in", "cheap", "gate", "strong", "hidden"], o: strong.o, c: cheap.c + strong.c, escalated: true };
+  if (!s.rev) return { path: ["in", "cheap", "gate", "hidden"], o: cheap.o, c: cheap.c };
+  if (review && !review.acc) return { path: ["in", "cheap", "gate", "rev", "strong", "hidden"], o: strong.o, c: cheap.c + review.c + strong.c, rejected: true };
+  return { path: ["in", "cheap", "gate", "rev", "hidden"], o: cheap.o, c: cheap.c + (review ? review.c : 0) };
+}
+function summarise(key) {
+  let solved = 0, lied = 0, cost = 0;
+  for (const b of BUGS) { const t = trace(b, key); if (t.o === "solved") solved++; if (t.o === "lied") lied++; cost += t.c; }
+  return { solved, lied, cost: cost / N };
+}
+const solvedBy = (b, key) => trace(b, key).o === "solved";
+
+// ---------- set switch ----------
+const listeners = [];
+function setSet(name) {
+  SET = name; BUGS = SETS[name].bugs; N = BUGS.length;
+  STATS = Object.fromEntries(SETS[name].setups.map(k => [k, summarise(k)]));
+  if (!SETS[name].setups.includes(current)) current = name === "pilot" ? "simSonnetRev" : "reviewed";
+  document.querySelectorAll(".seg [data-set]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.set === name)));
+  drawChoosers();
+  listeners.forEach(f => f());
+}
+document.querySelector(".seg").addEventListener("click", e => { const b = e.target.closest("[data-set]"); if (b && b.dataset.set !== SET) setSet(b.dataset.set); });
+
+// ---------- key figures ----------
+function wrongShare(runKey) {
+  const acc = BUGS.filter(b => b.runs[runKey] && b.runs[runKey].p && b.runs[runKey].o !== "crash");
+  return { wrong: acc.filter(b => b.runs[runKey].o === "lied").length, of: acc.length };
+}
+function confusion(r) { // reviews of accepted fixes: approved/rejected against right/wrong
+  // Fresh-set reviews carry the hidden-test result of the fix they read (hp), as in the paper; that covers every fix the
+  // loop accepted, including ones it stopped on because only tests that were already failing still failed
+  const own = BUGS.some(b => b.rev[r.rev] && "hp" in b.rev[r.rev]);
+  const right = b => (own ? b.rev[r.rev].hp : b.runs[r.run].o === "solved");
+  const rows = own ? BUGS.filter(b => b.rev[r.rev])
+    : BUGS.filter(b => b.rev[r.rev] && b.runs[r.run].p && ["solved", "lied"].includes(b.runs[r.run].o));
+  const cell = (ok, acc) => rows.filter(b => right(b) === ok && b.rev[r.rev].acc === acc);
+  return { rows, tp: cell(false, false), fn: cell(false, true), fp: cell(true, false), tn: cell(true, true),
+    unread: rows.filter(b => b.rev[r.rev].unread).length, cost: rows.reduce((s, b) => s + b.rev[r.rev].c, 0) };
+}
+function drawReport() {
+  const h = wrongShare("haiku"), tiles = [[N, SET === "fresh" ? (BATCHES >= 4 ? "bugs, all 4 batches" : `bugs run so far, ${BATCHES} of 4 batches`) : "pilot bugs, picked to be hard", SET === "fresh" ? "SWE-bench Verified, not in the pilot" : "SWE-bench Verified"]];
+  tiles.push([pct(h.wrong, h.of), "of Haiku's accepted fixes fail the hidden tests", `${h.wrong} of ${h.of} accepted fixes`]);
+  if (SET === "fresh") { const l = wrongShare("lite"); tiles.push([pct(l.wrong, l.of), "of Flash-Lite's accepted fixes fail the hidden tests", `${l.wrong} of ${l.of} accepted fixes`]); }
+  const cs = REVIEWERS[SET].map(confusion), hit = cs.reduce((s, c) => s + c.tp.length, 0), bad = cs.reduce((s, c) => s + c.tp.length + c.fn.length, 0);
+  tiles.push([pct(hit, bad), SET === "fresh" ? "of the wrong fixes they read, caught by a reviewer from another company" : "of those wrong fixes caught by a Sonnet reviewer",
+    REVIEWERS[SET].map((r, i) => `${r.name.split(" ")[0] === "Gemini" ? "Carbon" : "Sonnet"} ${cs[i].tp.length}/${cs[i].tp.length + cs[i].fn.length}`).join(" · ")]);
+  $("report").innerHTML = tiles.map(([n, l2, src]) => `<div><span class="big">${n}</span><span class="lbl">${l2}</span><span class="src">${src}</span></div>`).join("");
+}
+listeners.push(drawReport);
+
+// ---------- setup chooser (shared) ----------
+function drawChoosers() {
+  const group = (label, kind) => {
+    const list = setupsHere().filter(s => s.kind === kind);
+    return list.length ? `<div class="chip-group"><span class="eyebrow">${label}</span><div class="chips">` +
+      list.map(s => `<button class="chip" type="button" data-k="${s.key}" aria-pressed="${s.key === current}">${s.name}${kind === "sim" ? '<span class="tag">sim</span>' : ""}</button>`).join("") + "</div></div>" : "";
+  };
+  document.querySelectorAll('.chooser[data-for="setup"]').forEach(el => (el.innerHTML = `<div style="display:grid;gap:10px">${group("Recorded runs", "real")}${group("Simulated from recorded runs", "sim")}</div>`));
+}
+document.querySelectorAll('.chooser[data-for="setup"]').forEach(el => el.addEventListener("click", e => {
+  const k = e.target.closest("[data-k]"); if (!k) return;
+  current = k.dataset.k;
+  document.querySelectorAll(".chip[data-k]").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.k === current)));
+  drawFlow(); paintMap(); showDetail();
+}));
+
+// ---------- flow ----------
+const svg = $("flow");
+const P = { in: [70, 210], cheap: [235, 150], gate: [395, 150], rev: [555, 150], strong: [555, 320], hidden: [720, 210] };
+const BIN = { solved: { y: 52, label: "Solved" }, lied: { y: 214, label: "Accepted but wrong" }, failed: { y: 336, label: "Not solved" } };
+const BX = 800, COLS = 30, CELL = 6.4;
+const layer = { edges: mk("g", {}, svg), nodes: mk("g", {}, svg), labels: mk("g", {}, svg), bins: mk("g", {}, svg), dots: mk("g", {}, svg) };
+const LABEL_AT = { "gate>rev": [475, 112, "middle"], "gate>hidden": [565, 214, "middle"], "gate>strong": [452, 262, "end"], "rev>hidden": [660, 162, "start"], "rev>strong": [563, 240, "start"] };
+const EDGES = [["in", "cheap"], ["cheap", "gate"], ["gate", "rev"], ["gate", "hidden"], ["gate", "strong"], ["rev", "hidden"], ["rev", "strong"], ["strong", "hidden"]];
+const edgeEls = {};
+for (const [a, b] of EDGES) {
+  const [x1, y1] = P[a], [x2, y2] = P[b], mx = (x1 + x2) / 2;
+  const d = y1 === y2 ? `M${x1},${y1} L${x2},${y2}` : `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+  edgeEls[a + ">" + b] = { path: mk("path", { d, class: "edge" }, layer.edges), label: mk("text", { class: "elabel" }, layer.labels) };
+}
+function nodeBox(id, w, title) {
+  const g = mk("g", { class: "node" }, layer.nodes), [x, y] = P[id];
+  mk("rect", { x: x - w / 2, y: y - 26, width: w, height: 52, rx: 5 }, g);
+  const t = mk("text", { x, y: y - 3, "text-anchor": "middle" }, g); t.textContent = title;
+  const s = mk("text", { x, y: y + 15, "text-anchor": "middle", class: "sub" }, g);
+  return { g, t, s };
+}
+const NODES = { in: nodeBox("in", 92, "Bugs"), cheap: nodeBox("cheap", 130, "Agent"), gate: nodeBox("gate", 128, "Repo tests"),
+  rev: nodeBox("rev", 130, "Reviewer"), strong: nodeBox("strong", 130, "Sonnet 5.5"), hidden: nodeBox("hidden", 112, "Hidden tests") };
+for (const k in BIN) {
+  const t = mk("text", { x: BX, y: BIN[k].y - 10, class: "binlabel" }, layer.bins); t.textContent = BIN[k].label;
+  BIN[k].count = mk("text", { x: BX + COLS * CELL, y: BIN[k].y - 10, class: "bincount", "text-anchor": "end" }, layer.bins);
+}
+let dotEls = [];
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let anim = null;
+function seg(a, b) {
+  const [x1, y1] = P[a], [x2, y2] = P[b], mx = (x1 + x2) / 2, pts = [];
+  for (let i = 0; i <= 16; i++) {
+    const t = i / 16, u = 1 - t;
+    pts.push(y1 === y2 ? [x1 + (x2 - x1) * t, y1] : [u * u * u * x1 + 3 * u * u * t * mx + 3 * u * t * t * mx + t * t * t * x2, u * u * u * y1 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y2]);
+  }
+  return pts;
+}
+function drawFlow() {
+  const s = BY_KEY[current], traces = BUGS.map(b => trace(b, current));
+  while (dotEls.length < N) dotEls.push(mk("circle", { r: 2.6, style: "fill:var(--dot)" }, layer.dots));
+  dotEls.forEach((d, i) => (d.style.display = i < N ? "" : "none"));
+  const used = new Set(), counts = {};
+  traces.forEach(t => t.path.forEach((n, i) => { used.add(n); if (i) { const k = t.path[i - 1] + ">" + n; counts[k] = (counts[k] || 0) + 1; } }));
+  for (const k in NODES) NODES[k].g.setAttribute("class", "node " + (used.has(k) ? "on" : "off"));
+  NODES.cheap.t.textContent = s.cheap; NODES.cheap.s.textContent = "fix, test, retry";
+  NODES.gate.s.textContent = "pass or fail";
+  NODES.rev.t.textContent = s.reviewer || "Reviewer"; NODES.rev.s.textContent = s.reviewer ? "reads the fix" : "none here";
+  NODES.strong.s.textContent = s.strong ? "starts again" : "not used";
+  NODES.in.s.textContent = N + " bugs"; NODES.hidden.s.textContent = "SWE-bench";
+  const words = { "gate>rev": "tests pass", "gate>hidden": s.strong ? "tests pass" : "", "gate>strong": "tests fail", "rev>hidden": "approved", "rev>strong": "rejected" };
+  for (const k in edgeEls) {
+    const on = !!counts[k], e = edgeEls[k], spot = LABEL_AT[k];
+    e.path.setAttribute("class", "edge" + (on ? " on" : ""));
+    e.path.setAttribute("stroke-width", on ? Math.max(1.5, Math.min(9, (counts[k] / N) * 30)) : 1.5);
+    e.label.setAttribute("x", spot ? spot[0] : 0); e.label.setAttribute("y", spot ? spot[1] : 0); e.label.setAttribute("text-anchor", spot ? spot[2] : "middle");
+    e.label.textContent = on && spot && counts[k] >= 2 ? `${counts[k]}${words[k] ? " " + words[k] : ""}` : "";
+  }
+  const filled = { solved: 0, lied: 0, failed: 0 };
+  const cols = Math.max(COLS, Math.ceil(N / 13));
+  const plans = traces.map((t, i) => {
+    let pts = [];
+    t.path.forEach((n, j) => { if (j) pts = pts.concat(seg(t.path[j - 1], n).slice(j > 1 ? 1 : 0)); });
+    const k = bin(t.o), idx = filled[k]++, cell = (COLS * CELL) / cols;
+    const end = [BX + (idx % cols) * cell + 3, BIN[k].y + Math.floor(idx / cols) * cell + 3];
+    pts.push([(P.hidden[0] + end[0]) / 2, (P.hidden[1] + end[1]) / 2], end);
+    const jit = ((i * 7919) % 17) - 8;
+    pts = pts.map(([x, y], j) => (j === 0 || j === pts.length - 1 ? [x, y] : [x, y + jit * 0.9]));
+    const len = [0];
+    for (let j = 1; j < pts.length; j++) len.push(len[j - 1] + Math.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]));
+    return { pts, len, total: len[len.length - 1], k };
+  });
+  for (const k in BIN) BIN[k].count.textContent = filled[k];
+  const st = STATS[current];
+  $("flow-caption").textContent = `${s.name}${s.kind === "sim" ? " (simulated)" : ""}: ${st.solved} of ${N} bugs solved (${pct(st.solved, N)}), ` +
+    `${st.lied} accepted but wrong, ${usd(st.cost)} per bug on average.` + (s.kind === "sim" ? " Escalated bugs score what Sonnet scored when it ran alone on that bug." : "");
+  run(plans);
+}
+function place(el, plan, d) {
+  const { pts, len } = plan;
+  let j = 1; while (j < len.length - 1 && len[j] < d) j++;
+  const t = len[j] === len[j - 1] ? 1 : Math.min(1, Math.max(0, (d - len[j - 1]) / (len[j] - len[j - 1])));
+  el.setAttribute("cx", pts[j - 1][0] + (pts[j][0] - pts[j - 1][0]) * t);
+  el.setAttribute("cy", pts[j - 1][1] + (pts[j][1] - pts[j - 1][1]) * t);
+}
+function run(plans) {
+  if (anim) cancelAnimationFrame(anim);
+  const color = k => `var(--${k})`;
+  if (reduce) { plans.forEach((p, i) => { place(dotEls[i], p, p.total); dotEls[i].style.fill = color(p.k); }); return; }
+  const speed = 0.42, gap = Math.max(6, 2800 / plans.length), t0 = performance.now();
+  const order = plans.map((_, i) => i).sort((a, b) => ((a * 2654435761) % 997) - ((b * 2654435761) % 997));
+  const start = new Array(plans.length); order.forEach((i, n) => (start[i] = n * gap));
+  const frame = now => {
+    let busy = false;
+    plans.forEach((p, i) => {
+      const d = Math.max(0, (now - t0 - start[i]) * speed);
+      place(dotEls[i], p, Math.min(d, p.total));
+      dotEls[i].style.fill = d >= p.len[p.len.length - 3] ? color(p.k) : "var(--dot)";
+      if (d < p.total) busy = true;
+    });
+    if (busy) anim = requestAnimationFrame(frame);
+  };
+  anim = requestAnimationFrame(frame);
+}
+$("replay").addEventListener("click", drawFlow);
+listeners.push(drawFlow);
+
+// ---------- cost chart ----------
+const tip = $("tip");
+function drawChart() {
+  const c = $("chart"); c.innerHTML = '<title id="chart-title">Bugs solved against cost per bug for each setup</title>';
+  const W = 640, H = 400, L = 56, R = 24, T = 20, B = 46, list = setupsHere();
+  const rates = list.map(s => (100 * STATS[s.key].solved) / N), costs = list.map(s => STATS[s.key].cost);
+  const xmin = 0.002, xmax = 0.2;
+  const yLo = Math.floor((Math.min(...rates) - 5) / 10) * 10, yHi = Math.min(100, Math.ceil((Math.max(...rates) + 4) / 10) * 10);
+  const x = v => L + ((Math.log10(Math.max(v, xmin)) - Math.log10(xmin)) / (Math.log10(xmax) - Math.log10(xmin))) * (W - L - R);
+  const y = v => T + (1 - (v - yLo) / (yHi - yLo)) * (H - T - B);
+  const grid = mk("g", { class: "grid" }, c), ax = mk("g", { class: "axis" }, c);
+  for (let v = yLo; v <= yHi; v += 10) {
+    mk("line", { x1: L, x2: W - R, y1: y(v), y2: y(v) }, grid);
+    mk("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end" }, ax).textContent = v + "%";
+  }
+  for (const v of [0.003, 0.01, 0.03, 0.1]) {
+    mk("line", { x1: x(v), x2: x(v), y1: T, y2: H - B }, grid);
+    mk("text", { x: x(v), y: H - B + 18, "text-anchor": "middle" }, ax).textContent = "$" + v;
+  }
+  mk("text", { x: (L + W - R) / 2, y: H - 8, "text-anchor": "middle" }, ax).textContent = "average cost per bug (log scale)";
+  mk("text", { x: 14, y: (T + H - B) / 2, "text-anchor": "middle", transform: `rotate(-90 14 ${(T + H - B) / 2})` }, ax).textContent = "bugs solved";
+  const SPOT = { haiku: [10, 4, "start"], lite: [10, 4, "start"], cascade: [0, 20, "middle"], reviewed: [-10, 4, "end"], sonnet: [-10, -8, "end"],
+    simCarbon: [0, -12, "middle"], simLiteRev: [0, 21, "middle"], simLiteTests: [0, 21, "middle"], simSonnetRev: [0, 21, "middle"] };
+  list.forEach((s, i) => {
+    const pg = mk("g", { class: "pt" }, c), cx = x(costs[i]), cy = y(rates[i]), sim = s.kind === "sim", st = STATS[s.key];
+    mk("circle", { cx, cy, r: 14, fill: "transparent" }, pg);
+    mk("circle", { cx, cy, r: 6, "stroke-width": 2, style: sim ? "fill:var(--surface);stroke:var(--ink)" : "fill:var(--ink);stroke:var(--surface)" }, pg);
+    const [dx, dy, anchor] = SPOT[s.key];
+    mk("text", { x: cx + dx, y: cy + dy, "text-anchor": anchor }, pg).textContent = s.short;
+    pg.addEventListener("pointerenter", () => {
+      tip.hidden = false;
+      tip.innerHTML = `<b>${s.name}</b>${sim ? " (simulated)" : ""}<br>${st.solved} of ${N} solved · ${usd(st.cost)} per bug<br>${st.lied} accepted but wrong`;
+      const box = c.getBoundingClientRect(), k = box.width / W;
+      tip.style.left = Math.max(0, Math.min(box.width - 250, cx * k + 24)) + "px"; tip.style.top = cy * k + "px";
+    });
+    pg.addEventListener("pointerleave", () => (tip.hidden = true));
+  });
+  document.querySelector("#cost-table tbody").innerHTML = [...list].sort((a, b) => STATS[b.key].solved - STATS[a.key].solved).map(s =>
+    `<tr><td>${s.name}${s.kind === "sim" ? '<span class="simtag">sim</span>' : ""}</td><td class="r">${STATS[s.key].solved} <span style="color:var(--muted)">(${pct(STATS[s.key].solved, N)})</span></td><td class="r">${usd(STATS[s.key].cost)}</td></tr>`).join("");
+}
+listeners.push(drawChart);
+
+// ---------- break-even calculator ----------
+// Per bug: the cheap model always runs; the reviewer reads every accepted fix; the strong model runs on escalations.
+//   escalated = (1 - a) + a·w·catch + a·(1 - w)·falseReject
+//   cost      = cheap + a·review + escalated·strong
+//   solved    = a·(1 - w)·(1 - falseReject) + escalated·s
+const SL = [
+  { id: "cc", label: "Cheap model, cost per bug", min: 0.001, max: 0.1, step: 0.001, fmt: v => usd(v), group: "Prices" },
+  { id: "cr", label: "Reviewer, cost per review", min: 0, max: 0.2, step: 0.001, fmt: v => usd(v), group: "Prices" },
+  { id: "cs", label: "Strong model, cost per bug", min: 0.01, max: 0.5, step: 0.001, fmt: v => usd(v), group: "Prices" },
+  { id: "a", label: "Cheap model gets the tests to pass", min: 0, max: 1, step: 0.01, fmt: v => Math.round(v * 100) + "% of bugs", group: "The cheap model", hint: "Drawn as the line in the chart" },
+  { id: "w", label: "…but the fix is wrong", min: 0, max: 0.8, step: 0.01, fmt: v => Math.round(v * 100) + "% of those", group: "The cheap model" },
+  { id: "k", label: "Reviewer catches a wrong fix", min: 0, max: 1, step: 0.01, fmt: v => Math.round(v * 100) + "%", group: "The reviewer" },
+  { id: "f", label: "Reviewer rejects a good fix", min: 0, max: 0.8, step: 0.01, fmt: v => Math.round(v * 100) + "%", group: "The reviewer" },
+  { id: "s", label: "Strong model solves an escalated bug", min: 0, max: 1, step: 0.01, fmt: v => Math.round(v * 100) + "%", group: "The strong model" },
+  { id: "S", label: "Strong model alone solves", min: 0, max: 1, step: 0.01, fmt: v => Math.round(v * 100) + "% of bugs", group: "The strong model" },
+];
+const V = {};
+function model(v, a = v.a) {
+  const esc2 = (1 - a) + a * v.w * v.k + a * (1 - v.w) * v.f;
+  return { cost: v.cc + a * v.cr + esc2 * v.cs, solved: a * (1 - v.w) * (1 - v.f) + esc2 * v.s };
+}
+function measured(cheapRun, revKey, bugs) { // the calculator's inputs, measured on the recorded runs
+  const B2 = bugs, n = B2.length, acc = B2.filter(b => b.runs[cheapRun].p);
+  const reviewed = acc.filter(b => b.rev[revKey] && ["solved", "lied"].includes(b.runs[cheapRun].o));
+  const wrong = reviewed.filter(b => b.runs[cheapRun].o === "lied"), right = reviewed.filter(b => b.runs[cheapRun].o === "solved");
+  const escalated = B2.filter(b => !b.runs[cheapRun].p || (b.rev[revKey] && !b.rev[revKey].acc));
+  const mean = (xs, f) => (xs.length ? xs.reduce((s, b) => s + f(b), 0) / xs.length : 0);
+  return { cc: mean(B2, b => b.runs[cheapRun].c), cr: mean(reviewed, b => b.rev[revKey].c), cs: mean(B2, b => b.runs.sonnet.c),
+    a: acc.length / n, w: wrong.length / Math.max(1, reviewed.length), k: wrong.filter(b => !b.rev[revKey].acc).length / Math.max(1, wrong.length),
+    f: right.filter(b => !b.rev[revKey].acc).length / Math.max(1, right.length), s: mean(escalated, b => (b.runs.sonnet.o === "solved" ? 1 : 0)),
+    S: mean(B2, b => (b.runs.sonnet.o === "solved" ? 1 : 0)) };
+}
+const PRESETS = [
+  { name: "Pilot: Haiku + Sonnet reviewer", set: "pilot", cheap: "haiku", rev: "sonnet", sim: "simSonnetRev" },
+  { name: "Fresh: Haiku + Carbon reviewer", set: "fresh", cheap: "haiku", rev: "carbon", sim: "simCarbon" },
+  { name: "Fresh: Flash-Lite + Sonnet reviewer", set: "fresh", cheap: "lite", rev: "sonnetLite", sim: "simLiteRev" },
+];
+let preset = 0;
+function loadPreset(i) {
+  preset = i; const p = PRESETS[i], m = measured(p.cheap, p.rev, SETS[p.set].bugs);
+  for (const s of SL) { V[s.id] = m[s.id]; const el = $("sl-" + s.id); if (el) el.value = m[s.id]; }
+  document.querySelectorAll("#presets .chip").forEach((c, j) => c.setAttribute("aria-pressed", String(j === i)));
+  drawCalc();
+}
+(function buildCalc() {
+  $("presets").innerHTML = PRESETS.map((p, i) => `<button class="chip" type="button" data-p="${i}" aria-pressed="false">${p.name}</button>`).join("");
+  $("presets").addEventListener("click", e => { const b = e.target.closest("[data-p]"); if (b) loadPreset(+b.dataset.p); });
+  const groups = [...new Set(SL.map(s => s.group))];
+  $("sliders").innerHTML = groups.map(g => `<div class="sgroup"><span class="eyebrow">${g}</span>` + SL.filter(s => s.group === g).map(s =>
+    `<div class="slider"><label for="sl-${s.id}">${s.label}</label><output id="out-${s.id}" for="sl-${s.id}"></output><input type="range" id="sl-${s.id}" min="${s.min}" max="${s.max}" step="${s.step}">${s.hint ? `<small>${s.hint}</small>` : ""}</div>`).join("") + "</div>").join("");
+  $("sliders").addEventListener("input", e => { if (e.target.id && e.target.id.startsWith("sl-")) { V[e.target.id.slice(3)] = +e.target.value; drawCalc(); } });
+})();
+function drawCalc() {
+  for (const s of SL) $("out-" + s.id).textContent = s.fmt(V[s.id]);
+  const m = model(V), strongCost = V.cs, strongSolved = V.S;
+  const dc = (m.cost - strongCost) / strongCost, ds = (m.solved - strongSolved) * 100;
+  $("verdict").innerHTML = `<div><span class="k">Reviewed cascade</span><span class="v">${usd(m.cost)}</span><span class="s">per bug · solves ${Math.round(m.solved * 100)}%</span></div>
+    <div><span class="k">Strong model alone</span><span class="v">${usd(strongCost)}</span><span class="s">per bug · solves ${Math.round(strongSolved * 100)}%</span></div>`;
+  $("callout").textContent = `The cascade costs ${Math.abs(Math.round(dc * 100))}% ${dc <= 0 ? "less" : "more"} and solves ${Math.abs(ds).toFixed(1)} points ${ds >= 0 ? "more" : "fewer"} bugs per 100.`;
+  // chart: cost per bug against a, cascade line vs the strong model's flat line
+  const c = $("be"); c.innerHTML = '<title id="be-title">Cost per bug against how often the cheap model passes the tests</title>';
+  const W = 560, H = 300, L = 54, R = 16, T = 16, B = 42;
+  const ys = [0, 1].map(a => model(V, a).cost).concat(strongCost);
+  const yMax = Math.max(...ys) * 1.15, x = a => L + a * (W - L - R), y = v => T + (1 - v / yMax) * (H - T - B);
+  const grid = mk("g", { class: "grid" }, c), ax = mk("g", { class: "axis" }, c);
+  const step = yMax > 0.4 ? 0.1 : yMax > 0.15 ? 0.05 : yMax > 0.06 ? 0.02 : 0.01;
+  for (let v = 0; v <= yMax + 1e-9; v += step) { mk("line", { x1: L, x2: W - R, y1: y(v), y2: y(v) }, grid); mk("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end" }, ax).textContent = "$" + +v.toFixed(2); }
+  for (const a of [0, 0.25, 0.5, 0.75, 1]) mk("text", { x: x(a), y: H - B + 16, "text-anchor": "middle" }, ax).textContent = a * 100 + "%";
+  mk("text", { x: (L + W - R) / 2, y: H - 6, "text-anchor": "middle" }, ax).textContent = "share of bugs where the cheap model's fix passes the tests";
+  mk("line", { x1: x(0), x2: x(1), y1: y(strongCost), y2: y(strongCost), "stroke-width": 2, "stroke-dasharray": "5 4", style: "stroke:var(--ink-2)" }, c);
+  mk("text", { x: x(0) + 6, y: y(strongCost) + (model(V, 0).cost > strongCost ? 16 : -6), style: "fill:var(--ink-2)", "font-size": 12 }, c).textContent = "strong model alone";
+  mk("line", { x1: x(0), x2: x(1), y1: y(model(V, 0).cost), y2: y(model(V, 1).cost), "stroke-width": 2.5, style: "stroke:var(--accent)" }, c);
+  mk("text", { x: x(1) - 6, y: y(model(V, 1).cost) + (model(V, 1).cost < strongCost ? 18 : -8), "text-anchor": "end", style: "fill:var(--accent)", "font-size": 12, "font-weight": 600 }, c).textContent = "reviewed cascade";
+  const slope = model(V, 1).cost - model(V, 0).cost, cross = slope !== 0 ? (strongCost - model(V, 0).cost) / slope : NaN;
+  if (cross > 0 && cross < 1) mk("line", { x1: x(cross), x2: x(cross), y1: T, y2: H - B, style: "stroke:var(--muted)", "stroke-dasharray": "2 3" }, c);
+  mk("circle", { cx: x(V.a), cy: y(m.cost), r: 6, "stroke-width": 2, style: "fill:var(--accent);stroke:var(--surface)" }, c);
+  const p = PRESETS[preset], sim = SETS[p.set].bugs.length ? (() => { const keep = [SET, BUGS, N]; SET = p.set; BUGS = SETS[p.set].bugs; N = BUGS.length; const r = summarise(p.sim); [SET, BUGS, N] = keep; return r; })() : null;
+  const beText = cross > 0 && cross < 1
+    ? `Break-even: the cascade is cheaper only when the cheap model's fix passes the tests on ${slope < 0 ? "more" : "fewer"} than ${Math.round(cross * 100)}% of bugs. `
+    : model(V, 0).cost >= strongCost && model(V, 1).cost >= strongCost ? "With these prices the cascade never costs less than the strong model alone. " : "With these prices the cascade costs less at every pass rate. ";
+  $("be-caption").textContent = beText +
+    (sim ? `Check on the recorded runs (${p.name}): the simulation over each real bug gives ${pct(sim.solved, SETS[p.set].bugs.length)} solved at ${usd(sim.cost)} per bug.` : "");
+}
+loadPreset(0);
+
+// ---------- reviewers ----------
+let revSel = null;
+function drawReviewers() {
+  revSel = null;
+  $("cards").innerHTML = REVIEWERS[SET].map((r, i) => {
+    const c = confusion(r), wrong = c.tp.length + c.fn.length, right = c.fp.length + c.tn.length;
+    const cell = (key, list, of, cls, text) => `<button type="button" class="${cls}" data-r="${i}" data-c="${key}" aria-pressed="false"><b>${list.length}</b><span>${text} · ${pct(list.length, of)}</span></button>`;
+    return `<div class="panel" style="display:grid;gap:12px"><div><h3>${r.name}</h3><p class="note">${r.note} · ${c.rows.length} fixes · ${usd(c.cost)} in all</p></div>
+      <div class="cm"><span></span><span class="h">Approved</span><span class="h">Rejected</span>
+        <span class="h" style="align-self:center">Fix was wrong</span>${cell("fn", c.fn, wrong, "bad", "slipped through")}${cell("tp", c.tp, wrong, "good", "caught")}
+        <span class="h" style="align-self:center">Fix was right</span>${cell("tn", c.tn, right, "good", "kept")}${cell("fp", c.fp, right, "bad", "wrongly rejected")}</div>
+      <p class="note">${c.unread} of its replies ran out of room before a verdict; they count as rejections, which is what a cascade would do.</p></div>`;
+  }).join("");
+  $("rev-list").innerHTML = '<p class="note">Select a square above to list its bugs here. Each bug opens in the map below.</p>';
+}
+$("cards").addEventListener("click", e => {
+  const b = e.target.closest("[data-c]"); if (!b) return;
+  document.querySelectorAll("#cards [data-c]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  const r = REVIEWERS[SET][+b.dataset.r], c = confusion(r)[b.dataset.c];
+  const label = { fn: "Wrong fixes it approved", tp: "Wrong fixes it caught", tn: "Right fixes it kept", fp: "Right fixes it rejected" }[b.dataset.c];
+  $("rev-list").innerHTML = `<span class="eyebrow">${esc(r.name)} · ${label} · ${c.length}</span><div class="buglist">${c.map(x => `<button class="bug" type="button" data-id="${x.id}">${x.id}</button>`).join("") || '<span class="note">None.</span>'}</div>`;
+});
+listeners.push(drawReviewers);
+
+// ---------- head to head ----------
+function drawHHOptions() {
+  const opts = setupsHere().map(s => `<option value="${s.key}">${s.name}${s.kind === "sim" ? " (sim)" : ""}</option>`).join("");
+  $("hh-a").innerHTML = opts; $("hh-b").innerHTML = opts;
+  $("hh-a").value = "sonnet"; $("hh-b").value = SET === "fresh" ? "reviewed" : "simSonnetRev";
+  drawHH();
+}
+function binomTwoSided(k, n) { // exact McNemar: P(X <= min) * 2 under Binomial(n, 1/2)
+  if (!n) return 1;
+  let p = 0, c = 1; const m = Math.min(k, n - k);
+  for (let i = 0; i <= m; i++) { p += c; c = (c * (n - i)) / (i + 1); }
+  return Math.min(1, (2 * p) / Math.pow(2, n));
+}
+function drawHH() {
+  const A = $("hh-a").value, B2 = $("hh-b").value, sa = BY_KEY[A], sb = BY_KEY[B2];
+  const both = [], onlyA = [], onlyB = [], neither = [];
+  for (const b of BUGS) { const x = solvedBy(b, A), y = solvedBy(b, B2); (x && y ? both : x ? onlyA : y ? onlyB : neither).push(b); }
+  $("hh-split").innerHTML = [["Both solve", both], [`Only ${sa.short}`, onlyA], [`Only ${sb.short}`, onlyB], ["Neither", neither]].map(([t, l]) => `<div><b>${l.length}</b><span>${t}</span></div>`).join("");
+  $("hh-onlya-h").textContent = `Only ${sa.name} solves · ${onlyA.length}`; $("hh-onlyb-h").textContent = `Only ${sb.name} solves · ${onlyB.length}`;
+  const chips = l => l.map(b => `<button class="bug" type="button" data-id="${b.id}">${b.id}</button>`).join("") || '<span class="note">None.</span>';
+  $("hh-onlya").innerHTML = chips(onlyA); $("hh-onlyb").innerHTML = chips(onlyB);
+  const p = binomTwoSided(onlyA.length, onlyA.length + onlyB.length);
+  $("hh-caption").textContent = A === B2 ? "Pick two different setups." :
+    `The gap is ${Math.abs(onlyA.length - onlyB.length)} bugs out of ${N}. If the two setups were equally good, a split at least this uneven among the ${onlyA.length + onlyB.length} bugs they disagree on would happen ${p < 0.001 ? "less than 0.1%" : (p * 100).toFixed(p < 0.1 ? 1 : 0) + "%"} of the time (exact McNemar test).` +
+    (p < 0.05 ? " That is unlikely to be chance." : " That could easily be chance.");
+}
+$("hh-a").addEventListener("change", drawHH); $("hh-b").addEventListener("change", drawHH);
+listeners.push(drawHHOptions);
+
+// ---------- categories ----------
+const CATS = [
+  { k: "A", name: "Unstated detail", text: "The fix solves what the issue describes, but the hidden test checks something the issue never asks for: an exact message, a name, a return format." },
+  { k: "B", name: "Incomplete", text: "Right place, handles the reported example, but misses another input, code path or sibling function, like fixing __radd__ but not __add__." },
+  { k: "C", name: "Wrong fix", text: "Doesn't address the real cause: the wrong place, a patch over the symptom, the issue's example special-cased, or something that used to work now broken." },
+  { k: "D", name: "Evaluation problem", text: "The fix looks right; the failure comes from the environment or a test no reasonable fix could pass." },
+];
+(function drawCats() {
+  const total = LABELS.length, max = Math.max(1, ...CATS.map(c => LABELS.filter(l => l.cat === c.k).length));
+  $("cats").innerHTML = CATS.map(c => {
+    const ls = LABELS.filter(l => l.cat === c.k), sure = ls.filter(l => l.sure).length;
+    const ex = ls.filter((l, i) => l.note && ls.findIndex(m => m.id === l.id) === i).slice(0, 4).map(l => `<button type="button" data-id="${l.id}" data-set="pilot"><code>${l.id}</code><span>${esc(l.note)}</span></button>`).join("");
+    return `<div class="cat"><div><h3><span class="letter">${c.k}</span>${c.name}</h3><div class="bartrack"><i style="width:${(100 * ls.length) / max}%"></i></div>
+      <div class="count">${ls.length} of ${total} · ${pct(ls.length, total)} · both sure on ${sure}</div></div>
+      <div style="display:grid;gap:8px"><p class="note">${c.text}</p><div class="examples">${ex}</div></div></div>`;
+  }).join("") + `<p class="note">Categories A and D are arguably not the agent's fault: the hidden test wants something the issue never stated, or could not be passed at all. Together they are ${pct(LABELS.filter(l => l.cat === "A" || l.cat === "D").length, total)} of these cases, so the raw "accepted but wrong" rate overstates real defects.</p>`;
+})();
+
+// ---------- by project ----------
+function drawHeat() {
+  const list = setupsHere(), groups = {};
+  for (const b of BUGS) (groups[b.repo] = groups[b.repo] || []).push(b);
+  const big = Object.keys(groups).filter(r => groups[r].length >= 5).sort((a, b) => groups[b].length - groups[a].length);
+  const rows = big.map(r => [r, groups[r]]);
+  const small = Object.keys(groups).filter(r => groups[r].length < 5).flatMap(r => groups[r]);
+  if (small.length) rows.push(["other", small]);
+  const shade = v => (v >= 0.9 ? 4 : v >= 0.8 ? 3 : v >= 0.7 ? 2 : v >= 0.5 ? 1 : 0);
+  $("heat").innerHTML = `<thead><tr><th>Project</th>${list.map(s => `<th class="rot">${s.short}${s.kind === "sim" ? " (sim)" : ""}</th>`).join("")}</tr></thead><tbody>` +
+    rows.map(([r, bs]) => `<tr><td class="repo">${r} <span>${bs.length}</span></td>` + list.map(s => {
+      const v = bs.filter(b => solvedBy(b, s.key)).length / bs.length, h = shade(v);
+      return `<td class="cell" style="background:var(--heat-${h});color:${h >= 3 ? "var(--surface)" : "var(--ink)"}" title="${r}, ${s.name}: ${Math.round(v * 100)}% of ${bs.length}">${Math.round(v * 100)}</td>`;
+    }).join("") + "</tr>").join("") + "</tbody>";
+}
+listeners.push(drawHeat);
+
+// ---------- map ----------
+const reposEl = $("repos"), detailEl = $("detail"), onlyLied = $("only-lied");
+let selected = null, tiles = [];
+function buildMap() {
+  const groups = {};
+  BUGS.forEach((b, i) => (groups[b.repo] = groups[b.repo] || []).push(i));
+  const order = Object.keys(groups).sort((a, b) => groups[b].length - groups[a].length);
+  reposEl.innerHTML = order.map(r => `<div class="repo"><h3><b>${r}</b> · ${groups[r].length}</h3><div class="tiles">` +
+    groups[r].map(i => `<button class="tile" type="button" data-i="${i}" aria-label="${BUGS[i].id}"></button>`).join("") + "</div></div>").join("");
+  tiles = [...reposEl.querySelectorAll(".tile")];
+  $("bug-ids").innerHTML = BUGS.map(b => `<option value="${b.id}">`).join("");
+  const want = SET === "fresh" ? "django__django-14376" : "django__django-11999";
+  if (selected === null || !BUGS.some(b => b.id === selected)) selected = (BUGS.find(b => b.id === want) || BUGS.find(b => b.runs.haiku.o === "lied") || BUGS[0] || {}).id;
+  paintMap(); showDetail();
+}
+const everLied = b => SETS[SET].runKeys.some(k => b.runs[k].o === "lied");
+function paintMap() {
+  for (const el of tiles) {
+    const b = BUGS[+el.dataset.i], s = BY_KEY[current], o = s.kind === "real" ? b.runs[current].o : trace(b, current).o;
+    el.className = "tile " + o + (onlyLied.checked && !everLied(b) ? " dim" : "") + (b.id === selected ? " sel" : "");
+    el.title = `${b.id}: ${OUT_TEXT[o]}`;
+  }
+}
+reposEl.addEventListener("click", e => { const t = e.target.closest(".tile"); if (t) { selected = BUGS[+t.dataset.i].id; paintMap(); showDetail(); } });
+onlyLied.addEventListener("change", paintMap);
+function goTo(id, set) {
+  if (set && set !== SET) setSet(set);
+  if (!BUGS.some(b => b.id === id)) { if (set !== "pilot" && SETS.pilot.bugs.some(b => b.id === id)) setSet("pilot"); else if (SETS.fresh.bugs.some(b => b.id === id)) setSet("fresh"); }
+  if (!BUGS.some(b => b.id === id)) return false;
+  selected = id; paintMap(); showDetail();
+  $("map-s").scrollIntoView({ behavior: reduce ? "auto" : "smooth" });
+  return true;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-id]"); if (!b || b.classList.contains("tile")) return;
+  if (!goTo(b.dataset.id, b.dataset.set)) { b.title = "This run isn't in the explorer's data"; }
+});
+$("search").addEventListener("change", e => {
+  const q = e.target.value.trim().toLowerCase(); if (!q) return;
+  const all = BUGS.concat(SET === "fresh" ? SETS.pilot.bugs : SETS.fresh.bugs);
+  const hit = all.find(b => b.id.toLowerCase() === q) || all.find(b => b.id.toLowerCase().includes(q));
+  if (hit) goTo(hit.id);
+});
+function diffHtml(d) {
+  if (!d) return '<p class="note">No change was made.</p>';
+  return "<pre>" + esc(d).split("\n").map(l => l.startsWith("+") && !l.startsWith("+++") ? `<span class="add">${l}</span>`
+    : l.startsWith("-") && !l.startsWith("---") ? `<span class="del">${l}</span>` : l.startsWith("@@") ? `<span class="hunk">${l}</span>` : l).join("\n") + "</pre>";
+}
+function prLink(id) { const [org, rest] = id.split("__"), cut = rest.lastIndexOf("-"); return `https://github.com/${org}/${rest.slice(0, cut)}/pull/${rest.slice(cut + 1)}`; }
+function story(b, key) {
+  const s = BY_KEY[key], t = trace(b, key), R = b.runs, steps = [];
+  if (!s.strong) steps.push([R[key].p ? "" : "failed", `${s.cheap} ${R[key].p ? "made a fix and the repo's tests passed" : "stopped without the repo's tests passing"}`, R[key].n]);
+  else if (s.kind === "real") {
+    const run = R[key];
+    if (run.r === "escalated") steps.push(["failed", "Haiku couldn't get the repo's tests to pass, so the bug went to Sonnet", run.n]);
+    else if (run.r === "rejected") steps.push(["", "Haiku's fix passed the repo's tests", ""], ["failed", "The Sonnet reviewer rejected it, so Sonnet started again", run.n.replace(/^.*rejected by the reviewer: /, "")]);
+    else steps.push(["", "Haiku's fix passed the repo's tests" + (key === "reviewed" && run.r === "kept" ? " and the reviewer approved it" : ""), ""]);
+  } else {
+    const cheap = R[s.cheapRun], review = s.rev ? b.rev[s.rev] : null;
+    if (!cheap.p) steps.push(["failed", `${s.cheap} couldn't get the repo's tests to pass, so the bug goes to Sonnet`, ""]);
+    else {
+      steps.push(["", `${s.cheap}'s fix passed the repo's tests`, ""]);
+      if (s.reviewer) steps.push([review && !review.acc ? "failed" : "", review ? `${s.reviewer} ${review.acc ? "approved" : "rejected"} it${review.unread ? " (its reply ran out before a verdict)" : ""}` : `${s.reviewer} had nothing to review`, review && !review.unread ? review.why : ""]);
+      if (t.rejected) steps.push(["", "So the bug goes to Sonnet", ""]);
+    }
+  }
+  steps.push([t.o, `Hidden tests: ${OUT_TEXT[t.o].toLowerCase()}`, `${usd(t.c)} for this bug${s.kind === "sim" ? " (simulated)" : ""}`]);
+  return steps.map(([cls, txt, why]) => `<div class="step ${cls}"><b>${esc(txt)}</b>${why ? `<div class="why">${esc(why)}</div>` : ""}</div>`).join("");
+}
+function showDetail() {
+  const b = BUGS.find(x => x.id === selected);
+  if (!b) { detailEl.innerHTML = '<p class="note">Select a square to see what happened to that bug.</p>'; return; }
+  const s = BY_KEY[current];
+  const runs = SETS[SET].runKeys.map(k => { const r = b.runs[k];
+    return `<details><summary><span class="who">${RUN_NAMES[k]}</span><span class="pill ${r.o}">${OUT_TEXT[r.o]}</span><span class="meta">${usd(r.c)} · ${Math.round(r.t)}s · ${r.k} tool calls</span></summary>${r.n ? `<p class="note" style="margin-top:6px">${esc(r.n)}</p>` : ""}${diffHtml(r.d)}</details>`; }).join("");
+  const revs = REVIEWERS[SET].filter(r => b.rev[r.rev]).map(r => { const v = b.rev[r.rev];
+    return `<details><summary><span class="who">${r.name}</span><span class="pill ${v.acc ? "solved" : "failed"}">${v.acc ? "Approved" : "Rejected"}</span></summary><p class="note" style="margin-top:6px">${esc(v.why)}</p></details>`; }).join("");
+  const label = LABELS.find(l => l.id === b.id && SET === "pilot");
+  detailEl.innerHTML = `<div style="display:grid;gap:6px"><span class="eyebrow">${b.repo} · ${SET === "fresh" ? "fresh set" : "pilot"}</span><h3>${b.id}</h3><a href="${prLink(b.id)}" target="_blank" rel="noopener" style="font-size:13px">The original pull request on GitHub</a></div>
+    <div style="display:grid;gap:10px"><span class="eyebrow">${esc(s.name)}${s.kind === "sim" ? " · simulated" : ""}</span><div class="story">${story(b, current)}</div></div>
+    ${label ? `<div style="display:grid;gap:4px"><span class="eyebrow">Hand label</span><p class="note"><b>${label.cat}. ${CATS.find(c => c.k === label.cat).name}</b> (${label.arm})${label.settled ? " · settled after a disagreement" : ""}: ${esc(label.note)}</p></div>` : ""}
+    <div style="display:grid;gap:0"><span class="eyebrow" style="margin-bottom:6px">Every recorded run</span>${runs}</div>
+    ${revs ? `<div style="display:grid;gap:0"><span class="eyebrow" style="margin-bottom:6px">Offline reviews</span>${revs}</div>` : ""}`;
+}
+listeners.push(buildMap);
+
+$("foot").innerHTML = `
+  <p><b>Fresh set.</b> Bugs from SWE-bench Verified that were not in the pilot, run on a cloud machine with SWE-bench's own Docker images: ${SETS.fresh.bugs.length} in 4 batches, with runs that crashed rerun at the end. Two Flash-Lite runs still crashed and are shown as crashes.</p>
+  <p><b>Pilot.</b> 60 bugs picked to be hard for the cheap model, run on a Mac; one bug is left out because two of its runs crashed. Its reviewer used an earlier prompt (v1) than the fresh set's (v2).</p>
+  <p><b>Accepted but wrong</b> means the agent's own run of the repository's tests passed, so it stopped, but SWE-bench's hidden tests for the issue fail.</p>
+  <p><b>Simulated setups</b> reuse recorded runs: the cheap model's run, an offline review of its fix, and, when the fix is rejected or never passes, the result Sonnet got when it ran alone on that bug. Costs are list prices; Haiku 5.5 is $0.10/$0.50 and Sonnet 5.5 $2/$10 per million tokens.</p>
+  <p>One run per bug and setup. On a few hundred bugs, percentages move by a few points between runs; the head-to-head test says when a gap is bigger than that.</p>`;
+
+// Guided tour: eight stops, each scrolls to a section and says what to look at there
+const TOUR = [
+  ["problem-s", "The problem", "Start here. Agents stop when the project's tests pass, and cheap-first cascades trust that. The example shows a fix that passed the tests and was still wrong; the bars show how many of each model's failures are like that."],
+  ["report", "The headline", "Each tile is one finding for the bugs selected at the top. The key word is <b>accepted but wrong</b>: the agent ran the repository's tests, they passed, it stopped, and SWE-bench's hidden tests still failed."],
+  ["flow-s", "Follow the bugs", "Pick a setup and every bug flows through it: the cheap model, the test gate, the reviewer, the strong model. Amber dots are fixes the tests let through that were wrong."],
+  ["cost-s", "What it costs", "Bugs solved against cost per bug. Up and to the left is better. Hover a point for its numbers; the table has the same figures."],
+  ["calc-s", "When it pays off", "A cascade only saves money if the cheap model passes often and the reviewer is cheap and accurate. Drag the sliders, or start from a preset measured from real runs."],
+  ["rev-s", "How good the reviewers are", "Each grid is one reviewer reading fixes that passed the tests. Click a square to list those bugs: bad fixes caught, good fixes wrongly rejected."],
+  ["why-s", "Why the tests lied", "Wrong fixes that passed, labelled by hand: mostly details the issue never stated, or fixes that handled one case and missed its twin."],
+  ["map-s", "Every bug", "One square per bug, grouped by project. Click any square to replay what happened to it, with every model's diff and the reviewer's reasons."],
+];
+let stop = -1;
+const tourEl = $("tour");
+function showStop(i) {
+  document.querySelectorAll(".tour-on").forEach(e => e.classList.remove("tour-on"));
+  stop = i;
+  if (i < 0 || i >= TOUR.length) { tourEl.hidden = true; return; }
+  const [id, title, text] = TOUR[i], target = $(id);
+  target.classList.add("tour-on");
+  target.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  $("tour-n").textContent = `Tour · ${i + 1} of ${TOUR.length}`;
+  $("tour-h").textContent = title;
+  $("tour-p").innerHTML = text;
+  $("tour-back").disabled = i === 0;
+  $("tour-next").textContent = i === TOUR.length - 1 ? "Done" : "Next";
+  tourEl.hidden = false;
+}
+$("tour-btn").addEventListener("click", () => showStop(0));
+$("tour-next").addEventListener("click", () => showStop(stop + 1));
+$("tour-back").addEventListener("click", () => showStop(stop - 1));
+$("tour-close").addEventListener("click", () => showStop(-1));
+document.addEventListener("keydown", e => {
+  if (stop < 0) return;
+  if (e.key === "Escape") showStop(-1);
+  else if (e.key === "ArrowRight") showStop(stop + 1);
+  else if (e.key === "ArrowLeft" && stop > 0) showStop(stop - 1);
+});
+
+setSet("fresh");
+})();
+</script>

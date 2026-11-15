@@ -4,8 +4,9 @@ import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default async function ChatPage({ params }: { params: { id: string } }) {
-  const session = await api.chat.get(params.id).catch(() => null);
+export default async function ChatPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const session = await api.chat.get(id).catch(() => null);
   if (!session) notFound();
 
   return (

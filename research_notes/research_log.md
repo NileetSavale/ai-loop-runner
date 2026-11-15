@@ -778,3 +778,14 @@ run of django-15127, which Sonnet failed on its first run and solved on a rerun 
 recorded run of every bug, as the explorer and the fresh set use: Sonnet 49/59, simulated reviewed cascade 47/59.
 Haiku 43 and cascade 42 are the same either way. The paper uses first runs. (The 50/60 of loop-lean against Claude
 Code is a different arm and stands.)
+
+## 2026-11-14: paper revision numbers
+
+- Live reviewer (Sonnet, prompt v2, inside the reviewed cascade): reviewed 377 Haiku fixes that passed the tests,
+  accepted 277 (26 wrong, 9%) and rejected 100. Rejected fixes are discarded before evaluation, so rejections can't
+  be scored.
+- Why a redo costs 1.8x an average Sonnet run: Sonnet alone costs $0.080 on the 158 escalated bugs and $0.041 on
+  the rest, so most of it is difficulty. The redo is 1.2x Sonnet alone on the same bugs, which is the handover.
+  Haiku's separate run solved 87 of the 158 escalated bugs.
+- Gemini pilot cascade, first runs: 41 bugs with all three setups; Flash-Lite 16 (not 17, which counted a rerun of
+  sympy-24539), cascade 24 ($0.286), Gemini 3.8 Flash 30 ($0.56).

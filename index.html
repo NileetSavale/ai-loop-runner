@@ -105,6 +105,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .row-between { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; }
 .btn { font: 600 13px var(--display); padding: 8px 14px; border-radius: 4px; border: 1px solid var(--ink); background: var(--ink); color: var(--bg); cursor: pointer; }
 .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.gh-btn, .toc-gh { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.toc a.toc-gh { color: var(--ink); font-weight: 600; }
 
 /* Legend */
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); }
@@ -350,7 +352,7 @@ pre .add { color: var(--solved); } pre .del { color: var(--crash); } pre .hunk {
       <div class="eyebrow">Loop Runner · SWE-bench Verified study</div>
       <h1>When Tests Lie</h1>
       <p class="lede">A coding agent writes a fix, runs the repository's tests, and stops when they pass. SWE-bench then checks the fix against <strong>hidden tests</strong> the agent never saw. This page follows real bugs through cheap models, strong models, cascades and reviewers, and shows how often <strong>passing the tests does not mean the fix is right</strong>, and what that costs.</p>
-      <div class="hero-cta"><a class="btn" href="#problem-s">The problem in four steps</a><button class="btn ghost" type="button" id="hero-tour">Take the tour</button></div>
+      <div class="hero-cta"><a class="btn" href="#problem-s">The problem in four steps</a><button class="btn ghost" type="button" id="hero-tour">Take the tour</button><a class="btn ghost gh-btn" href="https://github.com/NileetSavale/ai-loop-runner" target="_blank" rel="noopener"><svg class="gh-ico" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a></div>
       <div class="glance" aria-label="Main findings on 436 fresh bugs">
         <div><span class="n">22%</span><p>of the fixes <b>Claude Haiku</b> accepted because the tests passed are <b>wrong</b> by SWE-bench's hidden tests. <a href="#rev-s">How reviewers do</a></p></div>
         <div><span class="n">331 <small>vs 330</small></span><p>bugs solved by a <b>cheap-first cascade</b> that escalates on failing tests, against Haiku alone, at <b>5.7×</b> the cost. <a href="#cost-s">See the costs</a></p></div>
@@ -433,7 +435,7 @@ lazy + lazy     # still fails: no __add__</pre>
     <div class="bar-left"><span class="eyebrow">Bugs</span>
       <div class="seg" role="group" aria-label="Which bugs"><button type="button" data-set="fresh" aria-pressed="true">Fresh set</button><button type="button" data-set="pilot" aria-pressed="false">Pilot: 60 hard bugs</button></div>
       <button class="btn ghost" id="tour-btn" type="button">Take the tour</button></div>
-    <nav class="toc" aria-label="Sections"><a href="#problem-s">Problem</a><a href="#flow-s">Flow</a><a href="#cost-s">Cost</a><a href="#calc-s">Break-even</a><a href="#rev-s">Reviewers</a><a href="#hh-s">Head to head</a><a href="#why-s">Why</a><a href="#heat-s">Projects</a><a href="#map-s">Every bug</a><a href="#arch-s">The system</a></nav>
+    <nav class="toc" aria-label="Sections"><a href="#problem-s">Problem</a><a href="#flow-s">Flow</a><a href="#cost-s">Cost</a><a href="#calc-s">Break-even</a><a href="#rev-s">Reviewers</a><a href="#hh-s">Head to head</a><a href="#why-s">Why</a><a href="#heat-s">Projects</a><a href="#map-s">Every bug</a><a href="#arch-s">The system</a><a class="toc-gh" href="https://github.com/NileetSavale/ai-loop-runner" target="_blank" rel="noopener"><svg class="gh-ico" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a></nav>
   </div></div>
 
   <div class="report" id="report"></div>

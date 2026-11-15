@@ -31,8 +31,8 @@ mean a correct fix. We measure how often that is false and what it does to casca
 held out from development, with SWE-bench's hidden tests as ground truth. Of the fixes Claude Haiku 5.5's loop
 accepted, 22\% fail the hidden tests (32\% for Gemini 3.5 Flash-Lite). Because those failures pass the gate, a
 cascade that escalates on test failure solves 331 bugs against Haiku's 330, at 5.7 times the cost. Replacing the
-gate with a strong model's review of the cheap model's passing fix closes the gap to the strong model (361 against
-Claude Sonnet 5.5's 365, $p=0.58$), but not its cost: the reviewed cascade costs 7\% more than Sonnet alone, because
+gate with a strong model's review of the cheap model's passing fix brings the cascade within 4 bugs of the strong
+model (361 against Claude Sonnet 5.5's 365, $p=0.58$), but not below its cost: the reviewed cascade costs 7\% more than Sonnet alone, because
 36\% of bugs escalate and an escalated redo costs 1.8 times a fresh strong-model run. We give the break-even as a cost
 model, classify why test-passing fixes fail with two annotators ($\kappa=0.73$), and show that telling pre-existing
 test failures apart from the agent's own cuts the cost of such bugs 2.5-fold.
@@ -65,14 +65,14 @@ detail the issue never states, or the fix misses a sibling code path.
 \item \textbf{When test-gated cascades help (RQ2).} A cheap model's failures are either \emph{visible}, ending with
 failing tests, or \emph{silent}, accepted but wrong. A test gate acts only on visible failures. 71\% of Haiku's
 failures are silent, and its cascade gains nothing (Fig.~\ref{fig:modes}); Flash-Lite's failures are mostly visible, and in our pilot its
-cascade gained 7 of 41 bugs.
+cascade gained 8 of 41 bugs.
 \item \textbf{A reviewer as the escalation trigger (RQ3).} A strong model reviewing the cheap model's test-passing
-diff catches 80--93\% of silent failures, against 40--49\% for a random rejector, and brings the cascade to within 4
-bugs of the strong model. Whether it also saves money depends on how often bugs escalate: we give the cost model and
+diff catches 80--93\% of silent failures, against 40--49\% for a random rejector, at the price of rejecting 21--36\%
+of good fixes, and brings the cascade to within 4 bugs of the strong model. Whether it also saves money depends on how often bugs escalate: we give the cost model and
 its break-even point.
 \item \textbf{Failure attribution (RQ4).} Some tests fail before the agent changes anything. Telling those apart from
 failures the agent caused, and stopping when only they remain, cuts the cost of such bugs 2.5-fold on the main set,
-while resolving more of them (37 against 32).
+without resolving fewer (37 against 32, $p=0.18$).
 \end{itemize}
 
 \begin{figure*}[t]
@@ -85,7 +85,6 @@ failures; the reviewed cascade sends passing fixes to a reviewer first. Strong a
 \end{figure*}
 
 \section{Background and Related Work}
-% Every citation to be checked against its source before submission.
 \textbf{Plausible but incorrect patches.} Automated program repair has long distinguished \emph{plausible} patches,
 which pass the tests used during repair, from correct ones. Smith et al.\ showed that patches fitted to one test suite
 fail to generalise to held-out tests~\cite{smith2015}, and Qi et al.\ found that the overwhelming majority of
@@ -220,7 +219,7 @@ from token counts at list prices, including cache reads and writes. For RQ1, the
 the loop accepted whose fix fails the hidden tests. For RQ3, catch rate (rejected bad fixes / bad fixes),
 false-rejection rate (rejected good fixes / good fixes), MCC, and a random rejector with the same rejection rate as a
 baseline~\cite{williams2026}. A review whose reply cannot be parsed counts as a rejection, since that is what the
-cascade does with it. Each run is a single run per bug and setup.
+cascade does with it. Every setup ran once per bug.
 
 \section{Results}
 
@@ -264,8 +263,8 @@ does not state, (B) the fix is incomplete, missing another input or a sibling co
 a symptom or the wrong place, (D) an evaluation problem unrelated to the fix, and (E) can't tell. They agreed on 52 of
 64 (Cohen's $\kappa=0.73$, bootstrap 95\% CI 0.59--0.86), on all 29 cases both marked as sure, and on all five
 evaluation problems. Most disagreements were between A and B or C. \todo{Category counts after adjudication;
-independent counts were A 31/24, B 15/18, C 13/16, D 5/5, E 0/1.} Category A matters for what follows: no reviewer
-reading only the issue can be expected to catch it.
+independent counts were A 31/24, B 15/18, C 13/16, D 5/5, E 0/1.} Category A matters for what follows: a reviewer
+reading only the issue can catch it only by being strict, and strictness is paid for in false rejections.
 
 \textbf{Three examples.} Each is a case both annotators placed in the same category and were sure of.
 
@@ -350,8 +349,7 @@ other (3) & 13 & 6 & 8 & 8 & 8 & 5/6 & 2 \\
 \end{table}
 
 Flash-Lite fails differently: of its 237 failures, 157 are visible and 80 silent (34\%). A test gate has something to
-act on. In the pilot, where we ran the Gemini cascade, it raised Flash-Lite from 17 to 24 of 41 bugs, at \$0.29 against
-\$0.06 per bug, while Gemini 3.8 Flash alone resolved 30 at \$0.56. Whether a test-gated cascade helps is therefore
+act on. In the pilot, on the 41 bugs where we ran all three Gemini setups, the cascade raised Flash-Lite from 16 to 24, at \$0.29 against \$0.06 per bug, while Gemini 3.8 Flash alone resolved 30 at \$0.56. Whether a test-gated cascade helps is therefore
 a property of the cheap model's failure mode, not of cascading: we state this as an observation in two model families,
 not a general law. A practitioner can measure it cheaply by running the cheap model alone and counting how its
 failures end.
@@ -362,8 +360,8 @@ are from the other family than the fix's author. Carbon rejects 93\% of Haiku's 
 ones; Sonnet rejects 80\% of Flash-Lite's wrong fixes and 21\% of its good ones. A random rejector with the same
 rejection rate would catch 49\% and 40\% of the wrong fixes, so both reviewers carry real signal (MCC 0.48 and 0.56).
 A large share of false rejections are replies we could not parse, mostly the reviewer running out of output before
-giving a verdict: counting only readable replies, false rejections drop to 29\% and 10\%. A reviewer that must always
-answer would do better than these numbers.
+giving a verdict: counting only readable replies, false rejections drop to 29\% and 10\%, while catch rates barely
+move (91\% and 79\%). A larger output budget or a forced verdict should recover much of that gap; we did not test it.
 
 \textbf{What the reviewers get wrong.} Carbon's six misses are confident accepts: each reply explains the fix's
 mechanism correctly and concludes it resolves the issue, while the hidden tests check behaviour the explanation does
@@ -374,6 +372,10 @@ to where the fix was made. Some of these may be real gaps the hidden tests do no
 measured against an imperfect ground truth, in the reviewer's disfavour.
 
 
+
+\textbf{The live reviewer.} Inside the reviewed cascade, Sonnet reviewed 377 of Haiku's test-passing fixes,
+accepted 277 and rejected 100. Only 26 of the 277 it accepted fail the hidden tests (9\%, against 22\% of everything
+Haiku's own loop accepts). Its rejections cannot be scored: a rejected fix is discarded before evaluation.
 
 \textbf{The reviewed cascade.} With Sonnet reviewing Haiku's passing fixes live (Fig.~\ref{fig:cost}a), the cascade resolves 361 bugs against
 Sonnet's 365 (Table~\ref{tab:main}). The difference is not significant (13 against 17 discordant bugs, $p=0.58$); the
@@ -388,8 +390,10 @@ c = c_{\text{cheap}} + c_{\text{review}} + e \cdot c_{\text{redo}}
   = 0.007 + 0.017 + 0.36 \times 0.098 ,
 \]
 where $e$ is the share of bugs that escalate, for failing tests or a rejection. Two terms decide the outcome. First,
-36\% of bugs escalate, 100 of them on a rejection. Second, an escalated redo costs \$0.098, 1.8 times a fresh Sonnet
-run: escalated bugs are the hard ones, and the redo carries the handover. Setting $c$ equal to the strong model's cost
+158 bugs (36\%) escalate, 100 of them on a rejection. Haiku's separate run solved 87 of those 158 on its own, a rough
+sign of how many escalations a more precise reviewer could avoid. Second, an escalated redo costs \$0.098, 1.8 times
+an average Sonnet run. Most of that is difficulty: Sonnet alone costs \$0.080 on the same 158 bugs and \$0.041 on
+the rest. The remaining 1.2 times is the handover, a redo that starts with the cheap model's notes and history. Setting $c$ equal to the strong model's cost
 gives the break-even escalation rate,
 \[
 e^{*} = \frac{c_{\text{strong}} - c_{\text{cheap}} - c_{\text{review}}}{c_{\text{redo}}} = 32\%.
@@ -410,8 +414,8 @@ bugs the other did not and lost 2 ($p=0.18$). The stop on ``only pre-existing fa
 of those runs resolved the bug. Both losses are such stops whose fix then failed the hidden tests: the stop is only as
 good as the record of which failures came first.
 
-The pilot agrees: with attribution the loop resolved 50 of 60 bugs at \$0.061 per bug; with every failing test counted as
-the agent's, 52 at \$0.114 (difference within noise, $p=0.63$). On the 14 bugs whose tests already fail before any
+The pilot agrees on cost, not on resolved bugs: with attribution the loop resolved 50 of 60 bugs at \$0.061 per
+bug; with every failing test counted as the agent's, 52 at \$0.114 (difference within noise, $p=0.63$). On the 14 bugs whose tests already fail before any
 change, attribution cost \$0.83 against \$3.67 (1.0 against 2.8 attempts). The stop on ``only pre-existing failures
 left'' fired 12 times, and 11 of those runs resolved the bug.
 
@@ -430,7 +434,7 @@ token price, through more steps, more thinking and weaker caching. Cost per reso
 to compare.
 
 \textbf{The same blind spot on another axis.} Escalating from low to default reasoning effort on test failure resolved
-43 pilot bugs at \$0.067 per bug against 50 at \$0.062 for default effort alone. A ladder that escalates on test
+43 of 60 pilot bugs at \$0.067 per bug against 50 at \$0.062 for default effort alone. A ladder that escalates on test
 failure inherits the gate's blindness whatever it escalates along. Sun et al.\ found effort ladders pay when the trigger is a
 reliable external correctness check~\cite{sun2026effort}; the repository's tests are not one.
 
@@ -439,8 +443,10 @@ reliable external correctness check~\cite{sun2026effort}; the repository's tests
 open-weight model; on the main set the Gemini family ran the cheap model only. \textbf{Internal.} One run per bug and
 setup: pairs of the same setup differ by run-to-run noise, which is why we report paired tests and intervals rather
 than point differences. The reviewer prompt was shaped on the pilot, so only the main set tests it; the failure
-categories come from pilot fixes. The pilot ran on emulated x86 images on Apple Silicon, the main set natively; 25 of
-30 runs repeated natively agreed, within the 22\% disagreement between two runs on the same machine.
+categories come from pilot fixes. The live reviewer and the cheap model share a family; the offline reviewers
+compare families, but each reviews a different cheap model, so family and reviewer strength are confounded. The pilot
+ran on emulated x86 images on Apple Silicon, the main set natively; 25 of 30 pilot runs repeated natively gave the
+same outcome, a 17\% difference against 22\% between two runs on the same machine.
 \textbf{Construct.} Hidden tests are an imperfect ground truth: category D shows fixes that fail for reasons unrelated
 to the fix, and category A fixes may be acceptable to a maintainer. Costs are at list prices of November 2026.
 
@@ -448,7 +454,8 @@ to the fix, and category A fixes may be acceptable to a maintainer. Costs are at
 A cascade that trusts the repository's tests escalates only the failures the tests can see, and for a strong cheap
 model most failures are silent. A strong model's review of the cheap model's passing fix restores most of the strong
 model's accuracy; whether it also saves money follows from a simple cost model that a team can fill in from its own
-escalation rate and prices.
+escalation rate and prices. Separately, telling pre-existing test failures from the agent's own is a cheap
+change to the loop that removes most of the retries spent on bugs that have them.
 
 \section*{Data Availability}
 Runs, diffs, reviews, labels and analysis scripts are available from the author on request.

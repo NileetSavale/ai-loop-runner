@@ -7,6 +7,7 @@
 \usepackage{xcolor}
 \usepackage{cite}
 \usepackage{url}
+\usepackage[T1]{fontenc}
 \usepackage{amsmath}
 \usepackage{graphicx}
 \usepackage{tikz}
@@ -187,8 +188,8 @@ shares the code, the reverse operator, the short form of an option, another code
 did the fix bend the test to match itself?
 \item Does it use the repo's own mechanism (a setting, a hook, an accessor) where the task implies one?
 \end{itemize}
-Don't escalate over style or over details the task leaves open. Reply with only JSON: \{"accept": true or false,
-"why": "one or two sentences"\}
+Don't escalate over style or over details the task leaves open. Reply with only JSON: \texttt{\{\textquotedbl accept\textquotedbl: true or false,
+\textquotedbl why\textquotedbl: \textquotedbl one or two sentences\textquotedbl\}}
 \end{minipage}}
 \caption{The reviewer prompt, lightly abridged. The reviewer also sees the issue, the diff, and the original code 40
 lines around each changed hunk.}

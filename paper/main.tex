@@ -28,8 +28,9 @@
 \begin{abstract}
 Coding agents retry until the repository's tests pass, and model cascades reuse that signal to save money: a cheap
 model tries first and the task escalates to a strong model only if the tests fail. Both assume that passing tests
-mean a correct fix. We measure how often that is false and what it does to cascades, on 436 SWE-bench Verified bugs
-held out from development, with SWE-bench's hidden tests as ground truth. Of the fixes Claude Haiku 5.5's loop
+mean a correct fix. We measure how often that is false and what it does to cascades on all 500 SWE-bench Verified
+bugs, with SWE-bench's hidden tests as ground truth: a 60-bug pilot to develop the agent, and 436 held-out bugs for
+the results (4 cannot be scored). Of the fixes Claude Haiku 5.5's loop
 accepted, 22\% fail the hidden tests (32\% for Gemini 3.5 Flash-Lite). Because those failures pass the gate, a
 cascade that escalates on test failure solves 331 bugs against Haiku's 330, at 5.7 times the cost. Replacing the
 gate with a strong model's review of the cheap model's passing fix brings the cascade within 4 bugs of the strong
@@ -58,7 +59,7 @@ place: inside the escalation decision of a multi-model agent.
 We measure how often this happens, what it costs, and what can be done about it, on SWE-bench
 Verified~\cite{swebenchverified} with models from two families, Anthropic's Claude and Google's Gemini. SWE-bench's
 hidden tests, which the agent never sees, serve as ground truth. We developed the agent and the reviewer prompt on a
-60-bug pilot and report the main results on the 436 remaining bugs. Our contributions:
+60-bug pilot and report the main results on the other 436 (4 of the 500 cannot be scored). Our contributions:
 \begin{itemize}
 \item \textbf{How often the tests lie (RQ1).} 22\% of the fixes Claude Haiku's loop accepted fail the hidden tests,
 and 32\% of Gemini Flash-Lite's. Two annotators classified why ($\kappa=0.73$): most often the hidden test checks a

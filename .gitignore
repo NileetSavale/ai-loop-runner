@@ -37,3 +37,6 @@ backend/benchmarks/results/
 
 # Exported Claude Code chats (may hold pasted keys or private notes)
 chat_logs/
+
+# Personal outreach drafts stay local
+research_notes/outreach/

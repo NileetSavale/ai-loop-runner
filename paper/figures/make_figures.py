@@ -22,7 +22,8 @@ INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 NEUTRAL, BLUE, ORANGE = "#c9c8c2", "#2a78d6", "#eb6834"
 
 plt.rcParams.update({
-    "font.family": "serif", "font.size": 7.5, "axes.labelsize": 7.5, "xtick.labelsize": 7, "ytick.labelsize": 7,
+    "font.family": "serif", "font.serif": ["Times New Roman", "Nimbus Roman", "STIXGeneral"],
+    "mathtext.fontset": "stix", "font.size": 7.5, "axes.labelsize": 7.5, "xtick.labelsize": 7, "ytick.labelsize": 7,
     "axes.edgecolor": MUTED, "axes.labelcolor": INK, "xtick.color": MUTED, "ytick.color": MUTED,
     "axes.spines.top": False, "axes.spines.right": False, "pdf.fonttype": 42,
 })

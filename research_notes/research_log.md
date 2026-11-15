@@ -789,3 +789,11 @@ Code is a different arm and stands.)
   Haiku's separate run solved 87 of the 158 escalated bugs.
 - Gemini pilot cascade, first runs: 41 bugs with all three setups; Flash-Lite 16 (not 17, which counted a rerun of
   sympy-24539), cascade 24 ($0.286), Gemini 3.8 Flash 30 ($0.56).
+
+## 2026-11-14: labels settled
+
+The 12 disagreements settled together (labelling/labelling-adjudication-settled.xlsx, exported as
+labelling/final-labels.csv; both original sheets kept in labelling/returned/). Final, by fix: A 30 (47%), B 18 (28%),
+C 11 (17%), D 5 (8%), E 0. By bug (28 bugs; a bug counts twice when its fixes fail for different reasons): A 15,
+B 10, C 8, D 2. Settled as suggested except case 28 (A or B), settled B. The first labeller matches the final label
+on 59 of 64, the second on 57.

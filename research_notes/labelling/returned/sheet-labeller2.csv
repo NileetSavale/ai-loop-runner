@@ -1,0 +1,65 @@
+case,category,sure,note
+1,C,yes,module-name heuristic unwraps test class in xarray package
+2,B,yes,adds __radd__ but misses __add__ for lazy+lazy
+3,C,yes,saves/restores dataLim; root cause handle positions unfixed; test still fails
+4,B,no,keeps multiplicity-1 factors unmerged; official merges all
+5,C,yes,NameError from agent's new timedelta call
+6,A,no,fixes filter not Promise operators; test checks proxy add
+7,A,no,converts Promise in filter; test checks proxy add
+8,C,yes,drop condition never fires for single-dim case; MergeError persists
+9,A,no,private attr None-default design vs test expecting rcParam value
+10,C,no,patches PythonCodePrinter not shared unary-minus precedence in CodePrinter
+11,A,yes,-X key vs -Xkey argument format; test checks exact list
+12,B,no,message fixed only for prefix case; other mismatch still misleading
+13,C,yes,threshold change gives 1997 for 26 weeks; agent edited existing test
+14,A,no,test wants Content-Length removed on HEAD; issue does not ask
+15,D,yes,failing test test_honor_umask is unrelated umask issue
+16,A,no,message wording differs from expected list format in test
+17,C,no,handles still at 0; hides symptom via artists
+18,C,yes,diff only adds blank lines
+19,C,yes,pivot check still uses None-zero test
+20,A,no,exact newline before }} (issue sketch has it)
+21,A,yes,test imports unnamed helper names; Optional label
+22,A,no,changed multiplicity-1 factors; issue silent
+23,C,no,"patches add filter, not lazy proxy operators"
+24,D,yes,hidden test fixture file missing
+25,B,yes,inlineformset_factory lacks edit_only
+26,B,yes,inlineformset_factory lacks edit_only
+27,B,no,ignores custom email field names
+28,C,no,evalfs result not args; literal issue reading
+29,C,yes,precedence hack; unary minus printing root cause
+30,A,yes,tests private _antialiased default value
+31,A,no,Content-Length kept on HEAD response
+32,B,yes,unnamed group trailing case not fixed
+33,B,yes,fixes FieldError but exclude returns wrong rows (trim_start drops filter)
+34,C,yes,changes message and edits existing tests that expected old message
+35,B,yes,merges same-type ops only; misses cross-type AlterUnique/AlterIndex reduce
+36,B,no,same as 33: misses trim_start filtered-join case
+37,B,no,"UDL added but int/float suffix parsing wrong (5uludl), c.py missed"
+38,D,yes,unrelated test_honor_umask failure (umask 448 vs 384)
+39,A,no,Literal values as literal nodes; test expects plain Text and quoted repr
+40,B,no,-v still does not enable verbose; short option path incomplete
+41,C,yes,"changes year-offset rule, breaks 26-week case and edits that test"
+42,A,no,Literal values as literal_number nodes; test expects plain Text
+43,B,yes,fixes named groups only; replace_unnamed_groups has same trailing bug
+44,A,no,kept Content-Length on HEAD; test expects header removed
+45,C,no,catches exception in add filter instead of fixing lazy proxy __add__
+46,A,no,"test imports new helper names (get_annotation, infer_node) not in issue"
+47,A,no,hidden test expects multiplicity-1 factors merged; issue does not say
+48,B,no,nargs fix only; -v still does not enable verbose
+49,B,yes,misses sibling unnamed-group function
+50,A,no,exact UDL mangled ids; parse errors
+51,A,yes,argument named can_create not edit_only
+52,A,yes,maxlength set as str not int
+53,A,no,inventory kept lowercase; test wants original case
+54,A,yes,exact error message wording
+55,B,yes,-v accepted but verbose not enabled
+56,A,yes,Literal values as keyword nodes not plain text
+57,D,yes,"test_honor_umask env-dependent, unrelated"
+58,B,yes,"hardcodes email attr, misses custom email field"
+59,B,yes,"hardcodes email attr, misses custom email field"
+60,C,yes,blocks reduction instead of merging ops
+61,E,no,ImportError though names appear in diff
+62,D,yes,"test_honor_umask env-dependent, unrelated"
+63,A,yes,maxlength set as str not int
+64,A,yes,private _antialiased init value expected

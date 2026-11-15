@@ -263,8 +263,10 @@ the pilot into five categories, without knowing which model wrote them: (A) the 
 does not state, (B) the fix is incomplete, missing another input or a sibling code path, (C) the fix is wrong, patching
 a symptom or the wrong place, (D) an evaluation problem unrelated to the fix, and (E) can't tell. They agreed on 52 of
 64 (Cohen's $\kappa=0.73$, bootstrap 95\% CI 0.59--0.86), on all 29 cases both marked as sure, and on all five
-evaluation problems. Most disagreements were between A and B or C. \todo{Category counts after adjudication;
-independent counts were A 31/24, B 15/18, C 13/16, D 5/5, E 0/1.} Category A matters for what follows: a reviewer
+evaluation problems. Most disagreements were between A and B or C. The annotators then settled the 12
+disagreements together: A 30 fixes (47\%), B 18 (28\%), C 11 (17\%), D 5 (8\%), and none left as E. Several fixes
+come from different setups on the same bug; counted by bug, the 28 bugs give A 15, B 10, C 8 and D 2 (a bug counts
+twice when its fixes fail for different reasons). Category A matters for what follows: a reviewer
 reading only the issue can catch it only by being strict, and strictness is paid for in false rejections.
 
 \textbf{Three examples.} Each is a case both annotators placed in the same category and were sure of.

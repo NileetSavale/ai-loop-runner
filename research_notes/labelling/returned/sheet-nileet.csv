@@ -1,0 +1,65 @@
+case,category,sure,note
+1,A,no,heuristic keeps unwrapping xarray-module objects; test class lives in xarray.tests
+2,B,yes,adds __radd__ but not __add__ (lazy + lazy)
+3,C,yes,save/restore dataLim; limits still include 0
+4,A,yes,test flips existing expectation: merge multiplicity-1 factors too
+5,C,yes,calls timedelta_to_numeric which is not imported: NameError
+6,A,no,fixed in the add filter; test wants lazy + lazy outside the filter
+7,A,yes,fixed in the add filter; test wants lazy + lazy outside the filter
+8,C,yes,condition never true; reported example still raises MergeError
+9,A,yes,test reads private _antialiased default (None vs rcParams value)
+10,C,yes,reported example still returns 4
+11,A,yes,'-X utf8' vs '-Xutf8' argument format
+12,A,yes,error message wording
+13,C,yes,year offset now shown even when January tick shows it; edited existing test
+14,A,yes,body dropped; test also wants Content-Length header removed
+15,D,yes,only unrelated test_honor_umask fails (file permissions)
+16,A,yes,error message wording
+17,A,yes,limits fixed; test checks internal initial handle positions
+18,C,yes,diff is whitespace only; no functional change
+19,C,yes,det of the 5x5 example from the issue still not 0
+20,A,no,'%}}' vs '%\n}}' output format; issue only sketches the latter
+21,A,yes,tests import new helper names get_annotation / infer_node
+22,A,yes,test flips existing expectation: merge multiplicity-1 factors too
+23,A,yes,fixed in the add filter; test wants lazy + lazy outside the filter
+24,D,yes,fix matches official; test's helper module missing (ModuleNotFoundError)
+25,B,yes,edit_only added to modelformset_factory but not inlineformset_factory
+26,B,yes,edit_only added to modelformset_factory but not inlineformset_factory
+27,B,yes,hard-codes user.email; misses custom EMAIL_FIELD
+28,B,no,f(g(2)) handled; nested f(f(2)) != Float(16); args not evaluated first
+29,C,no,only Mod precedence added; reported example still returns 4
+30,A,yes,test reads private _antialiased default (None vs rcParams value)
+31,A,yes,body dropped; test also wants Content-Length header removed
+32,B,yes,named groups fixed; unnamed trailing groups not
+33,B,no,FieldError gone but result wrong (join trimming); issue itself shows []
+34,C,no,rewrote existing messages too; previously passing test now fails
+35,B,no,merges same-type ops only; not through the interleaved sibling op
+36,B,no,FieldError gone but result wrong (join trimming); issue itself shows []
+37,B,no,"issue example ok; likely suffixes starting with u/l/f (uludl, fudl)"
+38,D,yes,only unrelated test_honor_umask fails (file permissions)
+39,A,yes,test expects plain text node; fix leaves a literal node
+40,C,no,-v now parses but verbose mode is never switched on
+41,C,yes,year offset now shown even when January tick shows it; edited existing test
+42,A,yes,test expects plain text node; fix uses desc_sig_literal_number
+43,B,yes,named groups fixed; unnamed trailing groups not
+44,A,yes,body dropped; test also wants Content-Length header removed
+45,A,no,fixed in the add filter; test wants lazy + lazy outside the filter
+46,A,yes,tests import new helper names get_annotation / infer_node
+47,A,yes,test flips existing expectation: merge multiplicity-1 factors too
+48,C,no,-v now parses but verbose mode is never switched on
+49,B,yes,named groups fixed; unnamed trailing groups not
+50,A,no,probably ID mangling (missing trailing E); output excerpt cut off
+51,A,yes,argument named can_create; tests use edit_only
+52,A,yes,maxlength set as str '254'; test expects int
+53,A,no,inventory still lowercases term name; test expects original case
+54,A,yes,error message wording
+55,C,no,-v now parses but verbose mode is never switched on
+56,A,yes,test expects plain text node; fix uses desc_sig_keyword etc.
+57,D,yes,only unrelated test_honor_umask fails (file permissions)
+58,B,yes,hard-codes user.email; misses custom EMAIL_FIELD
+59,B,yes,hard-codes user.email; misses custom EMAIL_FIELD
+60,B,no,optimizer example handled; autodetector output still 4 ops
+61,A,yes,tests import new helper names get_annotation / infer_node
+62,D,yes,only unrelated test_honor_umask fails (file permissions)
+63,A,yes,maxlength set as str '254'; test expects int
+64,A,yes,test reads private _antialiased default (None vs rcParams value)

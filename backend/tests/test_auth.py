@@ -1,5 +1,5 @@
 """Tests for login enforcement, ownership, and per-user analytics across the API."""
-import sys, os
+import base64, hashlib, hmac, sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import patch
@@ -83,7 +83,10 @@ def test_invalid_token_is_not_downgraded_to_anonymous(monkeypatch):
 
 def test_unset_secret_rejects_tokens(monkeypatch):
     monkeypatch.setattr(auth, "SUPABASE_JWT_SECRET", "")
-    token = jwt.encode({"sub": "alice", "aud": "authenticated"}, "", algorithm="HS256")
+    # Signed with an empty key by hand: PyJWT itself now refuses to sign with one
+    b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=")
+    signed = b64(b'{"alg":"HS256","typ":"JWT"}') + b"." + b64(b'{"sub":"alice","aud":"authenticated"}')
+    token = (signed + b"." + b64(hmac.new(b"", signed, hashlib.sha256).digest())).decode()
     assert client.get("/sessions", headers={"Authorization": f"Bearer {token}"}).status_code == 401
 
 

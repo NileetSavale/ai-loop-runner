@@ -75,6 +75,27 @@ def test_a_job_runs_the_session_with_the_key_from_the_vault():
     broadcast.assert_awaited_once_with("s1", {"event": "done"})
 
 
+def test_a_job_reports_each_attempt_as_progress():
+    add_session()
+    reported = []
+
+    async def fake_run_session(session_id, broadcast_fn, cascade, sandboxed, **options):
+        await broadcast_fn({"event": "iteration_start", "data": {"iteration": 1}})
+        await broadcast_fn({"event": "session_complete", "data": {"status": "passed"}})
+
+    async def progress(**kwargs):
+        reported.append(kwargs)
+
+    with patch("core.workspace.run_session", fake_run_session), \
+            patch("routes.keys.get_user_api_key", return_value=None), \
+            patch("routes.ws.broadcast", new_callable=AsyncMock):
+        asyncio.run(jobs.run_job(jobs.SessionJob(session_id="s1"), asyncio.Event(), progress=progress))
+    assert reported == [
+        {"step": 1, "percent": 0.0, "detail": "attempt 1 of 10"},
+        {"percent": 100.0, "detail": "session passed"},
+    ]
+
+
 @pytest.mark.parametrize("status", ["stopped", "failed"])
 def test_a_job_for_a_session_no_longer_running_does_nothing(status):
     add_session(status=status)

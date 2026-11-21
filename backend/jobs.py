@@ -13,6 +13,7 @@ pub/sub, which works from any process.
 import asyncio
 import contextlib
 import os
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
 from pydantic import BaseModel, field_validator
@@ -53,12 +54,23 @@ def _tag(session_id: str) -> str:
 STOPPED_PART_WAY = "The worker running this session stopped part-way, so the run was not finished. Start it again."
 
 
-async def run_job(job: SessionJob, cancel_event: asyncio.Event, attempt: int = 1) -> None:
+Progress = Callable[..., Awaitable[None]]
+
+
+async def _no_progress(**_) -> None:
+    pass
+
+
+async def run_job(job: SessionJob, cancel_event: asyncio.Event, attempt: int = 1,
+                  progress: Progress = _no_progress) -> None:
     """Run one session to the end, or until cancel_event is set, then cancel it and raise CancelledError.
 
     A later attempt means a worker died during the run (TaskQ re-delivers the job once its lease expires). That run
     has already changed the repo, so it is not run again: the session is marked failed with the reason instead of
     staying "running" forever.
+
+    progress is the job's progress report (JobContext.progress), so TaskQ's admin UI shows which attempt a session
+    is on.
     """
     from core.loop import _fail_session, _mark_session_failed, _running
     from core.workspace import run_session
@@ -71,10 +83,17 @@ async def run_job(job: SessionJob, cancel_event: asyncio.Event, attempt: int = 1
         session = db.get(Session, job.session_id)
         if session is None or session.status != "running":
             return  # deleted or stopped before a worker picked it up
-        user_id, model = session.user_id, session.model
+        user_id, model, max_iterations = session.user_id, session.model, session.max_iterations
 
     async def broadcast_fn(msg: dict):
         await broadcast(job.session_id, msg)
+        event, data = msg.get("event"), msg.get("data") or {}
+        if event == "iteration_start":
+            n = data.get("iteration", 0)
+            await progress(step=n, percent=100.0 * (n - 1) / max_iterations,
+                           detail=f"attempt {n} of {max_iterations}")
+        elif event == "session_complete":
+            await progress(percent=100.0, detail=f"session {data.get('status')}")
 
     if attempt > 1:
         _mark_session_failed(job.session_id, STOPPED_PART_WAY)
@@ -106,7 +125,7 @@ async def run_job(job: SessionJob, cancel_event: asyncio.Event, attempt: int = 1
 # Two attempts: the second only reports a run whose worker died (see run_job), it never re-runs the session.
 @actor(name="run_session", queue=QUEUE, retry=RetryPolicy(max_attempts=2), start_to_close=START_TO_CLOSE)
 async def run_session_job(payload: SessionJob, ctx: JobContext[SessionJob]) -> None:
-    await run_job(payload, ctx.cancel_event, ctx.attempt)
+    await run_job(payload, ctx.cancel_event, ctx.attempt, ctx.progress)
 
 
 registry = [run_session_job]

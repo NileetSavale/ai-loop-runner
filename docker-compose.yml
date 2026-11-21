@@ -75,6 +75,22 @@ services:
         condition: service_completed_successfully
     command: taskq worker --actors jobs:registry --queues sessions
 
+  # TaskQ's admin UI at http://localhost:8080: every session job, its attempts, progress and workers.
+  # TASKQ_ENVIRONMENT=dev lets it start without a login, so the port is published on localhost only.
+  taskq-ui:
+    build: ./taskq-ui
+    profiles: [queue]
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - TASKQ_PG_DSN=postgresql://taskq:taskq@postgres:5432/taskq
+      - TASKQ_REDIS_URL=redis://redis:6379
+      - TASKQ_ENVIRONMENT=dev
+      - DOTENV_DIR=/tmp
+    depends_on:
+      taskq-migrate:
+        condition: service_completed_successfully
+
   frontend:
     build: ./frontend
     ports:

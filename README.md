@@ -348,7 +348,8 @@ To run sessions on a separate worker instead of inside the API process, so a res
 LOOP_RUNNER_QUEUE=taskq docker compose --profile queue up
 ```
 
-This adds Postgres for TaskQ's jobs, runs its migrations, and starts a worker. Stop cancels the session's job. If a
+This adds Postgres for TaskQ's jobs, runs its migrations, and starts a worker plus TaskQ's admin UI at
+`http://localhost:8080`, which shows every session's job, its attempts and progress, and the workers. Stop cancels the session's job. If a
 worker dies mid-run, the session is marked failed with the reason rather than run again, since the run has already
 changed the repo.
 

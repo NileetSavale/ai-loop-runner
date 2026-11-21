@@ -1,0 +1,47 @@
+import 'dart:convert';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:loop_runner_app/api.dart';
+import 'package:loop_runner_app/config.dart';
+import 'package:loop_runner_app/models.dart';
+
+void main() {
+  test('the backend defaults to localhost and its WebSocket follows the scheme', () {
+    expect(Config.apiUrl, 'http://localhost:8000');
+    expect(Config.wsUrl, 'ws://localhost:8000');
+    expect(Config.loginEnabled, isFalse);
+  });
+
+  test('sessions are read from GET /sessions, without a token when login is off', () async {
+    late http.Request sent;
+    final api = Api(client: MockClient((request) async {
+      sent = request;
+      return http.Response(jsonEncode([
+        {'id': 's1', 'name': 'fix login', 'status': 'passed', 'model': 'claude-haiku-5-5', 'total_iterations': 2,
+         'max_iterations': 10, 'total_cost_usd': 0.0123, 'created_at': '2026-11-21T10:00:00', 'repo_path': '/r'},
+      ]), 200);
+    }));
+    final sessions = await api.sessions();
+    expect(sent.url.toString(), 'http://localhost:8000/sessions');
+    expect(sent.headers.containsKey('authorization'), isFalse);
+    expect(sessions.single.name, 'fix login');
+    expect(sessions.single.totalCostUsd, closeTo(0.0123, 1e-9));
+    expect(sessions.single.running, isFalse);
+  });
+
+  test('an error carries the backend detail', () async {
+    final api = Api(client: MockClient((_) async => http.Response(jsonEncode({'detail': 'Session not found'}), 404)));
+    await expectLater(api.session('nope'),
+        throwsA(isA<ApiError>().having((e) => e.message, 'message', 'Session not found')));
+  });
+
+  test('saved and live events carry the same id, so a live repeat can be spotted', () {
+    final saved = SessionEvent.saved({'id': 7, 'kind': 'focus', 'files': [], 'tests_passing': false});
+    final live = SessionEvent.live({'event': 'focus', 'data': {'id': 7, 'files': [], 'tests_passing': false}});
+    expect(saved.kind, 'focus');
+    expect(saved.data.containsKey('kind'), isFalse);
+    expect(live.id, saved.id);
+  });
+}

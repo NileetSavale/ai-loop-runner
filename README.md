@@ -341,6 +341,17 @@ docker compose up
 - Backend API: `http://localhost:8000`
 - API docs: `http://localhost:8000/docs`
 
+To run sessions on a separate worker instead of inside the API process, so a restart doesn't lose them, use the
+[TaskQ](https://github.com/AZX-PBC-OSS/TaskQ) queue (`backend/jobs.py`):
+
+```bash
+LOOP_RUNNER_QUEUE=taskq docker compose --profile queue up
+```
+
+This adds Postgres for TaskQ's jobs, runs its migrations, and starts a worker. Stop cancels the session's job. If a
+worker dies mid-run, the session is marked failed with the reason rather than run again, since the run has already
+changed the repo.
+
 **5. Or run services individually**
 
 ```bash

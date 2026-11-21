@@ -11,7 +11,7 @@ from sqlmodel import select
 from models import Session, SessionEvent, Task, Iteration
 from database import get_session as db_session
 from core.cascade import cascade_problem
-from core.loop import stop_loop
+from core.loop import _mark_session_failed, stop_loop
 from core.workspace import (HOSTED, WORKSPACES, CloneError, base_commit, clone, diff, github_repo, head, workspace,
                             owns_workspace, record, start_session)
 from core.repo_map import build_repo_map
@@ -21,6 +21,7 @@ from routes.keys import get_user_api_key
 from providers.base import SUPPORTED_MODELS
 from providers.router import _provider_for
 import os
+import jobs
 
 router = APIRouter()
 
@@ -147,8 +148,18 @@ async def create_session(body: SessionCreate, user: dict | None = Depends(get_op
         await broadcast(session_id, msg)
 
     record(session_id, body.repo_url, body.branch, base)
-    start_session(session_id, broadcast_fn, cascade=body.cascade, sandboxed=body.repo_url is not None or body.sandbox,
-                  user_api_key=api_key, max_cost_usd=body.max_cost_usd, add_tests=body.add_tests, use_map=True)
+    sandboxed = body.repo_url is not None or body.sandbox
+    if jobs.enabled():
+        try:
+            await jobs.enqueue(jobs.SessionJob(session_id=session_id, cascade=body.cascade, sandboxed=sandboxed,
+                                               max_cost_usd=body.max_cost_usd, add_tests=body.add_tests, use_map=True))
+        except Exception as e:
+            # The session row exists already: without a job it would show "running" forever
+            _mark_session_failed(session_id, f"Couldn't queue the run: {e}")
+            raise HTTPException(status_code=503, detail="Couldn't queue the run; try again.") from e
+    else:
+        start_session(session_id, broadcast_fn, cascade=body.cascade, sandboxed=sandboxed, user_api_key=api_key,
+                      max_cost_usd=body.max_cost_usd, add_tests=body.add_tests, use_map=True)
     return {"id": session_id}
 
 
@@ -169,12 +180,19 @@ def get_session(session_id: str, user: dict | None = Depends(get_optional_user))
         }
 
 
+async def _stop(session_id: str):
+    if jobs.enabled():
+        await jobs.cancel(session_id)
+    else:
+        stop_loop(session_id)
+
+
 @router.post("/sessions/{session_id}/stop")
-def stop_session(session_id: str, user: dict | None = Depends(get_optional_user)):
+async def stop_session(session_id: str, user: dict | None = Depends(get_optional_user)):
     uid = user_id(user) if user else None
     with db_session() as db:
         session = _own_session(session_id, uid, db)
-        stop_loop(session_id)
+        await _stop(session_id)
         session.status = "stopped"
         session.completed_at = datetime.utcnow()
         db.add(session)
@@ -183,7 +201,7 @@ def stop_session(session_id: str, user: dict | None = Depends(get_optional_user)
 
 
 @router.delete("/sessions/{session_id}")
-def delete_session(session_id: str, user: dict | None = Depends(get_optional_user)):
+async def delete_session(session_id: str, user: dict | None = Depends(get_optional_user)):
     uid = user_id(user) if user else None
     with db_session() as db:
         session = _own_session(session_id, uid, db)
@@ -197,7 +215,7 @@ def delete_session(session_id: str, user: dict | None = Depends(get_optional_use
         repo_path = session.repo_path
         db.delete(session)
         db.commit()
-    stop_loop(session_id)
+    await _stop(session_id)
     if owns_workspace(repo_path):
         shutil.rmtree(repo_path, ignore_errors=True)
     return {"deleted": session_id}

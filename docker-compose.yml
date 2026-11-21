@@ -17,6 +17,9 @@ services:
       - REDIS_URL=redis://redis:6379
       - CORS_ORIGIN=http://localhost:3000
       - ALLOW_ANONYMOUS=true
+      # Set LOOP_RUNNER_QUEUE=taskq (and run with --profile queue) to run sessions on the TaskQ worker below
+      - LOOP_RUNNER_QUEUE=${LOOP_RUNNER_QUEUE:-}
+      - TASKQ_PG_DSN=postgresql://taskq:taskq@postgres:5432/taskq
     volumes:
       - ./backend:/app          # live reload in dev
       - /tmp/loop-runner-repos:/repos  # mount for target repos
@@ -24,6 +27,53 @@ services:
       redis:
         condition: service_healthy
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # The session queue (backend/jobs.py), only with --profile queue. TaskQ keeps its jobs in this Postgres; the
+  # app's own database is unchanged.
+  postgres:
+    image: postgres:18-alpine
+    profiles: [queue]
+    environment:
+      - POSTGRES_USER=taskq
+      - POSTGRES_PASSWORD=taskq
+      - POSTGRES_DB=taskq
+    volumes:
+      - taskq-pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "taskq"]
+      interval: 5s
+      retries: 10
+
+  taskq-migrate:
+    build: ./backend
+    profiles: [queue]
+    environment:
+      - TASKQ_PG_DSN=postgresql://taskq:taskq@postgres:5432/taskq
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: taskq migrate up
+
+  worker:
+    build: ./backend
+    profiles: [queue]
+    env_file: ./backend/.env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - TASKQ_PG_DSN=postgresql://taskq:taskq@postgres:5432/taskq
+      # taskq-py 0.2.2 loads the .env in its folder over the process environment (every key, not just TASKQ_*),
+      # which would replace the values above with backend/.env's. env_file already supplies .env, so point its
+      # lookup at a folder with none.
+      - DOTENV_DIR=/tmp
+    volumes:
+      - ./backend:/app
+      - /tmp/loop-runner-repos:/repos
+    depends_on:
+      redis:
+        condition: service_healthy
+      taskq-migrate:
+        condition: service_completed_successfully
+    command: taskq worker --actors jobs:registry --queues sessions
 
   frontend:
     build: ./frontend
@@ -35,3 +85,6 @@ services:
       - INTERNAL_API_URL=http://backend:8000
     depends_on:
       - backend
+
+volumes:
+  taskq-pg:

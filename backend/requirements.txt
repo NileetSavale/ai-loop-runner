@@ -13,3 +13,4 @@ openai>=1.40.0
 google-genai>=1.5.0
 mistralai>=2.9.2
 fakeredis[aioredis]>=2.23.0
+taskq-py==0.2.2  # pre-1.0: pinned exactly; the session queue in jobs.py

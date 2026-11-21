@@ -15,6 +15,7 @@ from routes.chat import router as chat_router
 from routes.keys import router as keys_router
 from routes.test_gen import router as test_gen_router
 from core.workspace import HOSTED
+import jobs
 
 app = FastAPI(title="Loop Runner")
 
@@ -46,3 +47,8 @@ def health():
 @app.on_event("startup")
 def on_startup():
     init_db()
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await jobs.close()

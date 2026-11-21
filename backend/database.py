@@ -4,7 +4,9 @@ import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./loop_runner.db")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# SQLite needs check_same_thread off for FastAPI's threads; other databases (Postgres) refuse the option.
+engine = create_engine(DATABASE_URL,
+                       connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
 
 
 def init_db():

@@ -250,6 +250,6 @@ def test_session_event_routes_respect_ownership(tmp_path, db):
         with pytest.raises(HTTPException) as e:
             call(sid, {"sub": "someone-else"})
         assert e.value.status_code == 404
-    delete_session(sid, owner)
+    asyncio.run(delete_session(sid, owner))
     with db_session() as s:
         assert s.exec(select(SessionEvent)).all() == []

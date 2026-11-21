@@ -7,18 +7,23 @@ right: about a fifth of the fixes Haiku's loop accepted failed SWE-bench's hidde
 on failing tests solved little more than Haiku alone; with the review it came close to Sonnet alone. Each step goes
 out as a "cascade" event, saved like the loop's own events so the page can show it after a reload.
 
+The steps are data: run_cascade walks a pipeline (core/pipeline.py), by default pipelines/reviewed-cascade.yaml, and
+this module runs each step kind (scout, fix, review). Another pipeline changes the order or the models, not the code.
+
 The cheap attempt is undone by resetting the repo to the commit the session started from, so a repo with uncommitted
 changes to tracked files is refused rather than have them lost. Untracked files the attempt created are removed; ones
 that were there before stay, as the attempt left them. max_iterations applies to each model's loop, and the cost cap to the whole.
 """
 import asyncio
 import json
+from dataclasses import dataclass
 import subprocess
 import uuid
 
 from sqlmodel import select
 
 from core.fix_review import REVIEWER_MODEL, edited_tests, review_fix
+from core.pipeline import DONE, Pipeline, Step, load as load_pipeline, resolve as resolve_model
 from core.loop import MAX_SESSION_COST_USD, BroadcastFn, _fail_session, _mark_session_failed, _running, run_loop
 from core.scout import handover, run_scout, tried_summary
 from database import get_session as db_session
@@ -117,23 +122,117 @@ async def _run_stage(session_id: str, broadcast_fn: BroadcastFn, user_api_key: s
     return final, last_output
 
 
+@dataclass
+class _Run:
+    """What the steps of one session's pipeline share."""
+    session_id: str
+    broadcast_fn: BroadcastFn
+    user_api_key: str | None
+    loop_options: dict
+    repo: str
+    spec: str
+    main_model: str
+    cheap_model: str
+    limit: float
+    base: str
+    before: set[str]
+    notes: str | None = None
+    scout_cost: float = 0.0
+    final: dict | None = None
+    last_output: str = ""
+    diff: str | None = None
+    rejected: str | None = None
+
+    @property
+    def byok(self) -> bool:
+        return self.user_api_key is not None
+
+    async def step(self, data: dict):
+        with db_session() as db:
+            event = SessionEvent(session_id=self.session_id, kind="cascade", data=json.dumps(data))
+            db.add(event)
+            db.commit()
+            event_id = event.id
+        await self.broadcast_fn({"event": "cascade", "data": {**data, "id": event_id}})
+
+    def attempt_diff(self) -> str:
+        """The last fix's changes since the session started, staged so new files show."""
+        if self.diff is None:
+            _git(self.repo, "add", "-A")
+            # The loop's commit takes every untracked file, the user's own too; they aren't the attempt's work
+            self.diff = _git(self.repo, "diff", "--cached", self.base, "--", ".",
+                             *(f":(exclude,literal){path}" for path in self.before))
+        return self.diff
+
+
+async def _scout(run: _Run, step: Step, model: str) -> str:
+    await run.step({"step": step.id, "model": model})
+    run.notes, scouted = await run_scout(run.spec, run.repo, model, step.options.get("budget_usd", SCOUT_BUDGET_USD),
+                                         user_api_key=run.user_api_key)
+    run.scout_cost = scouted.cost_usd
+    _charge(run.session_id, model, scouted.cost_usd, scouted.input_tokens, scouted.output_tokens, run.byok)
+    return "next"
+
+
+async def _fix(run: _Run, step: Step, model: str) -> str:
+    if step.options.get("undo"):
+        diff = run.attempt_diff()
+        tried = tried_summary({path: [] for path in _changed_files(diff)}, [], [],
+                              "" if run.rejected else run.last_output, "")
+        # Not reset --hard: that would delete the user's untracked files, which the loop's commit made tracked
+        _git(run.repo, "reset", "-q", run.base)
+        _git(run.repo, "checkout", "-q", "--", ".")
+        created = sorted(_untracked(run.repo) - run.before)
+        if created:
+            _git(run.repo, "clean", "-fq", "--", *created)
+        with db_session() as db:
+            earlier = len(db.exec(select(Iteration).where(Iteration.session_id == run.session_id)).all())
+        await run.step({"step": step.id, "model": model, "cheap_iterations": earlier,
+                        "reason": f"the reviewer rejected its fix: {run.rejected}" if run.rejected
+                        else "its fix didn't pass the tests"})
+        spec = handover(run.spec, run.notes or "", tried, run.rejected)
+        _update(run.session_id, model=model, status="running", completed_at=None, spec=spec)
+    else:
+        announce = {"step": step.id, "model": model}
+        if run.notes is not None:
+            announce |= {"notes": run.notes, "cost_usd": run.scout_cost}
+        await run.step(announce)
+        _update(run.session_id, model=model, spec=handover(run.spec, run.notes) if run.notes is not None else run.spec)
+    run.final, run.last_output = await _run_stage(run.session_id, run.broadcast_fn, run.user_api_key,
+                                                  run.limit - _spent(run.session_id), run.loop_options)
+    run.diff, run.rejected = None, None
+    return "on_pass" if run.final and run.final.get("status") == "passed" else "on_fail"
+
+
+async def _review(run: _Run, step: Step, model: str) -> str:
+    diff = run.attempt_diff()
+    await run.step({"step": step.id, "model": model})
+    _running[run.session_id] = asyncio.current_task()
+    # The default reviewer is the one the cascade has always called; another model is passed by name
+    which = {} if model == REVIEWER_MODEL else {"model": model}
+    verdict = await review_fix(run.spec, diff, lambda path: _show(run.repo, run.base, path), "", REVIEW_PROMPT,
+                               user_api_key=run.user_api_key, **which)
+    _charge(run.session_id, model, verdict["cost_usd"], verdict["input_tokens"], verdict["output_tokens"], run.byok)
+    await run.step({"step": "reviewed", "model": model, "accept": verdict["accept"], "why": verdict["why"],
+                    "edited_tests": edited_tests(diff), "cost_usd": verdict["cost_usd"]})
+    run.rejected = None if verdict["accept"] else verdict["why"]
+    return "on_accept" if verdict["accept"] else "on_reject"
+
+
+_KINDS = {"scout": _scout, "fix": _fix, "review": _review}
+
+
 async def run_cascade(session_id: str, broadcast_fn: BroadcastFn, user_api_key: str | None = None,
-                      max_cost_usd: float | None = None, cheap_model: str = CHEAP_MODEL, **loop_options):
-    """loop_options: run_loop's, for both models' loops."""
+                      max_cost_usd: float | None = None, cheap_model: str = CHEAP_MODEL,
+                      pipeline: Pipeline | None = None, **loop_options):
+    """Run the session through a pipeline (core/pipeline.py), by default the reviewed cascade.
+    loop_options: run_loop's, for every fix step's loop."""
+    pipeline = pipeline or load_pipeline("reviewed-cascade")
     with db_session() as db:
         session = db.get(Session, session_id)
         repo, model = session.repo_path, session.model
         spec = db.exec(select(Task).where(Task.session_id == session_id)).first().spec
     limit = MAX_SESSION_COST_USD if max_cost_usd is None else max_cost_usd
-    byok = user_api_key is not None
-
-    async def step(data: dict):
-        with db_session() as db:
-            event = SessionEvent(session_id=session_id, kind="cascade", data=json.dumps(data))
-            db.add(event)
-            db.commit()
-            event_id = event.id
-        await broadcast_fn({"event": "cascade", "data": {**data, "id": event_id}})
 
     async def fail(reason: str):
         _mark_session_failed(session_id, reason)
@@ -150,52 +249,18 @@ async def run_cascade(session_id: str, broadcast_fn: BroadcastFn, user_api_key: 
         await fail("Commit or stash your changes first: the cascade undoes the cheap model's attempt by resetting to "
                    "the last commit, which would lose them.")
         return
-    before = _untracked(repo)
+    run = _Run(session_id, broadcast_fn, user_api_key, loop_options, repo, spec, model, cheap_model, limit, base,
+               _untracked(repo))
 
     try:
-        await step({"step": "scout", "model": cheap_model})
-        notes, scouted = await run_scout(spec, repo, cheap_model, SCOUT_BUDGET_USD, user_api_key=user_api_key)
-        _charge(session_id, cheap_model, scouted.cost_usd, scouted.input_tokens, scouted.output_tokens, byok)
-        await step({"step": "cheap", "model": cheap_model, "notes": notes, "cost_usd": scouted.cost_usd})
-        _update(session_id, model=cheap_model, spec=handover(spec, notes))
-        final, last_output = await _run_stage(session_id, broadcast_fn, user_api_key, limit - _spent(session_id),
-                                              loop_options)
-
-        _git(repo, "add", "-A")
-        # The loop's commit takes every untracked file, the user's own too; they aren't the attempt's work
-        diff = _git(repo, "diff", "--cached", base, "--", ".", *(f":(exclude,literal){path}" for path in before))
-        rejected = None
-        if final and final.get("status") == "passed":
-            await step({"step": "review", "model": REVIEWER_MODEL})
-            _running[session_id] = asyncio.current_task()
-            verdict = await review_fix(spec, diff, lambda path: _show(repo, base, path), "", REVIEW_PROMPT,
-                                       user_api_key=user_api_key)
-            _charge(session_id, REVIEWER_MODEL, verdict["cost_usd"], verdict["input_tokens"],
-                    verdict["output_tokens"], byok)
-            await step({"step": "reviewed", "model": REVIEWER_MODEL, "accept": verdict["accept"],
-                        "why": verdict["why"], "edited_tests": edited_tests(diff), "cost_usd": verdict["cost_usd"]})
-            if verdict["accept"]:
-                await broadcast_fn({"event": "session_complete", "data": final})
-                return
-            rejected = verdict["why"]
-
-        tried = tried_summary({path: [] for path in _changed_files(diff)}, [], [], "" if rejected else last_output, "")
-        # Not reset --hard: that would delete the user's untracked files, which the loop's commit made tracked
-        _git(repo, "reset", "-q", base)
-        _git(repo, "checkout", "-q", "--", ".")
-        created = sorted(_untracked(repo) - before)
-        if created:
-            _git(repo, "clean", "-fq", "--", *created)
-        with db_session() as db:
-            cheap_iterations = len(db.exec(select(Iteration).where(Iteration.session_id == session_id)).all())
-        await step({"step": "escalated", "model": model, "cheap_iterations": cheap_iterations,
-                    "reason": f"the reviewer rejected its fix: {rejected}" if rejected
-                    else "its fix didn't pass the tests"})
-        _update(session_id, model=model, status="running", completed_at=None,
-                spec=handover(spec, notes, tried, rejected))
-        final, _ = await _run_stage(session_id, broadcast_fn, user_api_key, limit - _spent(session_id), loop_options)
-        if final:
-            await broadcast_fn({"event": "session_complete", "data": final})
+        current = pipeline.start
+        while current != DONE:
+            step = pipeline.steps[current]
+            outcome = await _KINDS[step.kind](run, step, resolve_model(step.model, cheap_model, model))
+            current = step.after(outcome)
+        # The last fix's pass or fail, held back while later steps might still run, ends the session
+        if run.final:
+            await broadcast_fn({"event": "session_complete", "data": run.final})
 
     except asyncio.CancelledError:
         _mark_session_failed(session_id, "cancelled")

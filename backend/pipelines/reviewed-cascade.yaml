@@ -1,0 +1,29 @@
+name: reviewed-cascade
+description: >
+  The study's reviewed cascade (research_notes/research_log.md). A cheap model tries first after a scout notes the
+  relevant code; a stronger model reviews a fix that passes the tests, because passing the repo's tests was weak
+  evidence that a cheap model's fix was right; the session's own model redoes the task, told what was tried, only if
+  the cheap attempt fails or the review rejects it.
+start: scout
+steps:
+  scout:
+    kind: scout
+    model: cheap
+    budget_usd: 0.05
+    next: cheap
+  cheap:
+    kind: fix
+    model: cheap
+    on_pass: review
+    on_fail: escalated
+  review:
+    kind: review
+    model: claude-sonnet-5-5
+    on_accept: done
+    on_reject: escalated
+  escalated:
+    kind: fix
+    model: main
+    undo: true
+    on_pass: done
+    on_fail: done

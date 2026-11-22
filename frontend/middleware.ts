@@ -1,10 +1,17 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { authEnabled } from "./lib/supabase";
 
 const PROTECTED = ["/sessions", "/chat", "/analytics", "/new", "/settings"];
 
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next({ request });
+  const path = request.nextUrl.pathname;
+
+  // Local mode: nothing to log in to
+  if (!authEnabled) {
+    return path === "/login" || path === "/signup" ? NextResponse.redirect(new URL("/", request.url)) : response;
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,7 +26,6 @@ export async function middleware(request: NextRequest) {
   );
 
   const { data: { user } } = await supabase.auth.getUser();
-  const path = request.nextUrl.pathname;
 
   if (!user && PROTECTED.some((p) => path.startsWith(p))) {
     return NextResponse.redirect(new URL("/login", request.url));

@@ -278,58 +278,35 @@ loop_runner/
 
 ### Prerequisites
 
-- Python 3.12+
-- Node.js 20+
-- Docker + Docker Compose
-- A Supabase project (for auth)
-- At least one LLM provider API key
+- Docker + Docker Compose (or Python 3.12+ and Node.js 20+ to run the services yourself)
+- An API key for at least one model provider
+
+No accounts or cloud services are needed: everything, the database included, runs on your machine. Login is off
+until you configure Supabase, which only a hosted, multi-user server needs.
 
 ### Local Development
 
-**1. Clone and configure**
+**1. Clone**
 
 ```bash
 git clone https://github.com/NileetSavale/ai-loop-runner.git
 cd ai-loop-runner
 ```
 
-**2. Backend environment**
+**2. Add your model key**
 
-Copy `backend/.env.example` → `backend/.env` and fill in:
-
-```env
-DATABASE_URL=sqlite:///./loop_runner.db
-REDIS_URL=redis://localhost:6379
-
-# Supabase
-SUPABASE_JWT_SECRET=your_supabase_jwt_secret
-
-# Local development only: skip login and the allowlist. Never set this on a reachable server.
-ALLOW_ANONYMOUS=true
-
-# LLM keys (at least one required)
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-GOOGLE_API_KEY=...
-MISTRAL_API_KEY=...
-
-# BYOK vault key — generate with:
-# python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-VAULT_KEY=...
-
-# Verify timeout
-MAX_VERIFY_TIMEOUT_SECONDS=120
+```bash
+cp backend/.env.example backend/.env
 ```
 
-**3. Frontend environment**
+Set one key in `backend/.env`, for example `ANTHROPIC_API_KEY=sk-ant-...`. The other settings have working defaults:
+local mode (`ALLOW_ANONYMOUS=true`, no login), a SQLite database file, and the cost and timeout limits. Keep the
+backend on localhost in local mode, since an anonymous session can run commands.
 
-```env
-# frontend/.env.local
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_WS_URL=ws://localhost:8000
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-```
+**3. Frontend (optional)**
+
+Nothing to set for local use. `frontend/.env.example` lists the API URL and the Supabase settings a hosted site
+would add.
 
 **4. Start everything with Docker Compose**
 

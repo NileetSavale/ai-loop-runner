@@ -1,9 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createApi } from "./api";
+import { authEnabled } from "./supabase";
 
 // For server components: the browser client can't see the session, so read it from cookies
 async function serverToken(): Promise<string> {
+  if (!authEnabled) return "";
   try {
     const store = await cookies();
     const supabase = createServerClient(

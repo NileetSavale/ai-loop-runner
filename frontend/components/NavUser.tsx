@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getSupabase } from "@/lib/supabase";
+import { authEnabled, getSupabase } from "@/lib/supabase";
 import type { User } from "@supabase/supabase-js";
 
 export function NavUser() {
@@ -11,6 +11,7 @@ export function NavUser() {
   const router = useRouter();
 
   useEffect(() => {
+    if (!authEnabled) return;
     const sb = getSupabase();
     sb.auth.getUser().then(({ data }) => setUser(data.user));
     const { data: { subscription } } = sb.auth.onAuthStateChange((_, session) => {
@@ -23,6 +24,10 @@ export function NavUser() {
     await getSupabase().auth.signOut();
     router.push("/login");
   }
+
+  if (!authEnabled) return (
+    <span className="text-sm text-gray-500" title="No login: Supabase isn't configured">Local mode</span>
+  );
 
   if (!user) return (
     <Link href="/login" className="text-sm text-gray-500 hover:text-gray-900">Sign in</Link>

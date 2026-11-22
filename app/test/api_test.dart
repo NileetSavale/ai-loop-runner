@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -151,4 +152,12 @@ void main() {
     final api = Api(client: MockClient((_) async => http.Response(patch, 200)));
     expect(await api.diff('s1'), patch);
   });
+
+  test('a backend that never answers is reported, not waited on forever', () async {
+    final api = Api(client: MockClient((_) => Completer<http.Response>().future));
+    await expectLater(
+      api.sessions().timeout(Api.timeout + const Duration(seconds: 2)),
+      throwsA(isA<ApiError>().having((e) => e.message, 'message', contains('No answer from the backend'))),
+    );
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }

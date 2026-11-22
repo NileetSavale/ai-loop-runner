@@ -32,12 +32,21 @@ class Api {
 
   Uri _url(String path) => Uri.parse('${Config.apiUrl}$path');
 
-  Future<dynamic> _get(String path) async => _decode(await _http.get(_url(path), headers: _headers));
+  /// How long a request may take before the app says so, instead of waiting forever.
+  static const timeout = Duration(seconds: 15);
+
+  Future<http.Response> _send(Future<http.Response> request) => request.timeout(
+    timeout,
+    onTimeout: () =>
+        throw ApiError(0, 'No answer from the backend at ${Config.apiUrl} within ${timeout.inSeconds} seconds.'),
+  );
+
+  Future<dynamic> _get(String path) async => _decode(await _send(_http.get(_url(path), headers: _headers)));
 
   Future<dynamic> _post(String path, [Object? body]) async =>
-      _decode(await _http.post(_url(path), headers: _headers, body: body == null ? null : jsonEncode(body)));
+      _decode(await _send(_http.post(_url(path), headers: _headers, body: body == null ? null : jsonEncode(body))));
 
-  Future<dynamic> _delete(String path) async => _decode(await _http.delete(_url(path), headers: _headers));
+  Future<dynamic> _delete(String path) async => _decode(await _send(_http.delete(_url(path), headers: _headers)));
 
   dynamic _decode(http.Response response) {
     if (response.statusCode >= 400) throw ApiError(response.statusCode, _detail(response.body));
@@ -88,7 +97,7 @@ class Api {
 
   /// The session's changes as a patch (git apply can take it).
   Future<String> diff(String id) async {
-    final response = await _http.get(_url('/sessions/$id/diff'), headers: _headers);
+    final response = await _send(_http.get(_url('/sessions/$id/diff'), headers: _headers));
     if (response.statusCode >= 400) throw ApiError(response.statusCode, _detail(response.body));
     return response.body;
   }
@@ -109,7 +118,7 @@ class Api {
 
   /// Checks and saves `backend/pipelines/<name>.yaml`; an ApiError carries the reason it can't run.
   Future<Pipeline> savePipeline(String name, Map<String, dynamic> document) async {
-    final response = await _http.put(_url('/pipelines/$name'), headers: _headers, body: jsonEncode(document));
+    final response = await _send(_http.put(_url('/pipelines/$name'), headers: _headers, body: jsonEncode(document)));
     return Pipeline.fromJson(_decode(response) as Map<String, dynamic>);
   }
 

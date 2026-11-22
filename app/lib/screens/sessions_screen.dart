@@ -18,12 +18,18 @@ class SessionsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Sessions'),
         actions: [
+          IconButton(tooltip: 'API keys', icon: const Icon(Icons.key), onPressed: () => context.go('/keys')),
           IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
             onPressed: () => ref.invalidate(sessionsProvider),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => context.go('/sessions/new'),
+        icon: const Icon(Icons.add),
+        label: const Text('New session'),
       ),
       body: sessions.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -32,7 +38,7 @@ class SessionsScreen extends ConsumerWidget {
           onRetry: () => ref.invalidate(sessionsProvider),
         ),
         data: (rows) => rows.isEmpty
-            ? const Center(child: Text('No sessions yet. Start one from the website.'))
+            ? const Center(child: Text('No sessions yet. Start one with New session.'))
             : RefreshIndicator(
                 onRefresh: () => ref.refresh(sessionsProvider.future),
                 child: ListView.separated(

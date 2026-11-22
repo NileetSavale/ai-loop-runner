@@ -5,7 +5,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'api.dart';
 import 'config.dart';
+import 'screens/diff_screen.dart';
+import 'screens/keys_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/new_session_screen.dart';
 import 'screens/session_screen.dart';
 import 'screens/sessions_screen.dart';
 
@@ -37,9 +40,16 @@ final _router = GoRouter(
       path: '/sessions',
       builder: (_, _) => const SessionsScreen(),
       routes: [
-        GoRoute(path: ':id', builder: (_, state) => SessionScreen(id: state.pathParameters['id']!)),
+        // Before :id, so "new" is not read as a session id
+        GoRoute(path: 'new', builder: (_, _) => const NewSessionScreen()),
+        GoRoute(
+          path: ':id',
+          builder: (_, state) => SessionScreen(id: state.pathParameters['id']!),
+          routes: [GoRoute(path: 'diff', builder: (_, state) => DiffScreen(id: state.pathParameters['id']!))],
+        ),
       ],
     ),
+    GoRoute(path: '/keys', builder: (_, _) => const KeysScreen()),
   ],
 );
 

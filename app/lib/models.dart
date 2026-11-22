@@ -43,3 +43,66 @@ class SessionEvent {
   final String kind;
   final Map<String, dynamic> data;
 }
+
+/// What POST /sessions takes. Exactly one of repoPath (a folder on the backend's machine) and repoUrl is set.
+class NewSession {
+  NewSession({
+    required this.name,
+    required this.verifyCommand,
+    required this.title,
+    required this.spec,
+    required this.model,
+    this.repoPath,
+    this.repoUrl,
+    this.branch,
+    this.maxIterations = 10,
+    this.maxCostUsd,
+    this.cascade = false,
+    this.addTests = false,
+  });
+
+  final String name;
+  final String verifyCommand;
+  final String title;
+  final String spec;
+  final String model;
+  final String? repoPath;
+  final String? repoUrl;
+  final String? branch;
+  final int maxIterations;
+  final double? maxCostUsd;
+  final bool cascade;
+  final bool addTests;
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        if (repoPath != null) 'repo_path': repoPath,
+        if (repoUrl != null) 'repo_url': repoUrl,
+        if (branch != null && branch!.isNotEmpty) 'branch': branch,
+        'verify_command': verifyCommand,
+        'max_iterations': maxIterations,
+        if (maxCostUsd != null) 'max_cost_usd': maxCostUsd,
+        'cascade': cascade,
+        'add_tests': addTests,
+        'model': model,
+        'task': {'title': title, 'spec': spec, 'files_context': <String>[]},
+      };
+}
+
+class ModelChoice {
+  const ModelChoice(this.id, this.name, this.provider);
+  final String id;
+  final String name;
+  final String provider;
+}
+
+class SavedKey {
+  SavedKey.fromJson(Map<String, dynamic> json)
+      : id = json['id'] as String,
+        provider = json['provider'] as String,
+        label = json['label'] as String? ?? '';
+
+  final String id;
+  final String provider;
+  final String label;
+}

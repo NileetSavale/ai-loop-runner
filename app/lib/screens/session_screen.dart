@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../main.dart';
 import '../models.dart';
@@ -92,6 +93,29 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     if (mounted) setState(() => _session = session);
   }
 
+  Future<void> _delete() async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this session?'),
+        content: const Text('Its history goes, and a repo the backend cloned for it is removed. '
+            'A folder on your machine is left as it is.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (sure != true) return;
+    try {
+      await ref.read(apiProvider).delete(widget.id);
+      ref.invalidate(sessionsProvider);
+      if (mounted) context.go('/sessions');
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Couldn\'t delete: $e')));
+    }
+  }
+
   Future<void> _stop() async {
     try {
       await ref.read(apiProvider).stop(widget.id);
@@ -114,6 +138,14 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
               child: Chip(label: Text(_connected ? 'live' : 'connecting')),
             ),
             TextButton.icon(onPressed: _stop, icon: const Icon(Icons.stop), label: const Text('Stop')),
+          ],
+          if (session != null) ...[
+            IconButton(
+              tooltip: 'Changes',
+              icon: const Icon(Icons.difference_outlined),
+              onPressed: () => context.go('/sessions/${widget.id}/diff'),
+            ),
+            IconButton(tooltip: 'Delete', icon: const Icon(Icons.delete_outline), onPressed: _delete),
           ],
         ],
       ),

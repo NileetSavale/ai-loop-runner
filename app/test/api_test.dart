@@ -44,4 +44,55 @@ void main() {
     expect(saved.data.containsKey('kind'), isFalse);
     expect(live.id, saved.id);
   });
+
+  test('a new session from a folder sends repo_path only, with the task nested', () async {
+    late Map<String, dynamic> body;
+    final api = Api(client: MockClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.path, '/sessions');
+      body = jsonDecode(request.body) as Map<String, dynamic>;
+      return http.Response(jsonEncode({'id': 'new-1'}), 200);
+    }));
+    final id = await api.createSession(NewSession(
+        name: 'fix', repoPath: '/repo', verifyCommand: 'pytest -q', title: 'Fix it', spec: 'Make it pass',
+        model: 'claude-sonnet-5-5', maxIterations: 5, cascade: true));
+    expect(id, 'new-1');
+    expect(body['repo_path'], '/repo');
+    expect(body.containsKey('repo_url'), isFalse);
+    expect(body.containsKey('max_cost_usd'), isFalse);
+    expect(body['task'], {'title': 'Fix it', 'spec': 'Make it pass', 'files_context': []});
+    expect(body['max_iterations'], 5);
+    expect(body['cascade'], isTrue);
+  });
+
+  test('a refused field reads as the field and its reason', () async {
+    final api = Api(client: MockClient((_) async => http.Response(jsonEncode({
+          'detail': [
+            {'loc': ['body', 'max_iterations'], 'msg': 'Value error, max_iterations must be between 1 and 50'},
+          ]
+        }), 422)));
+    await expectLater(
+        api.createSession(NewSession(
+            name: 'x', repoUrl: 'https://github.com/o/r', verifyCommand: 't', title: 't', spec: 's', model: 'm')),
+        throwsA(isA<ApiError>().having(
+            (e) => e.message, 'message', 'max_iterations: Value error, max_iterations must be between 1 and 50')));
+  });
+
+  test('models come back flat, each with its provider', () async {
+    final api = Api(client: MockClient((request) async {
+      expect(request.url.path, '/keys/models');
+      return http.Response(jsonEncode({
+        'anthropic': [{'id': 'claude-sonnet-5-5', 'name': 'Claude Sonnet 5.5'}],
+        'openai': [{'id': 'gpt-5', 'name': 'GPT-5'}],
+      }), 200);
+    }));
+    final models = await api.models();
+    expect([for (final m in models) '${m.provider}/${m.id}'], ['anthropic/claude-sonnet-5-5', 'openai/gpt-5']);
+  });
+
+  test('the diff is returned as the patch text', () async {
+    const patch = 'diff --git a/x.py b/x.py\n+x = 2\n';
+    final api = Api(client: MockClient((_) async => http.Response(patch, 200)));
+    expect(await api.diff('s1'), patch);
+  });
 }

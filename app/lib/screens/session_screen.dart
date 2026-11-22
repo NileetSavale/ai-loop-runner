@@ -637,7 +637,11 @@ class _EventTile extends StatelessWidget {
         'Looked at the code: ${(d['files'] as List?)?.length ?? 0} file(s)',
         d['tests_passing'] == true ? 'Tests already pass' : 'Tests fail before any change',
       ),
-      'cascade' when d['step_kind'] == 'approve' => (Icons.how_to_reg_outlined, '${d['step']}: waiting for approval', null),
+      'cascade' when d['step_kind'] == 'approve' => (
+        Icons.how_to_reg_outlined,
+        '${d['step']}: waiting for approval',
+        null,
+      ),
       'cascade' when d['step'] == 'approved' => (
         d['accept'] == true ? Icons.thumb_up_alt_outlined : Icons.thumb_down_alt_outlined,
         '${d['of']}: ${d['accept'] == true ? 'approved' : 'rejected'}',

@@ -343,6 +343,8 @@ docker compose up
 
 **5. Or run services individually**
 
+Redis is optional here: without it, live events stay inside the backend process and the analytics cache is skipped. Run Redis when sessions run on TaskQ workers (separate processes) or when several backends serve one site.
+
 ```bash
 # Backend
 cd backend

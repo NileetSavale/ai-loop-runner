@@ -7,6 +7,8 @@ from sqlmodel import select
 from fastapi import Depends
 from models import Session, UsageEvent
 from database import get_session as db_session
+from redis.exceptions import RedisError
+
 from cache import redis
 from auth import get_current_user, get_optional_user, user_id
 
@@ -21,11 +23,18 @@ def cached(key: str, ttl: int = CACHE_TTL):
         @wraps(fn)
         async def wrapper(*args, **kwargs):
             user_key = f"{key}:{_uid(kwargs['user'])}"
-            hit = await redis.get(user_key)
+            # The cache is optional: without Redis every request computes the result fresh
+            try:
+                hit = await redis.get(user_key)
+            except (RedisError, OSError):
+                return fn(*args, **kwargs)
             if hit:
                 return json.loads(hit)
             result = fn(*args, **kwargs)
-            await redis.setex(user_key, ttl, json.dumps(result))
+            try:
+                await redis.setex(user_key, ttl, json.dumps(result))
+            except (RedisError, OSError):
+                pass
             return result
         return wrapper
     return decorator
@@ -35,7 +44,10 @@ async def invalidate_analytics(uid: str | None):
     """Call this when new session data arrives for uid."""
     keys = ["analytics:summary", "analytics:cost", "analytics:distribution",
             "analytics:success", "analytics:top"]
-    await redis.delete(*[f"{k}:{uid}" for k in keys])
+    try:
+        await redis.delete(*[f"{k}:{uid}" for k in keys])
+    except (RedisError, OSError):
+        pass  # no Redis, so no cache to clear
 
 
 def _uid(user: dict | None) -> str | None:

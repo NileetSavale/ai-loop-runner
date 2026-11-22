@@ -12,6 +12,7 @@ import cache
 from auth import _decode
 
 logger = logging.getLogger(__name__)
+_warned = False  # the no-Redis warning has been logged
 
 WINDOW_SECONDS = 60
 GENERAL_LIMIT = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120"))
@@ -44,9 +45,13 @@ async def rate_limit(request: Request, call_next):
     try:
         async with cache.redis.pipeline(transaction=True) as pipe:
             count, _ = await pipe.incr(key).expire(key, WINDOW_SECONDS).execute()
-    except RedisError as e:
-        # Fail open: a Redis outage shouldn't also take down the whole API
-        logger.warning("Rate limiter unavailable: %s", e)
+    except (RedisError, OSError) as e:
+        # Fail open: a Redis outage (or no Redis, locally) shouldn't also take down the whole API. Said once, not
+        # on every request.
+        global _warned
+        if not _warned:
+            logger.warning("Rate limiter off, no Redis: %s", e)
+            _warned = True
         return await call_next(request)
 
     if count > limit:

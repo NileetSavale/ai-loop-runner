@@ -11,14 +11,22 @@ const repo = String.fromEnvironment('REPO');
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  // Not pumpAndSettle: the list refreshes every few seconds while any session runs, so the screen never goes still
+  Future<void> settle(WidgetTester tester) async {
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
   testWidgets('a session started from the app runs, and its changes open', (tester) async {
     expect(repo, isNotEmpty, reason: 'pass --dart-define=REPO=<a git repo on this machine>');
     await tester.pumpWidget(const ProviderScope(child: LoopRunnerApp()));
-    await tester.pumpAndSettle();
-    expect(find.text('Sessions'), findsOneWidget);
+    await settle(tester);
+    expect(find.text('Sessions'), findsWidgets); // the sidebar and the list's title
 
-    await tester.tap(find.text('New session'));
-    await tester.pumpAndSettle();
+    expect(find.text('Pick a session, or start one'), findsOneWidget, reason: 'the split view, nothing selected');
+    await tester.tap(find.byTooltip('New session'));
+    await settle(tester);
     await tester.enterText(find.widgetWithText(TextFormField, 'Repo folder'), repo);
     await tester.enterText(find.widgetWithText(TextFormField, 'Test command'), 'false');
     await tester.enterText(find.widgetWithText(TextFormField, 'Task'), 'Integration test task');
@@ -27,7 +35,7 @@ void main() {
     // The form is a ListView, which builds only what is on screen
     final start = find.text('Start session');
     await tester.scrollUntilVisible(start, 300, scrollable: find.byType(Scrollable).first);
-    await tester.pumpAndSettle();
+    await settle(tester);
     await tester.tap(start);
 
     // The session screen opens (only it has the Changes button), then the session's end arrives live: the test
@@ -42,10 +50,13 @@ void main() {
     await waitFor(find.byTooltip('Changes'));
     expect(find.text('Make x equal 2.'), findsOneWidget, reason: 'the task, in the header');
     await waitFor(find.text('Session failed'), seconds: 90);
-    expect(find.text('Tests failed'), findsWidgets);
+    expect(find.text('The run stopped'), findsWidgets, reason: 'the 401 shown as why the run stopped');
+    // Still beside the list, which now shows this session
+    expect(find.text('Sessions'), findsWidgets); // the sidebar and the list's title
+    expect(find.text('Integration test task'), findsWidgets);
 
     await tester.tap(find.byTooltip('Changes'));
-    await tester.pumpAndSettle();
+    await settle(tester);
     expect(find.text('Changes'), findsOneWidget);
   });
 }

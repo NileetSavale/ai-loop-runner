@@ -9,8 +9,8 @@ import 'screens/diff_screen.dart';
 import 'screens/keys_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/new_session_screen.dart';
-import 'screens/session_screen.dart';
 import 'screens/sessions_screen.dart';
+import 'shell.dart';
 
 final apiProvider = Provider<Api>((ref) => Api());
 
@@ -36,20 +36,26 @@ final _router = GoRouter(
   },
   routes: [
     GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
-    GoRoute(
-      path: '/sessions',
-      builder: (_, _) => const SessionsScreen(),
+    ShellRoute(
+      builder: (_, state, child) => AppShell(location: state.matchedLocation, child: child),
       routes: [
-        // Before :id, so "new" is not read as a session id
-        GoRoute(path: 'new', builder: (_, _) => const NewSessionScreen()),
         GoRoute(
-          path: ':id',
-          builder: (_, state) => SessionScreen(id: state.pathParameters['id']!),
-          routes: [GoRoute(path: 'diff', builder: (_, state) => DiffScreen(id: state.pathParameters['id']!))],
+          path: '/sessions',
+          builder: (_, _) => const SessionsPage(),
+          routes: [
+            // Before :id, so "new" is not read as a session id
+            GoRoute(path: 'new', builder: (_, _) => const NewSessionScreen()),
+            GoRoute(
+              path: ':id',
+              builder: (_, state) => SessionsPage(selectedId: state.pathParameters['id']),
+              routes: [GoRoute(path: 'diff', builder: (_, state) => DiffScreen(id: state.pathParameters['id']!))],
+            ),
+          ],
         ),
+        GoRoute(path: '/pipelines', builder: (_, _) => const PipelinesPlaceholder()),
+        GoRoute(path: '/keys', builder: (_, _) => const KeysScreen()),
       ],
     ),
-    GoRoute(path: '/keys', builder: (_, _) => const KeysScreen()),
   ],
 );
 

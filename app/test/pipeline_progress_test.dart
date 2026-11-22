@@ -8,10 +8,32 @@ final cascade = Pipeline.fromJson({
   'name': 'reviewed-cascade',
   'start': 'scout',
   'steps': [
-    {'id': 'scout', 'kind': 'scout', 'model': 'cheap', 'edges': {'next': 'cheap'}, 'options': {'budget_usd': 0.05}},
-    {'id': 'cheap', 'kind': 'fix', 'model': 'cheap', 'edges': {'on_pass': 'review', 'on_fail': 'escalated'}},
-    {'id': 'review', 'kind': 'review', 'model': 'claude-sonnet-5-5', 'edges': {'on_accept': 'done', 'on_reject': 'escalated'}},
-    {'id': 'escalated', 'kind': 'fix', 'model': 'main', 'edges': {'on_pass': 'done', 'on_fail': 'done'}, 'options': {'undo': true}},
+    {
+      'id': 'scout',
+      'kind': 'scout',
+      'model': 'cheap',
+      'edges': {'next': 'cheap'},
+      'options': {'budget_usd': 0.05},
+    },
+    {
+      'id': 'cheap',
+      'kind': 'fix',
+      'model': 'cheap',
+      'edges': {'on_pass': 'review', 'on_fail': 'escalated'},
+    },
+    {
+      'id': 'review',
+      'kind': 'review',
+      'model': 'claude-sonnet-5-5',
+      'edges': {'on_accept': 'done', 'on_reject': 'escalated'},
+    },
+    {
+      'id': 'escalated',
+      'kind': 'fix',
+      'model': 'main',
+      'edges': {'on_pass': 'done', 'on_fail': 'done'},
+      'options': {'undo': true},
+    },
   ],
 });
 
@@ -31,8 +53,12 @@ void main() {
   });
 
   test('a reviewed pass ends at done; the escalation is skipped', () {
-    final p = PipelineProgress.of(
-        cascade, [step('scout'), step('cheap'), step('review'), step('reviewed', {'accept': true})], session('passed'));
+    final p = PipelineProgress.of(cascade, [
+      step('scout'),
+      step('cheap'),
+      step('review'),
+      step('reviewed', {'accept': true}),
+    ], session('passed'));
     expect(p.states['cheap'], StepState.passed);
     expect(p.states['review'], StepState.passed);
     expect(p.states['escalated'], StepState.skipped);
@@ -41,10 +67,13 @@ void main() {
   });
 
   test('a rejected pass goes to the escalation, which decides the end', () {
-    final p = PipelineProgress.of(
-        cascade,
-        [step('scout'), step('cheap'), step('review'), step('reviewed', {'accept': false}), step('escalated')],
-        session('failed'));
+    final p = PipelineProgress.of(cascade, [
+      step('scout'),
+      step('cheap'),
+      step('review'),
+      step('reviewed', {'accept': false}),
+      step('escalated'),
+    ], session('failed'));
     expect(p.states['review'], StepState.failed);
     expect(p.verdicts['review'], isFalse);
     expect(p.states['escalated'], StepState.failed);
@@ -65,14 +94,24 @@ void main() {
       'name': 'lint-after-fix',
       'start': 'fix',
       'steps': [
-        {'id': 'fix', 'kind': 'fix', 'model': 'main', 'edges': {'on_pass': 'lint', 'on_fail': 'done'}},
-        {'id': 'lint', 'kind': 'command', 'model': '', 'edges': {'on_pass': 'done', 'on_fail': 'done'},
-         'options': {'run': 'ruff check .'}},
+        {
+          'id': 'fix',
+          'kind': 'fix',
+          'model': 'main',
+          'edges': {'on_pass': 'lint', 'on_fail': 'done'},
+        },
+        {
+          'id': 'lint',
+          'kind': 'command',
+          'model': '',
+          'edges': {'on_pass': 'done', 'on_fail': 'done'},
+          'options': {'run': 'ruff check .'},
+        },
       ],
     });
     final p = PipelineProgress.of(withLint, [
       SessionEvent('cascade', {'step': 'fix', 'model': 'claude-sonnet-5-5'}),
-      SessionEvent('cascade', {'step': 'lint', 'kind': 'command', 'command': 'ruff check .', 'passed': false}),
+      SessionEvent('cascade', {'step': 'lint', 'step_kind': 'command', 'command': 'ruff check .', 'passed': false}),
     ], session('passed'));
     expect(p.states['fix'], StepState.passed);
     expect(p.states['lint'], StepState.failed);

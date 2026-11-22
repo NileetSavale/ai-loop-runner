@@ -34,10 +34,11 @@ class DiffScreen extends ConsumerWidget {
       ),
       body: diff.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('$e'))),
-        data: (patch) => patch.trim().isEmpty
-            ? const Center(child: Text('No changes yet.'))
-            : _Patch(patch.split('\n')),
+        error: (e, _) => Center(
+          child: Padding(padding: const EdgeInsets.all(24), child: Text('$e')),
+        ),
+        data: (patch) =>
+            patch.trim().isEmpty ? const Center(child: Text('No changes yet.')) : _Patch(patch.split('\n')),
       ),
     );
   }

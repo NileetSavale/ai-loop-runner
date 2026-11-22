@@ -1,15 +1,22 @@
 // Drives the real app against a running backend (API_URL, default http://localhost:8000, in local mode):
 //   REPO=/path/to/a/git/repo flutter test integration_test -d macos
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:integration_test/integration_test.dart';
+import 'package:loop_runner_app/config.dart';
 import 'package:loop_runner_app/main.dart';
 
 const repo = String.fromEnvironment('REPO');
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  // The same tests run on a desktop window (sidebar, split view) and on a phone (bottom bar, one pane at a time)
+  bool isWide(WidgetTester tester) => tester.view.physicalSize.width / tester.view.devicePixelRatio >= 900;
 
   // Not pumpAndSettle: the list refreshes every few seconds while any session runs, so the screen never goes still
   Future<void> settle(WidgetTester tester) async {
@@ -24,14 +31,18 @@ void main() {
     await settle(tester);
     expect(find.text('Sessions'), findsWidgets); // the sidebar and the list's title
 
-    expect(find.text('Pick a session, or start one'), findsOneWidget, reason: 'the split view, nothing selected');
+    if (isWide(tester)) {
+      expect(find.text('Pick a session, or start one'), findsOneWidget, reason: 'the split view, nothing selected');
+    }
     await tester.tap(find.byTooltip('New session'));
     await settle(tester);
     await tester.enterText(find.widgetWithText(TextFormField, 'Repo folder'), repo);
     await tester.enterText(find.widgetWithText(TextFormField, 'Test command'), 'false');
     await tester.enterText(find.widgetWithText(TextFormField, 'Task'), 'Integration test task');
     await tester.enterText(
-        find.widgetWithText(TextFormField, 'What should change, and how to tell it worked'), 'Make x equal 2.');
+      find.widgetWithText(TextFormField, 'What should change, and how to tell it worked'),
+      'Make x equal 2.',
+    );
     // The form is a ListView, which builds only what is on screen
     final start = find.text('Start session');
     await tester.scrollUntilVisible(start, 300, scrollable: find.byType(Scrollable).first);
@@ -68,6 +79,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
     }
     expect(find.text('reviewed-cascade'), findsWidgets);
+    if (!isWide(tester)) {
+      // A phone lists the pipelines first
+      await tester.tap(find.text('reviewed-cascade').first);
+      await settle(tester);
+    }
     for (final id in ['scout', 'cheap', 'review', 'escalated', 'done']) {
       expect(find.text(id), findsWidgets, reason: 'the map draws $id');
     }
@@ -113,5 +129,57 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
     }
     expect(find.text('itest-lint'), findsNothing);
+  });
+
+  testWidgets('a session waiting at an approve step is approved from the app and passes', (tester) async {
+    // A pipeline with no model calls: a check, then a person's approval
+    final api = Config.apiUrl;
+    final headers = {'content-type': 'application/json'};
+    await http.put(
+      Uri.parse('$api/pipelines/itest-approve'),
+      headers: headers,
+      body: jsonEncode({
+        'start': 'check',
+        'steps': {
+          'check': {'kind': 'command', 'run': 'true', 'on_pass': 'ok', 'on_fail': 'done'},
+          'ok': {'kind': 'approve', 'on_accept': 'done', 'on_reject': 'done'},
+        },
+      }),
+    );
+    final created = await http.post(
+      Uri.parse('$api/sessions'),
+      headers: headers,
+      body: jsonEncode({
+        'name': 'Approval test',
+        'repo_path': repo,
+        'verify_command': 'true',
+        'model': 'claude-sonnet-5-5',
+        'pipeline': 'itest-approve',
+        'task': {'title': 'Approval test', 'spec': 'Wait for a person.'},
+      }),
+    );
+    final id = (jsonDecode(created.body) as Map<String, dynamic>)['id'] as String;
+
+    await tester.pumpWidget(const ProviderScope(child: LoopRunnerApp()));
+    await settle(tester);
+    // The router outlives each test, so start from Sessions rather than where the last test ended
+    await tester.tap(find.text('Sessions').first);
+    await settle(tester);
+    for (var i = 0; i < 40 && find.text('Approval test').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    await tester.tap(find.text('Approval test').first);
+    for (var i = 0; i < 60 && find.text('Waiting for your approval').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(find.text('Waiting for your approval'), findsOneWidget);
+    await tester.tap(find.text('Approve'));
+    for (var i = 0; i < 60 && find.text('Session passed').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(find.text('Session passed'), findsOneWidget);
+
+    await http.delete(Uri.parse('$api/sessions/$id'));
+    await http.delete(Uri.parse('$api/pipelines/itest-approve'));
   });
 }

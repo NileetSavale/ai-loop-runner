@@ -1,16 +1,17 @@
 /// The backend's JSON as the screens read it.
 class Session {
   Session.fromJson(Map<String, dynamic> json)
-      : id = json['id'] as String,
-        name = json['name'] as String? ?? '',
-        status = json['status'] as String? ?? 'running',
-        model = json['model'] as String? ?? '',
-        repoPath = json['repo_path'] as String? ?? '',
-        totalIterations = json['total_iterations'] as int? ?? 0,
-        maxIterations = json['max_iterations'] as int? ?? 0,
-        totalCostUsd = (json['total_cost_usd'] as num?)?.toDouble() ?? 0,
-        createdAt = DateTime.tryParse(json['created_at'] as String? ?? ''),
-        spec = (json['task'] as Map<String, dynamic>?)?['spec'] as String?;
+    : id = json['id'] as String,
+      name = json['name'] as String? ?? '',
+      status = json['status'] as String? ?? 'running',
+      model = json['model'] as String? ?? '',
+      repoPath = json['repo_path'] as String? ?? '',
+      totalIterations = json['total_iterations'] as int? ?? 0,
+      maxIterations = json['max_iterations'] as int? ?? 0,
+      totalCostUsd = (json['total_cost_usd'] as num?)?.toDouble() ?? 0,
+      createdAt = DateTime.tryParse(json['created_at'] as String? ?? ''),
+      waitingFor = json['waiting_for'] as String?,
+      spec = (json['task'] as Map<String, dynamic>?)?['spec'] as String?;
 
   final String id;
   final String name;
@@ -21,6 +22,9 @@ class Session {
   final int maxIterations;
   final double totalCostUsd;
   final DateTime? createdAt;
+
+  /// The approve step the session is waiting on (only in GET /sessions), or null.
+  final String? waitingFor;
 
   /// Only in GET /sessions/{id}.
   final String? spec;
@@ -79,19 +83,19 @@ class NewSession {
   final String? pipeline;
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        if (repoPath != null) 'repo_path': repoPath,
-        if (repoUrl != null) 'repo_url': repoUrl,
-        if (branch != null && branch!.isNotEmpty) 'branch': branch,
-        'verify_command': verifyCommand,
-        'max_iterations': maxIterations,
-        if (maxCostUsd != null) 'max_cost_usd': maxCostUsd,
-        'cascade': cascade,
-        'add_tests': addTests,
-        if (pipeline != null) 'pipeline': pipeline,
-        'model': model,
-        'task': {'title': title, 'spec': spec, 'files_context': <String>[]},
-      };
+    'name': name,
+    if (repoPath != null) 'repo_path': repoPath,
+    if (repoUrl != null) 'repo_url': repoUrl,
+    if (branch != null && branch!.isNotEmpty) 'branch': branch,
+    'verify_command': verifyCommand,
+    'max_iterations': maxIterations,
+    if (maxCostUsd != null) 'max_cost_usd': maxCostUsd,
+    'cascade': cascade,
+    'add_tests': addTests,
+    if (pipeline != null) 'pipeline': pipeline,
+    'model': model,
+    'task': {'title': title, 'spec': spec, 'files_context': <String>[]},
+  };
 }
 
 class ModelChoice {
@@ -103,9 +107,9 @@ class ModelChoice {
 
 class SavedKey {
   SavedKey.fromJson(Map<String, dynamic> json)
-      : id = json['id'] as String,
-        provider = json['provider'] as String,
-        label = json['label'] as String? ?? '';
+    : id = json['id'] as String,
+      provider = json['provider'] as String,
+      label = json['label'] as String? ?? '';
 
   final String id;
   final String provider;
@@ -115,11 +119,11 @@ class SavedKey {
 /// A pipeline's step (backend/pipelines/*.yaml, core/pipeline.py): its kind, its model, and where each outcome leads.
 class PipelineStep {
   PipelineStep.fromJson(Map<String, dynamic> json)
-      : id = json['id'] as String,
-        kind = json['kind'] as String,
-        model = json['model'] as String,
-        edges = (json['edges'] as Map<String, dynamic>).cast<String, String>(),
-        options = (json['options'] as Map<String, dynamic>?) ?? const {};
+    : id = json['id'] as String,
+      kind = json['kind'] as String,
+      model = json['model'] as String,
+      edges = (json['edges'] as Map<String, dynamic>).cast<String, String>(),
+      options = (json['options'] as Map<String, dynamic>?) ?? const {};
 
   final String id;
   final String kind;
@@ -130,12 +134,12 @@ class PipelineStep {
 
 class Pipeline {
   Pipeline.fromJson(Map<String, dynamic> json)
-      : name = json['name'] as String,
-        description = json['description'] as String? ?? '',
-        start = json['start'] as String? ?? '',
-        error = json['error'] as String?,
-        builtIn = json['built_in'] as bool? ?? false,
-        steps = [for (final s in (json['steps'] as List?) ?? const []) PipelineStep.fromJson(s as Map<String, dynamic>)];
+    : name = json['name'] as String,
+      description = json['description'] as String? ?? '',
+      start = json['start'] as String? ?? '',
+      error = json['error'] as String?,
+      builtIn = json['built_in'] as bool? ?? false,
+      steps = [for (final s in (json['steps'] as List?) ?? const []) PipelineStep.fromJson(s as Map<String, dynamic>)];
 
   final String name;
   final String description;

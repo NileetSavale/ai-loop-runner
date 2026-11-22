@@ -24,11 +24,13 @@ class SessionsPage extends StatelessWidget {
         ? null
         : SessionScreen(key: ValueKey(selectedId), id: selectedId!, showBack: !wide);
     if (!wide) return session ?? SessionList(selectedId: selectedId);
-    return Row(children: [
-      SizedBox(width: 360, child: SessionList(selectedId: selectedId)),
-      const VerticalDivider(width: 1),
-      Expanded(child: session ?? const _NothingSelected()),
-    ]);
+    return Row(
+      children: [
+        SizedBox(width: 360, child: SessionList(selectedId: selectedId)),
+        const VerticalDivider(width: 1),
+        Expanded(child: session ?? const _NothingSelected()),
+      ],
+    );
   }
 }
 
@@ -39,18 +41,21 @@ class _NothingSelected extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     return Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.play_circle_outline, size: 48, color: Theme.of(context).colorScheme.outline),
-        const SizedBox(height: 12),
-        Text('Pick a session, or start one', style: text.titleMedium),
-        const SizedBox(height: 4),
-        Text('New session: ⌘N (Ctrl+N on Windows and Linux)', style: text.bodySmall),
-      ]),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.play_circle_outline, size: 48, color: Theme.of(context).colorScheme.outline),
+          const SizedBox(height: 12),
+          Text('Pick a session, or start one', style: text.titleMedium),
+          const SizedBox(height: 4),
+          Text('New session: ⌘N (Ctrl+N on Windows and Linux)', style: text.bodySmall),
+        ],
+      ),
     );
   }
 }
 
-enum _Filter { all, running, passed, failed }
+enum _Filter { all, running, waiting, passed, failed }
 
 /// Searchable by name, task or model, filtered by status, and refreshed every few seconds while a session runs.
 class SessionList extends ConsumerStatefulWidget {
@@ -88,6 +93,7 @@ class _SessionListState extends ConsumerState<SessionList> {
     final status = switch (_filter) {
       _Filter.all => true,
       _Filter.running => s.running,
+      _Filter.waiting => s.waitingFor != null,
       _Filter.passed => s.status == 'passed',
       _Filter.failed => s.status == 'failed' || s.status == 'stopped',
     };
@@ -100,6 +106,14 @@ class _SessionListState extends ConsumerState<SessionList> {
     final sessions = ref.watch(sessionsProvider);
     ref.listen(sessionsProvider, (_, next) => next.whenData(_keepFresh));
     return Scaffold(
+      // A phone has no sidebar, so New session lives on the list
+      floatingActionButton: MediaQuery.sizeOf(context).width < wideLayout
+          ? FloatingActionButton(
+              tooltip: 'New session',
+              onPressed: () => context.go('/sessions/new'),
+              child: const Icon(Icons.add),
+            )
+          : null,
       appBar: AppBar(
         // The list is a top-level page beside the session, so nothing to go back to
         automaticallyImplyLeading: false,
@@ -112,67 +126,69 @@ class _SessionListState extends ConsumerState<SessionList> {
           ),
         ],
       ),
-      body: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-          child: TextField(
-            controller: _search,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              isDense: true,
-              prefixIcon: const Icon(Icons.search),
-              hintText: 'Search sessions',
-              border: const OutlineInputBorder(),
-              suffixIcon: _search.text.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () => setState(_search.clear),
-                    ),
-            ),
-          ),
-        ),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(children: [
-            for (final f in _Filter.values)
-              Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: ChoiceChip(
-                  label: Text(switch (f) {
-                    _Filter.all => 'All',
-                    _Filter.running => 'Running',
-                    _Filter.passed => 'Passed',
-                    _Filter.failed => 'Failed',
-                  }),
-                  selected: _filter == f,
-                  onSelected: (_) => setState(() => _filter = f),
-                ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: TextField(
+              controller: _search,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                isDense: true,
+                prefixIcon: const Icon(Icons.search),
+                hintText: 'Search sessions',
+                border: const OutlineInputBorder(),
+                suffixIcon: _search.text.isEmpty
+                    ? null
+                    : IconButton(icon: const Icon(Icons.clear), onPressed: () => setState(_search.clear)),
               ),
-          ]),
-        ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: sessions.when(
-            skipLoadingOnRefresh: true,
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, _) => _Problem(
-              'Couldn\'t load sessions from ${Config.apiUrl}.\n$error',
-              onRetry: () => ref.invalidate(sessionsProvider),
             ),
-            data: (rows) {
-              final shown = rows.where(_matches).toList();
-              if (rows.isEmpty) return const Center(child: Text('No sessions yet. Start one with New session.'));
-              if (shown.isEmpty) return const Center(child: Text('Nothing matches.'));
-              return ListView.builder(
-                itemCount: shown.length,
-                itemBuilder: (context, i) => _SessionTile(shown[i], selected: shown[i].id == widget.selectedId),
-              );
-            },
           ),
-        ),
-      ]),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                for (final f in _Filter.values)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text(switch (f) {
+                        _Filter.all => 'All',
+                        _Filter.running => 'Running',
+                        _Filter.waiting => 'Needs you',
+                        _Filter.passed => 'Passed',
+                        _Filter.failed => 'Failed',
+                      }),
+                      selected: _filter == f,
+                      onSelected: (_) => setState(() => _filter = f),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: sessions.when(
+              skipLoadingOnRefresh: true,
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (error, _) => _Problem(
+                'Couldn\'t load sessions from ${Config.apiUrl}.\n$error',
+                onRetry: () => ref.invalidate(sessionsProvider),
+              ),
+              data: (rows) {
+                final shown = rows.where(_matches).toList();
+                if (rows.isEmpty) return const Center(child: Text('No sessions yet. Start one with New session.'));
+                if (shown.isEmpty) return const Center(child: Text('Nothing matches.'));
+                return ListView.builder(
+                  itemCount: shown.length,
+                  itemBuilder: (context, i) => _SessionTile(shown[i], selected: shown[i].id == widget.selectedId),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -187,7 +203,12 @@ class _SessionTile extends StatelessWidget {
     return ListTile(
       selected: selected,
       selectedTileColor: Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.5),
-      leading: StatusDot(session.status),
+      leading: session.waitingFor != null
+          ? Tooltip(
+              message: 'Waiting for your approval',
+              child: Icon(Icons.how_to_reg, color: Colors.orange.shade700),
+            )
+          : StatusDot(session.status),
       title: Text(session.name.isEmpty ? session.id : session.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         '${session.model} · ${session.totalIterations} attempt(s) · \$${session.totalCostUsd.toStringAsFixed(3)}',
@@ -225,11 +246,14 @@ class _Problem extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(message, textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: onRetry, child: const Text('Try again')),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: onRetry, child: const Text('Try again')),
+          ],
+        ),
       ),
     );
   }

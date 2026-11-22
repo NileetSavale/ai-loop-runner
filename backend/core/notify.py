@@ -38,7 +38,7 @@ def message_for(event: dict, session_name: str) -> tuple[str, str] | None:
     data = event.get("data") or {}
     if event.get("event") == "session_complete":
         return f"Session {data.get('status', 'ended')}", session_name
-    if event.get("event") == "cascade" and data.get("kind") == "approve" and data.get("waiting"):
+    if event.get("event") == "cascade" and data.get("step_kind") == "approve" and data.get("waiting"):
         return "Waiting for your approval", f"{session_name}: approve or reject the fix"
     return None
 

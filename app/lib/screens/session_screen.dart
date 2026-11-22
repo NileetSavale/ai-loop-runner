@@ -78,18 +78,21 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     _check = Timer.periodic(const Duration(seconds: 5), (_) => _refreshSession());
     Future.delayed(const Duration(milliseconds: 500), _refreshSession);
     _live?.cancel();
-    _live = ref.read(apiProvider).live(widget.id).listen(
-      (event) {
-        setState(() {
-          _connected = true;
-          _failures = 0;
-          _add(event);
-        });
-        if (event.kind == 'session_complete') _refreshSession();
-      },
-      onError: (_) => _dropped(),
-      onDone: _dropped,
-    );
+    _live = ref
+        .read(apiProvider)
+        .live(widget.id)
+        .listen(
+          (event) {
+            setState(() {
+              _connected = true;
+              _failures = 0;
+              _add(event);
+            });
+            if (event.kind == 'session_complete') _refreshSession();
+          },
+          onError: (_) => _dropped(),
+          onDone: _dropped,
+        );
   }
 
   /// The socket closed: reconnect with a growing wait while the session runs, reloading what was missed.
@@ -128,8 +131,10 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete this session?'),
-        content: const Text('Its history goes, and a repo the backend cloned for it is removed. '
-            'A folder on your machine is left as it is.'),
+        content: const Text(
+          'Its history goes, and a repo the backend cloned for it is removed. '
+          'A folder on your machine is left as it is.',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
@@ -189,8 +194,8 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
       body: _error != null
           ? Center(child: Text(_error!))
           : session == null
-              ? const Center(child: CircularProgressIndicator())
-              : _Timeline(session: session, events: _events),
+          ? const Center(child: CircularProgressIndicator())
+          : _Timeline(session: session, events: _events),
     );
   }
 }
@@ -224,8 +229,15 @@ class _Timeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Which pipeline the session ran (core/cascade.py saves it); older cascade sessions ran the default
-    final pipelineName =
-        events.where((e) => e.kind == 'pipeline').map((e) => e.data['name'] as String?).firstOrNull;
+    final pipelineName = events.where((e) => e.kind == 'pipeline').map((e) => e.data['name'] as String?).firstOrNull;
+    // The approve step the session waits on: its waiting event with no answer after it
+    SessionEvent? waiting;
+    if (session.running) {
+      for (final e in events.where((e) => e.kind == 'cascade')) {
+        if (e.data['step_kind'] == 'approve' && e.data['waiting'] == true) waiting = e;
+        if (e.data['step'] == 'approved' && e.data['of'] == waiting?.data['step']) waiting = null;
+      }
+    }
     final before = <SessionEvent>[];
     final attempts = <_Attempt>[];
     final cascade = <SessionEvent>[];
@@ -239,9 +251,10 @@ class _Timeline extends StatelessWidget {
         end = e;
       } else if (e.kind == 'cascade') {
         cascade.add(e);
-        if (e.data['kind'] == 'command') commands.add(e);
-        if (e.data['model'] is String && !const {'scout', 'review', 'reviewed'}.contains(e.data['step']) &&
-            e.data['kind'] != 'command') {
+        if (e.data['step_kind'] == 'command') commands.add(e);
+        if (e.data['model'] is String &&
+            !const {'scout', 'review', 'reviewed'}.contains(e.data['step']) &&
+            e.data['step_kind'] != 'command') {
           stage = e.data['step'] as String;
           model = e.data['model'] as String;
         }
@@ -260,6 +273,7 @@ class _Timeline extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         _Summary(session: session, attempts: attempts.length),
+        if (waiting != null) ...[const SizedBox(height: 12), _ApprovalCard(session: session, waiting: waiting)],
         // How it ended, and why, is what an ended session is opened for
         if (end != null || !session.running) ...[
           const SizedBox(height: 12),
@@ -268,7 +282,11 @@ class _Timeline extends StatelessWidget {
         if (cascade.isNotEmpty || pipelineName != null) ...[
           const SizedBox(height: 12),
           _SessionMap(
-              session: session, events: events, attempts: attempts, pipelineName: pipelineName ?? 'reviewed-cascade'),
+            session: session,
+            events: events,
+            attempts: attempts,
+            pipelineName: pipelineName ?? 'reviewed-cascade',
+          ),
         ],
         const SizedBox(height: 12),
         for (final e in before) _EventTile(e),
@@ -279,21 +297,30 @@ class _Timeline extends StatelessWidget {
             child: ExpansionTile(
               // The newest attempt is the one being watched
               initiallyExpanded: i == attempts.length - 1,
-              leading: Icon(switch (a.passed) {
-                true => Icons.check_circle,
-                false => Icons.cancel,
-                null => Icons.more_horiz,
-              }, color: switch (a.passed) { true => Colors.green, false => Colors.red, null => null }),
-              title: Text('Attempt ${a.number}${a.stage.isEmpty ? '' : '  ·  ${a.stage} (${a.model})'}'),
-              subtitle: Text([
+              leading: Icon(
                 switch (a.passed) {
-                  true => 'tests passed',
-                  false => 'tests failed',
-                  null => session.running && i == attempts.length - 1 ? 'running' : 'ended without a test result',
+                  true => Icons.check_circle,
+                  false => Icons.cancel,
+                  null => Icons.more_horiz,
                 },
-                if (a.filesChanged > 0) '${a.filesChanged} file(s) changed',
-                if (a.cost > 0) '\$${a.cost.toStringAsFixed(4)}',
-              ].join('  ·  ')),
+                color: switch (a.passed) {
+                  true => Colors.green,
+                  false => Colors.red,
+                  null => null,
+                },
+              ),
+              title: Text('Attempt ${a.number}${a.stage.isEmpty ? '' : '  ·  ${a.stage} (${a.model})'}'),
+              subtitle: Text(
+                [
+                  switch (a.passed) {
+                    true => 'tests passed',
+                    false => 'tests failed',
+                    null => session.running && i == attempts.length - 1 ? 'running' : 'ended without a test result',
+                  },
+                  if (a.filesChanged > 0) '${a.filesChanged} file(s) changed',
+                  if (a.cost > 0) '\$${a.cost.toStringAsFixed(4)}',
+                ].join('  ·  '),
+              ),
               children: [for (final e in a.events) _EventTile(e)],
             ),
           ),
@@ -317,28 +344,33 @@ class _Summary extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     Widget figure(String label, String value) => Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: text.labelSmall),
-            Text(value, style: text.titleMedium),
-          ]),
-        );
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: text.labelSmall),
+          Text(value, style: text.titleMedium),
+        ],
+      ),
+    );
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            figure('Status', session.status),
-            figure('Attempts', '$attempts of ${session.maxIterations}'),
-            figure('Cost', '\$${session.totalCostUsd.toStringAsFixed(3)}'),
-            figure('Model', session.model),
-          ]),
-          const SizedBox(height: 8),
-          Text(session.repoPath, style: text.bodySmall),
-          if (session.spec != null) ...[
-            const Divider(height: 24),
-            SelectableText(session.spec!),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                figure('Status', session.status),
+                figure('Attempts', '$attempts of ${session.maxIterations}'),
+                figure('Cost', '\$${session.totalCostUsd.toStringAsFixed(3)}'),
+                figure('Model', session.model),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(session.repoPath, style: text.bodySmall),
+            if (session.spec != null) ...[const Divider(height: 24), SelectableText(session.spec!)],
           ],
-        ]),
+        ),
       ),
     );
   }
@@ -356,7 +388,9 @@ class _SessionMap extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
-    return ref.watch(pipelineProvider(pipelineName)).when(
+    return ref
+        .watch(pipelineProvider(pipelineName))
+        .when(
           loading: () => const LinearProgressIndicator(),
           error: (e, _) => Text('Couldn\'t load the pipeline map: $e'),
           data: (pipeline) {
@@ -369,19 +403,22 @@ class _SessionMap extends ConsumerWidget {
               'main': modelOf('escalated') ?? session.model,
             };
             return Card(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: Text('Pipeline: ${pipeline.name}', style: text.titleSmall),
-                ),
-                PipelineMap(
-                  pipeline: pipeline,
-                  states: progress.states,
-                  taken: progress.taken,
-                  models: models,
-                  onSelect: (id) => _showStep(context, pipeline.step(id)!, models, progress),
-                ),
-              ]),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: Text('Pipeline: ${pipeline.name}', style: text.titleSmall),
+                  ),
+                  PipelineMap(
+                    pipeline: pipeline,
+                    states: progress.states,
+                    taken: progress.taken,
+                    models: models,
+                    onSelect: (id) => _showStep(context, pipeline.step(id)!, models, progress),
+                  ),
+                ],
+              ),
             );
           },
         );
@@ -389,7 +426,11 @@ class _SessionMap extends ConsumerWidget {
 
   void _showStep(BuildContext context, PipelineStep step, Map<String, String> models, PipelineProgress progress) {
     final mine = events
-        .where((e) => e.kind == 'cascade' && (e.data['step'] == step.id || (step.kind == 'review' && e.data['step'] == 'reviewed')))
+        .where(
+          (e) =>
+              e.kind == 'cascade' &&
+              (e.data['step'] == step.id || (step.kind == 'review' && e.data['step'] == 'reviewed')),
+        )
         .toList();
     final stepAttempts = attempts.where((a) => a.stage == step.id).toList();
     final reached = progress.visited.contains(step.id);
@@ -400,38 +441,161 @@ class _SessionMap extends ConsumerWidget {
         content: SizedBox(
           width: 560,
           child: SingleChildScrollView(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-              Text(explainKind(step.kind)),
-              const SizedBox(height: 8),
-              Text('Model: ${models[step.model] ?? step.model}'),
-              if (!reached) const Padding(padding: EdgeInsets.only(top: 8), child: Text('The session didn\'t reach this step.')),
-              for (final e in mine) ...[
-                if (e.data['notes'] != null) ...[const Divider(), const Text('Notes for the next model:'), SelectableText('${e.data['notes']}')],
-                if (e.data['accept'] != null) ...[
-                  const Divider(),
-                  Text(e.data['accept'] == true ? 'Accepted' : 'Rejected'),
-                  if (e.data['why'] != null) SelectableText('${e.data['why']}'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(explainKind(step.kind)),
+                const SizedBox(height: 8),
+                Text('Model: ${models[step.model] ?? step.model}'),
+                if (!reached)
+                  const Padding(padding: EdgeInsets.only(top: 8), child: Text('The session didn\'t reach this step.')),
+                for (final e in mine) ...[
+                  if (e.data['notes'] != null) ...[
+                    const Divider(),
+                    const Text('Notes for the next model:'),
+                    SelectableText('${e.data['notes']}'),
+                  ],
+                  if (e.data['accept'] != null) ...[
+                    const Divider(),
+                    Text(e.data['accept'] == true ? 'Accepted' : 'Rejected'),
+                    if (e.data['why'] != null) SelectableText('${e.data['why']}'),
+                  ],
+                  if (e.data['reason'] != null) ...[const Divider(), Text('Why it ran: ${e.data['reason']}')],
+                  if (e.data['command'] != null) ...[
+                    const Divider(),
+                    Text(
+                      'Ran `${e.data['command']}`: ${e.data['passed'] == true ? 'passed' : 'failed (exit ${e.data['exit_code']})'}',
+                    ),
+                    if ((e.data['output'] as String?)?.isNotEmpty ?? false)
+                      SelectableText(
+                        '${e.data['output']}',
+                        style: const TextStyle(
+                          fontFamily: 'Menlo',
+                          fontFamilyFallback: ['Courier New', 'monospace'],
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                  if (e.data['cost_usd'] is num) Text('Cost: \$${(e.data['cost_usd'] as num).toStringAsFixed(4)}'),
                 ],
-                if (e.data['reason'] != null) ...[const Divider(), Text('Why it ran: ${e.data['reason']}')],
-                if (e.data['command'] != null) ...[
+                if (stepAttempts.isNotEmpty) ...[
                   const Divider(),
-                  Text('Ran `${e.data['command']}`: ${e.data['passed'] == true ? 'passed' : 'failed (exit ${e.data['exit_code']})'}'),
-                  if ((e.data['output'] as String?)?.isNotEmpty ?? false)
-                    SelectableText('${e.data['output']}',
-                        style: const TextStyle(fontFamily: 'Menlo', fontFamilyFallback: ['Courier New', 'monospace'], fontSize: 12)),
+                  for (final a in stepAttempts)
+                    Text(
+                      'Attempt ${a.number}: ${switch (a.passed) {
+                        true => 'tests passed',
+                        false => 'tests failed',
+                        null => 'no test result',
+                      }}'
+                      '${a.cost > 0 ? '  ·  \$${a.cost.toStringAsFixed(4)}' : ''}',
+                    ),
                 ],
-                if (e.data['cost_usd'] is num) Text('Cost: \$${(e.data['cost_usd'] as num).toStringAsFixed(4)}'),
               ],
-              if (stepAttempts.isNotEmpty) ...[
-                const Divider(),
-                for (final a in stepAttempts)
-                  Text('Attempt ${a.number}: ${switch (a.passed) { true => 'tests passed', false => 'tests failed', null => 'no test result' }}'
-                      '${a.cost > 0 ? '  ·  \$${a.cost.toStringAsFixed(4)}' : ''}'),
-              ],
-            ]),
+            ),
           ),
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+      ),
+    );
+  }
+}
+
+/// A session waiting on you: the fix's files, its diff, and your answer, with a note the next step hears.
+class _ApprovalCard extends ConsumerStatefulWidget {
+  const _ApprovalCard({required this.session, required this.waiting});
+  final Session session;
+  final SessionEvent waiting;
+
+  @override
+  ConsumerState<_ApprovalCard> createState() => _ApprovalCardState();
+}
+
+class _ApprovalCardState extends ConsumerState<_ApprovalCard> {
+  final _note = TextEditingController();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _answer(bool accept) async {
+    setState(() => _sending = true);
+    try {
+      await ref
+          .read(apiProvider)
+          .approve(widget.session.id, widget.waiting.data['step'] as String, accept: accept, note: _note.text.trim());
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(accept ? 'Approved' : 'Rejected; the next step hears why')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Couldn\'t send: $e')));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final files = (widget.waiting.data['files'] as List?)?.cast<String>() ?? const [];
+    return Card(
+      color: scheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.how_to_reg),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Waiting for your approval', style: Theme.of(context).textTheme.titleMedium)),
+                TextButton.icon(
+                  onPressed: () => context.go('/sessions/${widget.session.id}/diff'),
+                  icon: const Icon(Icons.difference_outlined),
+                  label: const Text('See the changes'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(files.isEmpty ? 'The fix changed no files.' : 'The fix changed ${files.join(', ')}.'),
+            if (widget.waiting.data['timeout_hours'] is num)
+              Text(
+                'No answer within ${widget.waiting.data['timeout_hours']} hours counts as a rejection.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _note,
+              decoration: const InputDecoration(
+                labelText: 'Note (optional)',
+                helperText: 'On a rejection, the next step is told this',
+              ),
+              maxLines: 2,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: _sending ? null : () => _answer(true),
+                  icon: const Icon(Icons.check),
+                  label: const Text('Approve'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _sending ? null : () => _answer(false),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Reject'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -469,15 +633,21 @@ class _EventTile extends StatelessWidget {
       'workspace' => (Icons.folder_open, 'Workspace ready', d['base'] == null ? null : 'from commit ${d['base']}'),
       'setup' => (Icons.build, d['text']?.toString() ?? 'Setting up', null),
       'focus' => (
-          Icons.center_focus_strong,
-          'Looked at the code: ${(d['files'] as List?)?.length ?? 0} file(s)',
-          d['tests_passing'] == true ? 'Tests already pass' : 'Tests fail before any change',
-        ),
-      'cascade' when d['kind'] == 'command' => (
-          d['passed'] == true ? Icons.check_circle_outline : Icons.highlight_off,
-          '${d['step']}: ran `${d['command']}`, ${d['passed'] == true ? 'passed' : 'failed'}',
-          _tail(d['output']?.toString()),
-        ),
+        Icons.center_focus_strong,
+        'Looked at the code: ${(d['files'] as List?)?.length ?? 0} file(s)',
+        d['tests_passing'] == true ? 'Tests already pass' : 'Tests fail before any change',
+      ),
+      'cascade' when d['step_kind'] == 'approve' => (Icons.how_to_reg_outlined, '${d['step']}: waiting for approval', null),
+      'cascade' when d['step'] == 'approved' => (
+        d['accept'] == true ? Icons.thumb_up_alt_outlined : Icons.thumb_down_alt_outlined,
+        '${d['of']}: ${d['accept'] == true ? 'approved' : 'rejected'}',
+        d['why']?.toString(),
+      ),
+      'cascade' when d['step_kind'] == 'command' => (
+        d['passed'] == true ? Icons.check_circle_outline : Icons.highlight_off,
+        '${d['step']}: ran `${d['command']}`, ${d['passed'] == true ? 'passed' : 'failed'}',
+        _tail(d['output']?.toString()),
+      ),
       'cascade' => (Icons.alt_route, 'Step ${d['step']} (${d['model'] ?? ''})', d['reason'] ?? d['why']),
       'iteration_start' => (Icons.play_arrow, 'Attempt ${d['iteration']} started', null),
       'tool' => (Icons.handyman, 'Tool: ${d['tool']}', d['error']?.toString() ?? d['target']?.toString()),
@@ -486,13 +656,13 @@ class _EventTile extends StatelessWidget {
       // The backend sends why a run stopped as test output, so the page shows it without a change of its own
       'verify_output' when _isStopReason(d) => (Icons.report_outlined, 'The run stopped', d['output']?.toString()),
       'verify_output' => (
-          d['passed'] == true ? Icons.check_circle : Icons.cancel,
-          d['passed'] == true ? 'Tests passed' : 'Tests failed',
-          _tail(d['output']?.toString()),
-        ),
+        d['passed'] == true ? Icons.check_circle : Icons.cancel,
+        d['passed'] == true ? 'Tests passed' : 'Tests failed',
+        _tail(d['output']?.toString()),
+      ),
       _ => (Icons.info_outline, event.kind, null),
     };
-    final output = event.kind == 'verify_output' || d['kind'] == 'command' ? d['output']?.toString() : null;
+    final output = event.kind == 'verify_output' || d['step_kind'] == 'command' ? d['output']?.toString() : null;
     return ListTile(
       dense: true,
       leading: Icon(icon),
@@ -511,8 +681,14 @@ class _EventTile extends StatelessWidget {
         content: SizedBox(
           width: 720,
           child: SingleChildScrollView(
-            child: SelectableText(output,
-                style: const TextStyle(fontFamily: 'Menlo', fontFamilyFallback: ['Courier New', 'monospace'], fontSize: 12)),
+            child: SelectableText(
+              output,
+              style: const TextStyle(
+                fontFamily: 'Menlo',
+                fontFamilyFallback: ['Courier New', 'monospace'],
+                fontSize: 12,
+              ),
+            ),
           ),
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],

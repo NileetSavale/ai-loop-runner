@@ -23,11 +23,12 @@ class Api {
 
   final http.Client _http;
 
-  String get _token =>
-      Config.loginEnabled ? Supabase.instance.client.auth.currentSession?.accessToken ?? '' : '';
+  String get _token => Config.loginEnabled ? Supabase.instance.client.auth.currentSession?.accessToken ?? '' : '';
 
-  Map<String, String> get _headers =>
-      {'content-type': 'application/json', if (_token.isNotEmpty) 'authorization': 'Bearer $_token'};
+  Map<String, String> get _headers => {
+    'content-type': 'application/json',
+    if (_token.isNotEmpty) 'authorization': 'Bearer $_token',
+  };
 
   Uri _url(String path) => Uri.parse('${Config.apiUrl}$path');
 
@@ -59,17 +60,27 @@ class Api {
     }
   }
 
-  Future<List<Session>> sessions() async =>
-      [for (final row in await _get('/sessions') as List) Session.fromJson(row as Map<String, dynamic>)];
+  Future<List<Session>> sessions() async => [
+    for (final row in await _get('/sessions') as List) Session.fromJson(row as Map<String, dynamic>),
+  ];
 
   Future<Session> session(String id) async => Session.fromJson(await _get('/sessions/$id') as Map<String, dynamic>);
 
-  Future<List<SessionEvent>> events(String id) async =>
-      [for (final row in await _get('/sessions/$id/events') as List) SessionEvent.saved(row as Map<String, dynamic>)];
+  Future<List<SessionEvent>> events(String id) async => [
+    for (final row in await _get('/sessions/$id/events') as List) SessionEvent.saved(row as Map<String, dynamic>),
+  ];
 
   Future<void> stop(String id) => _post('/sessions/$id/stop');
 
   Future<void> delete(String id) => _delete('/sessions/$id');
+
+  /// A person's answer at an approve step; the backend takes only the step the session waits on, once.
+  Future<void> approve(String id, String step, {required bool accept, String note = ''}) =>
+      _post('/sessions/$id/approval', {'step': step, 'accept': accept, 'note': note});
+
+  /// Registers this device for push notifications (off until the backend has push credentials).
+  Future<void> registerDevice(String platform, String token) =>
+      _post('/devices', {'platform': platform, 'token': token});
 
   /// Starts the session at once; returns its id.
   Future<String> createSession(NewSession session) async =>
@@ -84,13 +95,14 @@ class Api {
 
   /// Every model the backend supports, by provider.
   Future<List<ModelChoice>> models() async => [
-        for (final entry in (await _get('/keys/models') as Map<String, dynamic>).entries)
-          for (final model in (entry.value as List).cast<Map<String, dynamic>>())
-            ModelChoice(model['id'] as String, model['name'] as String, entry.key),
-      ];
+    for (final entry in (await _get('/keys/models') as Map<String, dynamic>).entries)
+      for (final model in (entry.value as List).cast<Map<String, dynamic>>())
+        ModelChoice(model['id'] as String, model['name'] as String, entry.key),
+  ];
 
-  Future<List<Pipeline>> pipelines() async =>
-      [for (final row in await _get('/pipelines') as List) Pipeline.fromJson(row as Map<String, dynamic>)];
+  Future<List<Pipeline>> pipelines() async => [
+    for (final row in await _get('/pipelines') as List) Pipeline.fromJson(row as Map<String, dynamic>),
+  ];
 
   Future<Pipeline> pipeline(String name) async =>
       Pipeline.fromJson(await _get('/pipelines/$name') as Map<String, dynamic>);
@@ -104,8 +116,9 @@ class Api {
   Future<void> deletePipeline(String name) => _delete('/pipelines/$name');
 
   /// The user's saved provider keys (never the keys themselves). Needs login.
-  Future<List<SavedKey>> keys() async =>
-      [for (final row in await _get('/keys') as List) SavedKey.fromJson(row as Map<String, dynamic>)];
+  Future<List<SavedKey>> keys() async => [
+    for (final row in await _get('/keys') as List) SavedKey.fromJson(row as Map<String, dynamic>),
+  ];
 
   Future<void> addKey(String provider, String apiKey) => _post('/keys', {'provider': provider, 'api_key': apiKey});
 

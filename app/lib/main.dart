@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'api.dart';
 import 'config.dart';
+import 'notifications.dart';
 import 'screens/diff_screen.dart';
 import 'screens/keys_screen.dart';
 import 'screens/login_screen.dart';
@@ -21,7 +22,15 @@ Future<void> main() async {
   if (Config.loginEnabled) {
     await Supabase.initialize(url: Config.supabaseUrl, publishableKey: Config.supabaseAnonKey);
   }
-  runApp(const ProviderScope(child: LoopRunnerApp()));
+  // The app's own notifications: a session that ends or waits for approval, tapped to open it
+  await Notifications.init((id) => _router.go('/sessions/$id'));
+  final container = ProviderContainer();
+  final watcher = SessionWatcher(container.read(apiProvider));
+  if (watchSessions(_signedIn)) watcher.start();
+  if (Config.loginEnabled) {
+    Supabase.instance.client.auth.onAuthStateChange.listen((_) => _signedIn ? watcher.start() : watcher.stop());
+  }
+  runApp(UncontrolledProviderScope(container: container, child: const LoopRunnerApp()));
 }
 
 /// Signed in, or anonymous when login is off: either way the sessions screens can call the backend.
@@ -50,7 +59,12 @@ final _router = GoRouter(
             GoRoute(
               path: ':id',
               builder: (_, state) => SessionsPage(selectedId: state.pathParameters['id']),
-              routes: [GoRoute(path: 'diff', builder: (_, state) => DiffScreen(id: state.pathParameters['id']!))],
+              routes: [
+                GoRoute(
+                  path: 'diff',
+                  builder: (_, state) => DiffScreen(id: state.pathParameters['id']!),
+                ),
+              ],
             ),
           ],
         ),
@@ -60,10 +74,13 @@ final _router = GoRouter(
               PipelinesScreen(key: ValueKey(state.uri.query), initial: state.uri.queryParameters['name']),
           routes: [
             GoRoute(
-                path: 'new', builder: (_, state) => PipelineEditorScreen(from: state.uri.queryParameters['from'])),
+              path: 'new',
+              builder: (_, state) => PipelineEditorScreen(from: state.uri.queryParameters['from']),
+            ),
             GoRoute(
-                path: ':name/edit',
-                builder: (_, state) => PipelineEditorScreen(from: state.pathParameters['name'], editing: true)),
+              path: ':name/edit',
+              builder: (_, state) => PipelineEditorScreen(from: state.pathParameters['name'], editing: true),
+            ),
           ],
         ),
         GoRoute(path: '/keys', builder: (_, _) => const KeysScreen()),

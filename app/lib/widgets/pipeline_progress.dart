@@ -25,6 +25,9 @@ class PipelineProgress {
       final step = e.data['step'] as String?;
       if (step == 'reviewed') {
         if (lastReview != null) verdicts[lastReview] = e.data['accept'] == true;
+      } else if (step == 'approved') {
+        // A person's answer at an approve step names the step it answers
+        if (e.data['of'] is String) verdicts[e.data['of'] as String] = e.data['accept'] == true;
       } else if (step != null && pipeline.step(step) != null) {
         visited.add(step);
         if (e.data['passed'] is bool) commandPassed[step] = e.data['passed'] as bool;
@@ -46,7 +49,7 @@ class PipelineProgress {
         outcome = step.edges.entries.where((e) => e.value == next).map((e) => e.key).firstOrNull;
       } else if (ended) {
         outcome = switch (step.kind) {
-          'review' => verdicts[id] == null ? null : (verdicts[id]! ? 'on_accept' : 'on_reject'),
+          'review' || 'approve' => verdicts[id] == null ? null : (verdicts[id]! ? 'on_accept' : 'on_reject'),
           'fix' => session.status == 'passed' ? 'on_pass' : 'on_fail',
           _ => step.edges.keys.first,
         };

@@ -36,15 +36,22 @@ class KeysScreen extends ConsumerWidget {
       builder: (context) => AlertDialog(
         title: const Text('Add a key'),
         content: StatefulBuilder(
-          builder: (context, setState) => Column(mainAxisSize: MainAxisSize.min, children: [
-            DropdownButtonFormField<String>(
-              initialValue: provider,
-              decoration: const InputDecoration(labelText: 'Provider'),
-              items: [for (final p in _providers) DropdownMenuItem(value: p, child: Text(p))],
-              onChanged: (p) => setState(() => provider = p!),
-            ),
-            TextField(controller: key, decoration: const InputDecoration(labelText: 'Key'), obscureText: true),
-          ]),
+          builder: (context, setState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: provider,
+                decoration: const InputDecoration(labelText: 'Provider'),
+                items: [for (final p in _providers) DropdownMenuItem(value: p, child: Text(p))],
+                onChanged: (p) => setState(() => provider = p!),
+              ),
+              TextField(
+                controller: key,
+                decoration: const InputDecoration(labelText: 'Key'),
+                obscureText: true,
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
@@ -65,27 +72,31 @@ class KeysScreen extends ConsumerWidget {
 class _Saved extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ref.watch(_keysProvider).when(
+    return ref
+        .watch(_keysProvider)
+        .when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Center(child: Text('$e')),
           data: (keys) => keys.isEmpty
               ? const Center(child: Text('No keys yet. Sessions use the server\'s key until you add one.'))
-              : ListView(children: [
-                  for (final k in keys)
-                    ListTile(
-                      leading: const Icon(Icons.key),
-                      title: Text(k.provider),
-                      subtitle: k.label.isEmpty ? null : Text(k.label),
-                      trailing: IconButton(
-                        tooltip: 'Remove',
-                        icon: const Icon(Icons.delete_outline),
-                        onPressed: () async {
-                          await ref.read(apiProvider).deleteKey(k.id);
-                          ref.invalidate(_keysProvider);
-                        },
+              : ListView(
+                  children: [
+                    for (final k in keys)
+                      ListTile(
+                        leading: const Icon(Icons.key),
+                        title: Text(k.provider),
+                        subtitle: k.label.isEmpty ? null : Text(k.label),
+                        trailing: IconButton(
+                          tooltip: 'Remove',
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () async {
+                            await ref.read(apiProvider).deleteKey(k.id);
+                            ref.invalidate(_keysProvider);
+                          },
+                        ),
                       ),
-                    ),
-                ]),
+                  ],
+                ),
         );
   }
 }

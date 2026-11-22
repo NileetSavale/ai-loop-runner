@@ -37,29 +37,34 @@ class AppShell extends ConsumerWidget {
 
     final wide = MediaQuery.sizeOf(context).width >= wideLayout;
     final body = wide
-        ? Row(children: [
-            NavigationRail(
-              selectedIndex: _selected,
-              labelType: NavigationRailLabelType.all,
-              onDestinationSelected: open,
-              leading: Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: FloatingActionButton.small(
-                  tooltip: 'New session',
-                  elevation: 0,
-                  onPressed: newSession,
-                  child: const Icon(Icons.add),
+        ? Row(
+            children: [
+              NavigationRail(
+                selectedIndex: _selected,
+                labelType: NavigationRailLabelType.all,
+                onDestinationSelected: open,
+                leading: Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: FloatingActionButton.small(
+                    tooltip: 'New session',
+                    elevation: 0,
+                    onPressed: newSession,
+                    child: const Icon(Icons.add),
+                  ),
                 ),
+                destinations: [
+                  for (final s in _sections)
+                    NavigationRailDestination(
+                      icon: Icon(s.icon),
+                      selectedIcon: Icon(s.selectedIcon),
+                      label: Text(s.label),
+                    ),
+                ],
               ),
-              destinations: [
-                for (final s in _sections)
-                  NavigationRailDestination(
-                      icon: Icon(s.icon), selectedIcon: Icon(s.selectedIcon), label: Text(s.label)),
-              ],
-            ),
-            const VerticalDivider(width: 1),
-            Expanded(child: child),
-          ])
+              const VerticalDivider(width: 1),
+              Expanded(child: child),
+            ],
+          )
         : Scaffold(
             body: child,
             bottomNavigationBar: NavigationBar(
@@ -76,33 +81,50 @@ class AppShell extends ConsumerWidget {
     if (_isMac) {
       return PlatformMenuBar(
         menus: [
-          const PlatformMenu(label: 'Loop Runner', menus: [
-            PlatformMenuItemGroup(members: [PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.about)]),
-            PlatformMenuItemGroup(members: [PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.quit)]),
-          ]),
-          PlatformMenu(label: 'File', menus: [
-            PlatformMenuItem(
+          const PlatformMenu(
+            label: 'Loop Runner',
+            menus: [
+              PlatformMenuItemGroup(members: [PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.about)]),
+              PlatformMenuItemGroup(members: [PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.quit)]),
+            ],
+          ),
+          PlatformMenu(
+            label: 'File',
+            menus: [
+              PlatformMenuItem(
                 label: 'New session',
                 shortcut: const SingleActivator(LogicalKeyboardKey.keyN, meta: true),
-                onSelected: newSession),
-          ]),
-          PlatformMenu(label: 'View', menus: [
-            PlatformMenuItem(
+                onSelected: newSession,
+              ),
+            ],
+          ),
+          PlatformMenu(
+            label: 'View',
+            menus: [
+              PlatformMenuItem(
                 label: 'Refresh',
                 shortcut: const SingleActivator(LogicalKeyboardKey.keyR, meta: true),
-                onSelected: refresh),
-            PlatformMenuItemGroup(members: [
-              for (final (i, s) in _sections.indexed)
-                PlatformMenuItem(
-                    label: s.label,
-                    shortcut: SingleActivator(LogicalKeyboardKey(LogicalKeyboardKey.digit1.keyId + i), meta: true),
-                    onSelected: () => open(i)),
-            ]),
-          ]),
-          const PlatformMenu(label: 'Window', menus: [
-            PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.minimizeWindow),
-            PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.zoomWindow),
-          ]),
+                onSelected: refresh,
+              ),
+              PlatformMenuItemGroup(
+                members: [
+                  for (final (i, s) in _sections.indexed)
+                    PlatformMenuItem(
+                      label: s.label,
+                      shortcut: SingleActivator(LogicalKeyboardKey(LogicalKeyboardKey.digit1.keyId + i), meta: true),
+                      onSelected: () => open(i),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          const PlatformMenu(
+            label: 'Window',
+            menus: [
+              PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.minimizeWindow),
+              PlatformProvidedMenuItem(type: PlatformProvidedMenuItemType.zoomWindow),
+            ],
+          ),
         ],
         child: body,
       );

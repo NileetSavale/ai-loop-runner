@@ -118,42 +118,55 @@ class _PipelineMapState extends State<PipelineMap> with SingleTickerProviderStat
       child: SizedBox(
         width: width,
         height: height,
-        child: Stack(children: [
-          Positioned.fill(
-            child: CustomPaint(
-              painter: _Arrows(widget.pipeline, positions, widget.taken, scheme,
-                  Theme.of(context).textTheme.labelSmall!),
-            ),
-          ),
-          for (final MapEntry(key: id, value: at) in positions.entries)
-            Positioned(
-              left: at.dx,
-              top: at.dy,
-              width: _nodeWidth,
-              height: _nodeHeight,
-              child: AnimatedBuilder(
-                animation: _pulse,
-                builder: (context, _) => _Node(
-                  step: widget.pipeline.step(id),
-                  state: id == _done
-                      ? (widget.states[_done] ?? StepState.idle)
-                      : (widget.states[id] ?? StepState.idle),
-                  selected: widget.selected == id,
-                  pulse: _pulse.value,
-                  model: widget.models[widget.pipeline.step(id)?.model] ?? widget.pipeline.step(id)?.model,
-                  onTap: id == _done || widget.onSelect == null ? null : () => widget.onSelect!(id),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _Arrows(
+                  widget.pipeline,
+                  positions,
+                  widget.taken,
+                  scheme,
+                  Theme.of(context).textTheme.labelSmall!,
                 ),
               ),
             ),
-        ]),
+            for (final MapEntry(key: id, value: at) in positions.entries)
+              Positioned(
+                left: at.dx,
+                top: at.dy,
+                width: _nodeWidth,
+                height: _nodeHeight,
+                child: AnimatedBuilder(
+                  animation: _pulse,
+                  builder: (context, _) => _Node(
+                    step: widget.pipeline.step(id),
+                    state: id == _done
+                        ? (widget.states[_done] ?? StepState.idle)
+                        : (widget.states[id] ?? StepState.idle),
+                    selected: widget.selected == id,
+                    pulse: _pulse.value,
+                    model: widget.models[widget.pipeline.step(id)?.model] ?? widget.pipeline.step(id)?.model,
+                    onTap: id == _done || widget.onSelect == null ? null : () => widget.onSelect!(id),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
 }
 
 class _Node extends StatelessWidget {
-  const _Node(
-      {required this.step, required this.state, required this.selected, required this.pulse, this.model, this.onTap});
+  const _Node({
+    required this.step,
+    required this.state,
+    required this.selected,
+    required this.pulse,
+    this.model,
+    this.onTap,
+  });
   final PipelineStep? step;
   final StepState state;
   final bool selected;
@@ -162,12 +175,13 @@ class _Node extends StatelessWidget {
   final VoidCallback? onTap;
 
   static IconData icon(String? kind) => switch (kind) {
-        'scout' => Icons.travel_explore,
-        'fix' => Icons.build_circle_outlined,
-        'review' => Icons.rate_review_outlined,
-        'command' => Icons.terminal,
-        _ => Icons.flag_outlined,
-      };
+    'scout' => Icons.travel_explore,
+    'fix' => Icons.build_circle_outlined,
+    'review' => Icons.rate_review_outlined,
+    'command' => Icons.terminal,
+    'approve' => Icons.how_to_reg_outlined,
+    _ => Icons.flag_outlined,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -194,18 +208,28 @@ class _Node extends StatelessWidget {
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(children: [
-              Icon(icon(step?.kind), color: border),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              children: [
+                Icon(icon(step?.kind), color: border),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  Text(step?.id ?? 'done', style: text.titleSmall, overflow: TextOverflow.ellipsis),
-                  if (step != null)
-                    Text('${step!.kind} · $model', style: text.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
-                ]),
-              ),
-            ]),
+                      Text(step?.id ?? 'done', style: text.titleSmall, overflow: TextOverflow.ellipsis),
+                      if (step != null)
+                        Text(
+                          '${step!.kind} · $model',
+                          style: text.bodySmall,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -223,12 +247,12 @@ class _Arrows extends CustomPainter {
   final TextStyle label;
 
   static String short(String outcome) => switch (outcome) {
-        'on_pass' => 'pass',
-        'on_fail' => 'fail',
-        'on_accept' => 'accept',
-        'on_reject' => 'reject',
-        _ => outcome,
-      };
+    'on_pass' => 'pass',
+    'on_fail' => 'fail',
+    'on_accept' => 'accept',
+    'on_reject' => 'reject',
+    _ => outcome,
+  };
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -268,7 +292,10 @@ class _Arrows extends CustomPainter {
         final mid = path.computeMetrics().first;
         final at = mid.getTangentForOffset(mid.length / 2)!.position;
         final painter = TextPainter(
-          text: TextSpan(text: short(outcome), style: label.copyWith(color: color, fontWeight: bold ? FontWeight.bold : null)),
+          text: TextSpan(
+            text: short(outcome),
+            style: label.copyWith(color: color, fontWeight: bold ? FontWeight.bold : null),
+          ),
           textDirection: TextDirection.ltr,
         )..layout();
         final box = Rect.fromCenter(center: at, width: painter.width + 8, height: painter.height + 2);

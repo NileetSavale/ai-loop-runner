@@ -222,10 +222,14 @@ async def _review(run: _Run, step: Step, model: str) -> str:
     return "on_accept" if verdict["accept"] else "on_reject"
 
 
+# A step's kind goes in its events as step_kind: GET /sessions/{id}/events flattens an event's data beside its own
+# kind ("cascade"), so a "kind" key there would replace it.
+
+
 async def _command(run: _Run, step: Step, model: str) -> str:
     """A shell command in the repo (a linter, a type checker, more tests), run like the session's own test command."""
     result = await run_verify(step.options["run"], run.repo, run.loop_options.get("sandbox"))
-    await run.step({"step": step.id, "kind": "command", "command": step.options["run"], "passed": result.passed,
+    await run.step({"step": step.id, "step_kind": "command", "command": step.options["run"], "passed": result.passed,
                     "exit_code": result.exit_code, "output": result.output[-4000:]})
     run.command_passed = result.passed
     return "on_pass" if result.passed else "on_fail"
@@ -253,7 +257,7 @@ async def _approve(run: _Run, step: Step, model: str) -> str:
     hours = step.options.get("timeout_hours", 24)
     with db_session() as db:
         waiting = SessionEvent(session_id=run.session_id, kind="cascade", data=json.dumps(
-            {"step": step.id, "kind": "approve", "waiting": True, "files": _changed_files(diff), "timeout_hours": hours}))
+            {"step": step.id, "step_kind": "approve", "waiting": True, "files": _changed_files(diff), "timeout_hours": hours}))
         db.add(waiting)
         db.commit()
         waiting_id = waiting.id

@@ -310,7 +310,7 @@ def test_the_api_takes_one_answer_for_the_step_a_session_waits_on(repo, monkeypa
     answer = {"step": "ok", "accept": True}
     assert client.post(f"/sessions/{sid}/approval", json=answer).status_code == 409  # not waiting yet
     with db_session() as db:
-        db.add(SessionEvent(session_id=sid, kind="cascade", data=json.dumps({"step": "ok", "kind": "approve", "waiting": True})))
+        db.add(SessionEvent(session_id=sid, kind="cascade", data=json.dumps({"step": "ok", "step_kind": "approve", "waiting": True})))
         db.commit()
     listed = next(s for s in client.get("/sessions").json() if s["id"] == sid)
     assert listed["waiting_for"] == "ok"
@@ -323,7 +323,7 @@ def test_notifications_go_out_for_a_session_end_and_a_wait_for_approval():
     from core.notify import message_for
     assert message_for({"event": "session_complete", "data": {"status": "passed"}}, "Fix login") == \
         ("Session passed", "Fix login")
-    assert message_for({"event": "cascade", "data": {"kind": "approve", "waiting": True}}, "Fix login")[0] == \
+    assert message_for({"event": "cascade", "data": {"step_kind": "approve", "waiting": True}}, "Fix login")[0] == \
         "Waiting for your approval"
     assert message_for({"event": "usage", "data": {}}, "Fix login") is None
 
@@ -339,3 +339,16 @@ def test_a_device_registers_once_per_token(monkeypatch):
     assert first == again
     assert client.post("/devices", json={"platform": "blackberry", "token": "apns-token-123"}).status_code == 422
     assert client.delete(f"/devices/{first}").json() == {"deleted": first}
+
+
+def test_a_steps_saved_events_keep_their_cascade_kind(repo, monkeypatch):
+    """GET /events flattens data beside the event's kind; a step's own kind must not replace it."""
+    import auth
+    from fastapi.testclient import TestClient
+    from main import app
+    monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", True)
+    sid = seed(repo)
+    run(sid, pipeline(check=CHECK), [])
+    events = TestClient(app).get(f"/sessions/{sid}/events").json()
+    check = next(e for e in events if e.get("step") == "check")
+    assert check["kind"] == "cascade" and check["step_kind"] == "command"

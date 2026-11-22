@@ -97,7 +97,7 @@ def _waiting_for(session_id: str, db) -> str | None:
     if waiting is None:
         return None
     data = json.loads(waiting.data)
-    if not (data.get("kind") == "approve" and data.get("waiting")):
+    if not (data.get("step_kind") == "approve" and data.get("waiting")):
         return None
     answered = db.exec(select(SessionEvent).where(SessionEvent.session_id == session_id,
                                                   SessionEvent.kind == "approval", SessionEvent.id > waiting.id)).first()

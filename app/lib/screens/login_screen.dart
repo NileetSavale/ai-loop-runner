@@ -37,23 +37,29 @@ class _LoginScreenState extends State<LoginScreen> {
           constraints: const BoxConstraints(maxWidth: 360),
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Text('Loop Runner', style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 24),
-              TextField(controller: _email, decoration: const InputDecoration(labelText: 'Email')),
-              TextField(
-                controller: _password,
-                decoration: const InputDecoration(labelText: 'Password'),
-                obscureText: true,
-                onSubmitted: (_) => _login(),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Loop Runner', style: Theme.of(context).textTheme.headlineMedium),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _email,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                ),
+                TextField(
+                  controller: _password,
+                  decoration: const InputDecoration(labelText: 'Password'),
+                  obscureText: true,
+                  onSubmitted: (_) => _login(),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ],
+                const SizedBox(height: 24),
+                FilledButton(onPressed: _busy ? null : _login, child: const Text('Log in')),
               ],
-              const SizedBox(height: 24),
-              FilledButton(onPressed: _busy ? null : _login, child: const Text('Log in')),
-            ]),
+            ),
           ),
         ),
       ),

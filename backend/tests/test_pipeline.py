@@ -113,3 +113,126 @@ def test_the_api_refuses_a_name_that_is_not_a_pipeline_file(monkeypatch):
     client = TestClient(app)
     assert client.get("/pipelines/nope").status_code == 404
     assert client.get("/pipelines/..%2Fmain").status_code == 404
+
+
+CHECK = {"kind": "command", "run": "true", "on_pass": "done", "on_fail": "done"}
+
+
+@pytest.mark.parametrize("step, reason", [
+    ({**CHECK, "model": "cheap"}, "runs no model"),
+    ({**CHECK, "run": "  "}, "needs `run`"),
+    ({k: v for k, v in CHECK.items() if k != "run"}, "needs `run`"),
+])
+def test_a_command_step_runs_a_command_and_no_model(step, reason):
+    with pytest.raises(PipelineError, match=reason):
+        parse(pipeline(check=step))
+
+
+@pytest.fixture
+def pipelines_dir(tmp_path, monkeypatch):
+    """A scratch backend/pipelines/, with the built-in pipeline in it."""
+    import shutil
+    import core.pipeline as module
+    shutil.copy(module.PIPELINES / "reviewed-cascade.yaml", tmp_path)
+    monkeypatch.setattr(module, "PIPELINES", tmp_path)
+    return tmp_path
+
+
+def test_a_saved_pipeline_round_trips_through_its_file(pipelines_dir):
+    from core.pipeline import save
+    doc = pipeline(cheap={"kind": "fix", "model": "cheap", "on_pass": "lint", "on_fail": "done"},
+                   lint={**CHECK, "run": "ruff check ."})
+    save("lint-after-fix", doc)
+    loaded = load("lint-after-fix")
+    assert loaded.name == "lint-after-fix"
+    assert loaded.steps["lint"].options == {"run": "ruff check ."}
+    assert loaded.steps["cheap"].edges == {"on_pass": "lint", "on_fail": "done"}
+
+
+@pytest.mark.parametrize("name, reason", [
+    ("reviewed-cascade", "built in and read-only"),
+    ("Has Spaces", "lowercase letters"),
+    ("../escape", "lowercase letters"),
+])
+def test_saving_refuses_built_ins_and_unsafe_names(pipelines_dir, name, reason):
+    from core.pipeline import save
+    with pytest.raises(PipelineError, match=reason):
+        save(name, pipeline(a=FIX))
+
+
+def test_a_pipeline_that_cant_run_is_not_saved(pipelines_dir):
+    from core.pipeline import save
+    with pytest.raises(PipelineError, match="cycle"):
+        save("loops", pipeline(a={**FIX, "on_fail": "b"}, b={**FIX, "on_fail": "a"}))
+    assert not (pipelines_dir / "loops.yaml").exists()
+
+
+def test_delete_removes_a_saved_pipeline_but_not_a_built_in(pipelines_dir):
+    from core.pipeline import delete, save
+    save("mine", pipeline(a=FIX))
+    delete("mine")
+    assert not (pipelines_dir / "mine.yaml").exists()
+    with pytest.raises(PipelineError, match="built in"):
+        delete("reviewed-cascade")
+
+
+def test_the_api_saves_and_deletes_locally_and_refuses_on_a_hosted_server(pipelines_dir, monkeypatch):
+    import auth
+    import routes.pipelines
+    from fastapi.testclient import TestClient
+    from main import app
+    monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", True)
+    client = TestClient(app)
+    body = pipeline(a={**CHECK, "run": "pytest -q"})
+    saved = client.put("/pipelines/mine", json=body)
+    assert saved.status_code == 200 and saved.json()["steps"][0]["options"] == {"run": "pytest -q"}
+    assert client.put("/pipelines/reviewed-cascade", json=body).status_code == 422
+    assert "kind 'deploy'" in client.put("/pipelines/bad", json=pipeline(a={**FIX, "kind": "deploy"})).json()["detail"]
+    monkeypatch.setattr(routes.pipelines, "HOSTED", True)
+    assert client.put("/pipelines/mine", json=body).status_code == 403
+    assert client.delete("/pipelines/mine").status_code == 403
+    monkeypatch.setattr(routes.pipelines, "HOSTED", False)
+    assert client.delete("/pipelines/mine").json() == {"deleted": "mine"}
+
+
+def test_a_command_step_runs_in_the_repo_and_branches_on_its_exit_code(repo):
+    document = pipeline(cheap={"kind": "fix", "model": "cheap", "on_pass": "lint", "on_fail": "done"},
+                        lint={**CHECK, "run": "test -f mine.txt && false", "on_fail": "main"},
+                        main={**FIX, "undo": True})
+    seen, steps, finals = run(seed(repo), document, [True, True])
+    assert steps == ["cheap", "lint", "main"]  # the command failed, so its on_fail ran the main model
+    assert [s["model"] for s in seen] == [cascade.CHEAP_MODEL, "claude-sonnet-5-5"]
+    assert finals == ["passed"]
+
+
+def test_a_session_runs_its_pipeline_and_records_which(repo):
+    from database import get_session as db_session
+    from models import SessionEvent
+    from sqlmodel import select
+    sid = seed(repo)
+    run(sid, pipeline(cheap={"kind": "fix", "model": "cheap", "on_pass": "done", "on_fail": "done"}), [True])
+    with db_session() as db:
+        kinds = {e.kind: e.data for e in db.exec(select(SessionEvent).where(SessionEvent.session_id == sid))}
+    assert kinds["pipeline"] == '{"name": "t"}'
+
+
+def test_a_session_asking_for_a_missing_pipeline_is_refused_before_it_starts(tmp_path, monkeypatch):
+    import auth
+    from fastapi.testclient import TestClient
+    from main import app
+    monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", True)
+    response = TestClient(app).post("/sessions", json={
+        "name": "t", "repo_path": str(tmp_path), "verify_command": "true", "model": "claude-sonnet-5-5",
+        "pipeline": "nope", "task": {"title": "t", "spec": "s"}})
+    assert response.status_code == 400 and "No pipeline 'nope'" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("command, status", [("true", "passed"), ("false", "failed")])
+def test_a_pipeline_of_commands_only_ends_with_the_last_commands_result(repo, command, status):
+    from database import get_session as db_session
+    from models import Session
+    sid = seed(repo)
+    _, steps, finals = run(sid, pipeline(check={**CHECK, "run": command}), [])
+    assert steps == ["check"] and finals == [status]
+    with db_session() as db:
+        assert db.get(Session, sid).status == status

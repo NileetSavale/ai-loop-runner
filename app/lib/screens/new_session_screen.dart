@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../main.dart';
 import '../models.dart';
+import 'pipelines_screen.dart';
 import 'sessions_screen.dart';
 
 final modelsProvider = FutureProvider<List<ModelChoice>>((ref) => ref.watch(apiProvider).models());
@@ -34,7 +35,7 @@ class _NewSessionScreenState extends ConsumerState<NewSessionScreen> {
   late bool _useFolder = _canPickFolder;
   String? _model;
   double _maxIterations = 10;
-  bool _cascade = false;
+  String? _pipeline;
   bool _addTests = false;
   bool _busy = false;
   String? _error;
@@ -62,7 +63,7 @@ class _NewSessionScreenState extends ConsumerState<NewSessionScreen> {
             model: _model!,
             maxIterations: _maxIterations.round(),
             maxCostUsd: double.tryParse(_maxCost.text.trim()),
-            cascade: _cascade,
+            pipeline: _pipeline,
             addTests: _addTests,
           ));
       ref.invalidate(sessionsProvider);
@@ -168,14 +169,25 @@ class _NewSessionScreenState extends ConsumerState<NewSessionScreen> {
                   ? null
                   : 'A positive number',
             ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Cascade'),
-              subtitle: const Text('A cheap model tries first; a reviewer checks its fix; this model redoes it only '
-                  'if that fails. Needs a Claude model other than Haiku.'),
-              value: _cascade,
-              onChanged: (v) => setState(() => _cascade = v),
-            ),
+            ref.watch(pipelinesProvider).when(
+                  loading: () => const LinearProgressIndicator(),
+                  error: (e, _) => Text('Couldn\'t load pipelines: $e'),
+                  data: (pipelines) => DropdownButtonFormField<String?>(
+                    initialValue: _pipeline,
+                    decoration: const InputDecoration(
+                      labelText: 'Pipeline',
+                      helperText: 'Steps around the model (Pipelines in the sidebar). reviewed-cascade: a cheap model '
+                          'tries first and a reviewer checks it; needs a Claude model other than Haiku.',
+                      helperMaxLines: 3,
+                    ),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('None: this model\'s loop only')),
+                      for (final p in pipelines.where((p) => p.error == null))
+                        DropdownMenuItem(value: p.name, child: Text(p.name)),
+                    ],
+                    onChanged: (name) => setState(() => _pipeline = name),
+                  ),
+                ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Add tests'),

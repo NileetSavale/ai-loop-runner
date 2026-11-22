@@ -17,6 +17,7 @@ that were there before stay, as the attempt left them. max_iterations applies to
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import datetime
 import subprocess
 import uuid
 
@@ -26,6 +27,7 @@ from core.fix_review import REVIEWER_MODEL, edited_tests, review_fix
 from core.pipeline import DONE, Pipeline, Step, load as load_pipeline, resolve as resolve_model
 from core.loop import MAX_SESSION_COST_USD, BroadcastFn, _fail_session, _mark_session_failed, _running, run_loop
 from core.scout import handover, run_scout, tried_summary
+from core.verifier import run_verify
 from database import get_session as db_session
 from models import Iteration, Session, SessionEvent, Task, UsageEvent
 from providers.router import _provider_for
@@ -142,6 +144,7 @@ class _Run:
     last_output: str = ""
     diff: str | None = None
     rejected: str | None = None
+    command_passed: bool | None = None  # the last command step's result
 
     @property
     def byok(self) -> bool:
@@ -219,7 +222,16 @@ async def _review(run: _Run, step: Step, model: str) -> str:
     return "on_accept" if verdict["accept"] else "on_reject"
 
 
-_KINDS = {"scout": _scout, "fix": _fix, "review": _review}
+async def _command(run: _Run, step: Step, model: str) -> str:
+    """A shell command in the repo (a linter, a type checker, more tests), run like the session's own test command."""
+    result = await run_verify(step.options["run"], run.repo, run.loop_options.get("sandbox"))
+    await run.step({"step": step.id, "kind": "command", "command": step.options["run"], "passed": result.passed,
+                    "exit_code": result.exit_code, "output": result.output[-4000:]})
+    run.command_passed = result.passed
+    return "on_pass" if result.passed else "on_fail"
+
+
+_KINDS = {"scout": _scout, "fix": _fix, "review": _review, "command": _command}
 
 
 async def run_cascade(session_id: str, broadcast_fn: BroadcastFn, user_api_key: str | None = None,
@@ -251,6 +263,10 @@ async def run_cascade(session_id: str, broadcast_fn: BroadcastFn, user_api_key: 
         return
     run = _Run(session_id, broadcast_fn, user_api_key, loop_options, repo, spec, model, cheap_model, limit, base,
                _untracked(repo))
+    # Which pipeline this session runs, saved for the page's map (the sessions table has no column for it)
+    with db_session() as db:
+        db.add(SessionEvent(session_id=session_id, kind="pipeline", data=json.dumps({"name": pipeline.name})))
+        db.commit()
 
     try:
         current = pipeline.start
@@ -258,7 +274,12 @@ async def run_cascade(session_id: str, broadcast_fn: BroadcastFn, user_api_key: 
             step = pipeline.steps[current]
             outcome = await _KINDS[step.kind](run, step, resolve_model(step.model, cheap_model, model))
             current = step.after(outcome)
-        # The last fix's pass or fail, held back while later steps might still run, ends the session
+        # The last fix's pass or fail, held back while later steps might still run, ends the session; a pipeline
+        # with no fix step ends with its last command's result
+        if run.final is None and run.command_passed is not None:
+            status = "passed" if run.command_passed else "failed"
+            _update(session_id, status=status, completed_at=datetime.utcnow())
+            run.final = {"status": status}
         if run.final:
             await broadcast_fn({"event": "session_complete", "data": run.final})
 

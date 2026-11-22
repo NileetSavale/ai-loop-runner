@@ -2,7 +2,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from auth import get_optional_user
-from core.pipeline import PipelineError, load, names
+from core.pipeline import PipelineError, delete, load, names, save
+from core.workspace import HOSTED
 
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
@@ -28,3 +29,29 @@ def get_pipeline(name: str, _: dict | None = Depends(get_optional_user)):
         return load(name).to_json()
     except PipelineError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+
+def _local_only():
+    # A pipeline is a file on the server: on a hosted server, one user's edit would change every user's pipelines
+    if HOSTED:
+        raise HTTPException(status_code=403, detail="Pipelines can only be edited on a local Loop Runner.")
+
+
+@router.put("/{name}")
+def save_pipeline(name: str, body: dict, _: dict | None = Depends(get_optional_user)):
+    """Check the pipeline and save it as backend/pipelines/<name>.yaml; the reason comes back if it can't run."""
+    _local_only()
+    try:
+        return save(name, body).to_json()
+    except PipelineError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.delete("/{name}")
+def delete_pipeline(name: str, _: dict | None = Depends(get_optional_user)):
+    _local_only()
+    try:
+        delete(name)
+    except PipelineError as e:
+        raise HTTPException(status_code=404 if "no pipeline" in str(e) else 422, detail=str(e))
+    return {"deleted": name}

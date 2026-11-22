@@ -11,6 +11,7 @@ from sqlmodel import select
 from models import Session, SessionEvent, Task, Iteration
 from database import get_session as db_session
 from core.cascade import cascade_problem
+from core.pipeline import PipelineError, load as load_pipeline, names as pipeline_names
 from core.loop import stop_loop
 from core.workspace import (HOSTED, WORKSPACES, CloneError, base_commit, clone, diff, github_repo, head, workspace,
                             owns_workspace, record, start_session)
@@ -46,6 +47,7 @@ class SessionCreate(BaseModel):
     max_cost_usd: float | None = Field(None, gt=0)  # None = server default
     add_tests: bool = False
     cascade: bool = False  # a cheap model tries first; see core/cascade.py
+    pipeline: str | None = None  # a pipeline in backend/pipelines/ to run instead (core/pipeline.py); implies cascade
     model: str = "claude-sonnet-4-6"
     task: TaskCreate
 
@@ -101,7 +103,17 @@ async def create_session(body: SessionCreate, user: dict | None = Depends(get_op
             github_repo(body.repo_url)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-    if body.cascade and (problem := cascade_problem(body.model)):
+    pipeline = None
+    if body.pipeline is not None:
+        if body.pipeline not in pipeline_names():
+            raise HTTPException(status_code=400, detail=f"No pipeline {body.pipeline!r}")
+        try:
+            pipeline = load_pipeline(body.pipeline)
+        except PipelineError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    # The cheap model and the default reviewer are Claude models, so a pipeline using either needs a Claude main model
+    uses_cheap = pipeline is None or any(step.model == "cheap" for step in pipeline.steps.values())
+    if (body.cascade or pipeline) and uses_cheap and (problem := cascade_problem(body.model)):
         raise HTTPException(status_code=400, detail=problem)
 
     uid = user_id(user) if user else None
@@ -147,8 +159,10 @@ async def create_session(body: SessionCreate, user: dict | None = Depends(get_op
         await broadcast(session_id, msg)
 
     record(session_id, body.repo_url, body.branch, base)
-    start_session(session_id, broadcast_fn, cascade=body.cascade, sandboxed=body.repo_url is not None or body.sandbox,
-                  user_api_key=api_key, max_cost_usd=body.max_cost_usd, add_tests=body.add_tests, use_map=True)
+    start_session(session_id, broadcast_fn, cascade=body.cascade or pipeline is not None,
+                  sandboxed=body.repo_url is not None or body.sandbox, user_api_key=api_key,
+                  max_cost_usd=body.max_cost_usd, add_tests=body.add_tests, use_map=True,
+                  **({"pipeline": pipeline} if pipeline else {}))
     return {"id": session_id}
 
 

@@ -59,6 +59,7 @@ class NewSession {
     this.maxCostUsd,
     this.cascade = false,
     this.addTests = false,
+    this.pipeline,
   });
 
   final String name;
@@ -74,6 +75,9 @@ class NewSession {
   final bool cascade;
   final bool addTests;
 
+  /// A pipeline in backend/pipelines/ to run instead of one model's loop.
+  final String? pipeline;
+
   Map<String, dynamic> toJson() => {
         'name': name,
         if (repoPath != null) 'repo_path': repoPath,
@@ -84,6 +88,7 @@ class NewSession {
         if (maxCostUsd != null) 'max_cost_usd': maxCostUsd,
         'cascade': cascade,
         'add_tests': addTests,
+        if (pipeline != null) 'pipeline': pipeline,
         'model': model,
         'task': {'title': title, 'spec': spec, 'files_context': <String>[]},
       };
@@ -129,6 +134,7 @@ class Pipeline {
         description = json['description'] as String? ?? '',
         start = json['start'] as String? ?? '',
         error = json['error'] as String?,
+        builtIn = json['built_in'] as bool? ?? false,
         steps = [for (final s in (json['steps'] as List?) ?? const []) PipelineStep.fromJson(s as Map<String, dynamic>)];
 
   final String name;
@@ -137,6 +143,9 @@ class Pipeline {
 
   /// Set when the file doesn't load; the backend says why.
   final String? error;
+
+  /// Shipped with Loop Runner and read-only (the study's cascade); copy it to change it.
+  final bool builtIn;
   final List<PipelineStep> steps;
 
   PipelineStep? step(String id) => steps.where((s) => s.id == id).firstOrNull;

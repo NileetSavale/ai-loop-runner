@@ -223,9 +223,13 @@ class _Timeline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Which pipeline the session ran (core/cascade.py saves it); older cascade sessions ran the default
+    final pipelineName =
+        events.where((e) => e.kind == 'pipeline').map((e) => e.data['name'] as String?).firstOrNull;
     final before = <SessionEvent>[];
     final attempts = <_Attempt>[];
     final cascade = <SessionEvent>[];
+    final commands = <SessionEvent>[];
     SessionEvent? end;
     // A fix step's loop: the session itself, or a cascade step (cheap, escalated) once one starts
     var stage = '';
@@ -235,7 +239,9 @@ class _Timeline extends StatelessWidget {
         end = e;
       } else if (e.kind == 'cascade') {
         cascade.add(e);
-        if (e.data['model'] is String && !const {'scout', 'review', 'reviewed'}.contains(e.data['step'])) {
+        if (e.data['kind'] == 'command') commands.add(e);
+        if (e.data['model'] is String && !const {'scout', 'review', 'reviewed'}.contains(e.data['step']) &&
+            e.data['kind'] != 'command') {
           stage = e.data['step'] as String;
           model = e.data['model'] as String;
         }
@@ -245,7 +251,7 @@ class _Timeline extends StatelessWidget {
           attempts.add(_Attempt(stage, n, model));
         }
         attempts.last.events.add(e);
-      } else if (e.kind != 'iteration_complete') {
+      } else if (e.kind != 'iteration_complete' && e.kind != 'pipeline') {
         before.add(e);
       }
     }
@@ -259,9 +265,10 @@ class _Timeline extends StatelessWidget {
           const SizedBox(height: 12),
           _End(end ?? SessionEvent('session_complete', {'status': session.status})),
         ],
-        if (cascade.isNotEmpty) ...[
+        if (cascade.isNotEmpty || pipelineName != null) ...[
           const SizedBox(height: 12),
-          _SessionMap(session: session, events: events, attempts: attempts),
+          _SessionMap(
+              session: session, events: events, attempts: attempts, pipelineName: pipelineName ?? 'reviewed-cascade'),
         ],
         const SizedBox(height: 12),
         for (final e in before) _EventTile(e),
@@ -289,6 +296,12 @@ class _Timeline extends StatelessWidget {
               ].join('  ·  ')),
               children: [for (final e in a.events) _EventTile(e)],
             ),
+          ),
+        // A pipeline's command steps (a linter, more tests): their result shows without opening the map
+        if (commands.isNotEmpty)
+          Card(
+            margin: const EdgeInsets.only(top: 8),
+            child: Column(children: [for (final e in commands) _EventTile(e)]),
           ),
       ],
     );
@@ -334,18 +347,16 @@ class _Summary extends StatelessWidget {
 /// The session's pipeline as a live map: the step running now pulses, finished steps show how they ended, and the
 /// arrows the session took are bold. A click opens what happened at that step.
 class _SessionMap extends ConsumerWidget {
-  const _SessionMap({required this.session, required this.events, required this.attempts});
+  const _SessionMap({required this.session, required this.events, required this.attempts, required this.pipelineName});
   final Session session;
   final List<SessionEvent> events;
   final List<_Attempt> attempts;
-
-  /// Sessions record no pipeline name yet; every pipeline session today runs the default.
-  static const _pipeline = 'reviewed-cascade';
+  final String pipelineName;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
-    return ref.watch(pipelineProvider(_pipeline)).when(
+    return ref.watch(pipelineProvider(pipelineName)).when(
           loading: () => const LinearProgressIndicator(),
           error: (e, _) => Text('Couldn\'t load the pipeline map: $e'),
           data: (pipeline) {
@@ -402,6 +413,13 @@ class _SessionMap extends ConsumerWidget {
                   if (e.data['why'] != null) SelectableText('${e.data['why']}'),
                 ],
                 if (e.data['reason'] != null) ...[const Divider(), Text('Why it ran: ${e.data['reason']}')],
+                if (e.data['command'] != null) ...[
+                  const Divider(),
+                  Text('Ran `${e.data['command']}`: ${e.data['passed'] == true ? 'passed' : 'failed (exit ${e.data['exit_code']})'}'),
+                  if ((e.data['output'] as String?)?.isNotEmpty ?? false)
+                    SelectableText('${e.data['output']}',
+                        style: const TextStyle(fontFamily: 'Menlo', fontFamilyFallback: ['Courier New', 'monospace'], fontSize: 12)),
+                ],
                 if (e.data['cost_usd'] is num) Text('Cost: \$${(e.data['cost_usd'] as num).toStringAsFixed(4)}'),
               ],
               if (stepAttempts.isNotEmpty) ...[
@@ -455,7 +473,12 @@ class _EventTile extends StatelessWidget {
           'Looked at the code: ${(d['files'] as List?)?.length ?? 0} file(s)',
           d['tests_passing'] == true ? 'Tests already pass' : 'Tests fail before any change',
         ),
-      'cascade' => (Icons.alt_route, 'Cascade: ${d['step']} (${d['model'] ?? ''})', d['reason'] ?? d['why']),
+      'cascade' when d['kind'] == 'command' => (
+          d['passed'] == true ? Icons.check_circle_outline : Icons.highlight_off,
+          '${d['step']}: ran `${d['command']}`, ${d['passed'] == true ? 'passed' : 'failed'}',
+          _tail(d['output']?.toString()),
+        ),
+      'cascade' => (Icons.alt_route, 'Step ${d['step']} (${d['model'] ?? ''})', d['reason'] ?? d['why']),
       'iteration_start' => (Icons.play_arrow, 'Attempt ${d['iteration']} started', null),
       'tool' => (Icons.handyman, 'Tool: ${d['tool']}', d['error']?.toString() ?? d['target']?.toString()),
       'file_changed' => (Icons.edit_document, 'Changed ${d['path']}', null),
@@ -469,7 +492,7 @@ class _EventTile extends StatelessWidget {
         ),
       _ => (Icons.info_outline, event.kind, null),
     };
-    final output = event.kind == 'verify_output' ? d['output']?.toString() : null;
+    final output = event.kind == 'verify_output' || d['kind'] == 'command' ? d['output']?.toString() : null;
     return ListTile(
       dense: true,
       leading: Icon(icon),

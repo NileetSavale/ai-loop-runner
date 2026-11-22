@@ -95,6 +95,14 @@ class Api {
   Future<Pipeline> pipeline(String name) async =>
       Pipeline.fromJson(await _get('/pipelines/$name') as Map<String, dynamic>);
 
+  /// Checks and saves `backend/pipelines/<name>.yaml`; an ApiError carries the reason it can't run.
+  Future<Pipeline> savePipeline(String name, Map<String, dynamic> document) async {
+    final response = await _http.put(_url('/pipelines/$name'), headers: _headers, body: jsonEncode(document));
+    return Pipeline.fromJson(_decode(response) as Map<String, dynamic>);
+  }
+
+  Future<void> deletePipeline(String name) => _delete('/pipelines/$name');
+
   /// The user's saved provider keys (never the keys themselves). Needs login.
   Future<List<SavedKey>> keys() async =>
       [for (final row in await _get('/keys') as List) SavedKey.fromJson(row as Map<String, dynamic>)];

@@ -59,4 +59,23 @@ void main() {
     expect(p.states['escalated'], StepState.active);
     expect(p.taken, {('scout', 'next'), ('cheap', 'on_fail')});
   });
+
+  test('a command step shows its own result, and the arrow it took', () {
+    final withLint = Pipeline.fromJson({
+      'name': 'lint-after-fix',
+      'start': 'fix',
+      'steps': [
+        {'id': 'fix', 'kind': 'fix', 'model': 'main', 'edges': {'on_pass': 'lint', 'on_fail': 'done'}},
+        {'id': 'lint', 'kind': 'command', 'model': '', 'edges': {'on_pass': 'done', 'on_fail': 'done'},
+         'options': {'run': 'ruff check .'}},
+      ],
+    });
+    final p = PipelineProgress.of(withLint, [
+      SessionEvent('cascade', {'step': 'fix', 'model': 'claude-sonnet-5-5'}),
+      SessionEvent('cascade', {'step': 'lint', 'kind': 'command', 'command': 'ruff check .', 'passed': false}),
+    ], session('passed'));
+    expect(p.states['fix'], StepState.passed);
+    expect(p.states['lint'], StepState.failed);
+    expect(p.taken, {('fix', 'on_pass'), ('lint', 'on_fail')});
+  });
 }

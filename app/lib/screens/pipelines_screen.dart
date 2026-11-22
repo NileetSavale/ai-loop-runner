@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../main.dart';
 import '../models.dart';
@@ -27,15 +28,40 @@ String explainModel(String model) => switch (model) {
     };
 
 class PipelinesScreen extends ConsumerStatefulWidget {
-  const PipelinesScreen({super.key});
+  const PipelinesScreen({super.key, this.initial});
+
+  /// The pipeline to open with, e.g. one just saved.
+  final String? initial;
 
   @override
   ConsumerState<PipelinesScreen> createState() => _PipelinesScreenState();
 }
 
 class _PipelinesScreenState extends ConsumerState<PipelinesScreen> {
-  String? _name;
+  late String? _name = widget.initial;
   String? _step;
+
+  Future<void> _delete(Pipeline p) async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${p.name}?'),
+        content: const Text('Its file is removed from backend/pipelines/. Sessions that ran it keep their history.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (sure != true) return;
+    try {
+      await ref.read(apiProvider).deletePipeline(p.name);
+      setState(() => _name = null);
+      ref.invalidate(pipelinesProvider);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Couldn\'t delete: $e')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +73,12 @@ class _PipelinesScreenState extends ConsumerState<PipelinesScreen> {
         actions: [
           IconButton(
               tooltip: 'Refresh', icon: const Icon(Icons.refresh), onPressed: () => ref.invalidate(pipelinesProvider)),
+          TextButton.icon(
+            onPressed: () => context.go('/pipelines/new'),
+            icon: const Icon(Icons.add),
+            label: const Text('New pipeline'),
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: pipelines.when(
@@ -73,7 +105,16 @@ class _PipelinesScreenState extends ConsumerState<PipelinesScreen> {
               ]),
             ),
             const VerticalDivider(width: 1),
-            Expanded(child: _Detail(selected, step: _step, onStep: (id) => setState(() => _step = id))),
+            Expanded(
+              child: _Detail(
+                selected,
+                step: _step,
+                onStep: (id) => setState(() => _step = id),
+                onDuplicate: () => context.go('/pipelines/new?from=${selected.name}'),
+                onEdit: selected.builtIn ? null : () => context.go('/pipelines/${selected.name}/edit'),
+                onDelete: selected.builtIn ? null : () => _delete(selected),
+              ),
+            ),
           ]);
         },
       ),
@@ -82,10 +123,16 @@ class _PipelinesScreenState extends ConsumerState<PipelinesScreen> {
 }
 
 class _Detail extends StatelessWidget {
-  const _Detail(this.pipeline, {required this.step, required this.onStep});
+  const _Detail(this.pipeline,
+      {required this.step, required this.onStep, required this.onDuplicate, this.onEdit, this.onDelete});
   final Pipeline pipeline;
   final String? step;
   final ValueChanged<String> onStep;
+  final VoidCallback onDuplicate;
+
+  /// Null for a built-in pipeline, which is read-only.
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -95,7 +142,18 @@ class _Detail extends StatelessWidget {
     }
     final chosen = step == null ? null : pipeline.step(step!);
     return ListView(padding: const EdgeInsets.all(16), children: [
-      Text(pipeline.name, style: text.headlineSmall),
+      Row(children: [
+        Expanded(child: Text(pipeline.name, style: text.headlineSmall)),
+        if (pipeline.builtIn) const Chip(label: Text('built in, read-only')),
+        const SizedBox(width: 8),
+        OutlinedButton.icon(onPressed: onDuplicate, icon: const Icon(Icons.copy), label: const Text('Duplicate')),
+        if (onEdit != null) ...[
+          const SizedBox(width: 8),
+          FilledButton.icon(onPressed: onEdit, icon: const Icon(Icons.edit_outlined), label: const Text('Edit')),
+        ],
+        if (onDelete != null)
+          IconButton(tooltip: 'Delete', icon: const Icon(Icons.delete_outline), onPressed: onDelete),
+      ]),
       if (pipeline.description.isNotEmpty) ...[const SizedBox(height: 6), Text(pipeline.description)],
       const SizedBox(height: 12),
       Card(child: PipelineMap(pipeline: pipeline, selected: step, onSelect: onStep)),

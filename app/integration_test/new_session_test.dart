@@ -79,4 +79,39 @@ void main() {
     expect(find.textContaining('accepts or rejects it'), findsOneWidget);
     expect(find.text('reject → escalated'), findsOneWidget);
   });
+
+  testWidgets('a pipeline built in the editor is saved, shown on its map, and deleted', (tester) async {
+    await tester.pumpWidget(const ProviderScope(child: LoopRunnerApp()));
+    await settle(tester);
+    await tester.tap(find.text('Pipelines').first);
+    await settle(tester);
+    await tester.tap(find.text('New pipeline'));
+    for (var i = 0; i < 20 && find.text('Add step').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    await tester.enterText(find.widgetWithText(TextField, 'Name'), 'itest-lint');
+    // The new pipeline starts with one fix step; add a command step after it
+    await tester.tap(find.text('Add step'));
+    await settle(tester);
+    await tester.enterText(find.widgetWithText(TextFormField, 'Command'), 'true');
+    await settle(tester);
+    // A step nothing leads to can't be saved, so drop the starting fix step: the command step becomes the start
+    await tester.ensureVisible(find.byTooltip('Remove step').first);
+    await settle(tester);
+    await tester.tap(find.byTooltip('Remove step').first);
+    await settle(tester);
+    expect(find.text('step2'), findsWidgets, reason: 'the map draws the new step');
+    await tester.tap(find.text('Save'));
+    for (var i = 0; i < 40 && find.text('itest-lint').evaluate().length < 2; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    expect(find.text('itest-lint'), findsWidgets, reason: 'saved and selected in the list');
+    await tester.tap(find.byTooltip('Delete'));
+    await settle(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    for (var i = 0; i < 40 && find.text('itest-lint').evaluate().isNotEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    expect(find.text('itest-lint'), findsNothing);
+  });
 }

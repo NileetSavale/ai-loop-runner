@@ -18,6 +18,8 @@ class PipelineProgress {
   factory PipelineProgress.of(Pipeline pipeline, List<SessionEvent> events, Session session) {
     final visited = <String>[];
     final verdicts = <String, bool>{};
+    // A command step reports its own result; other steps' outcomes follow from where the session went next
+    final commandPassed = <String, bool>{};
     String? lastReview;
     for (final e in events.where((e) => e.kind == 'cascade')) {
       final step = e.data['step'] as String?;
@@ -25,6 +27,7 @@ class PipelineProgress {
         if (lastReview != null) verdicts[lastReview] = e.data['accept'] == true;
       } else if (step != null && pipeline.step(step) != null) {
         visited.add(step);
+        if (e.data['passed'] is bool) commandPassed[step] = e.data['passed'] as bool;
         if (pipeline.step(step)!.kind == 'review') lastReview = step;
       }
     }
@@ -36,7 +39,9 @@ class PipelineProgress {
       final step = pipeline.step(id)!;
       final next = i + 1 < visited.length ? visited[i + 1] : null;
       String? outcome;
-      if (next != null) {
+      if (commandPassed.containsKey(id)) {
+        outcome = commandPassed[id]! ? 'on_pass' : 'on_fail';
+      } else if (next != null) {
         // Which outcome led to the next step the session reached
         outcome = step.edges.entries.where((e) => e.value == next).map((e) => e.key).firstOrNull;
       } else if (ended) {

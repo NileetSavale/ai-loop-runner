@@ -9,6 +9,7 @@ import 'screens/diff_screen.dart';
 import 'screens/keys_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/new_session_screen.dart';
+import 'screens/pipeline_editor_screen.dart';
 import 'screens/pipelines_screen.dart';
 import 'screens/sessions_screen.dart';
 import 'shell.dart';
@@ -53,7 +54,18 @@ final _router = GoRouter(
             ),
           ],
         ),
-        GoRoute(path: '/pipelines', builder: (_, _) => const PipelinesScreen()),
+        GoRoute(
+          path: '/pipelines',
+          builder: (_, state) =>
+              PipelinesScreen(key: ValueKey(state.uri.query), initial: state.uri.queryParameters['name']),
+          routes: [
+            GoRoute(
+                path: 'new', builder: (_, state) => PipelineEditorScreen(from: state.uri.queryParameters['from'])),
+            GoRoute(
+                path: ':name/edit',
+                builder: (_, state) => PipelineEditorScreen(from: state.pathParameters['name'], editing: true)),
+          ],
+        ),
         GoRoute(path: '/keys', builder: (_, _) => const KeysScreen()),
       ],
     ),

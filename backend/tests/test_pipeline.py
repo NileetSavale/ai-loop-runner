@@ -90,3 +90,26 @@ def test_a_review_step_can_use_another_model(repo):
         asyncio.run(cascade.run_cascade(seed(repo), lambda m: asyncio.sleep(0), max_cost_usd=1.0,
                                         pipeline=parse(document)))
     assert asked == ["claude-opus-5-5"]
+
+
+def test_the_api_lists_pipelines_with_their_steps_and_description(monkeypatch):
+    import auth
+    from fastapi.testclient import TestClient
+    from main import app
+    monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", True)
+    client = TestClient(app)
+    listed = client.get("/pipelines").json()
+    cascade = next(p for p in listed if p["name"] == "reviewed-cascade")
+    assert cascade["start"] == "scout" and "cheap model tries first" in cascade["description"]
+    assert {s["id"]: s["edges"] for s in cascade["steps"]}["review"] == {"on_accept": "done", "on_reject": "escalated"}
+    assert client.get("/pipelines/reviewed-cascade").json() == cascade
+
+
+def test_the_api_refuses_a_name_that_is_not_a_pipeline_file(monkeypatch):
+    import auth
+    from fastapi.testclient import TestClient
+    from main import app
+    monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", True)
+    client = TestClient(app)
+    assert client.get("/pipelines/nope").status_code == 404
+    assert client.get("/pipelines/..%2Fmain").status_code == 404

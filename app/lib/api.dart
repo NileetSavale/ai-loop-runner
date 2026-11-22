@@ -89,6 +89,12 @@ class Api {
             ModelChoice(model['id'] as String, model['name'] as String, entry.key),
       ];
 
+  Future<List<Pipeline>> pipelines() async =>
+      [for (final row in await _get('/pipelines') as List) Pipeline.fromJson(row as Map<String, dynamic>)];
+
+  Future<Pipeline> pipeline(String name) async =>
+      Pipeline.fromJson(await _get('/pipelines/$name') as Map<String, dynamic>);
+
   /// The user's saved provider keys (never the keys themselves). Needs login.
   Future<List<SavedKey>> keys() async =>
       [for (final row in await _get('/keys') as List) SavedKey.fromJson(row as Map<String, dynamic>)];

@@ -118,25 +118,3 @@ class AppShell extends ConsumerWidget {
     );
   }
 }
-
-/// Part 2 of the desktop work draws each pipeline here as a live map.
-class PipelinesPlaceholder extends StatelessWidget {
-  const PipelinesPlaceholder({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Pipelines')),
-      body: const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'Coming next: each pipeline as a map of its steps (scout, fix, review), lighting up live as a session '
-            'runs through it, and then building your own.',
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ),
-    );
-  }
-}

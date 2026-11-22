@@ -59,4 +59,24 @@ void main() {
     await settle(tester);
     expect(find.text('Changes'), findsOneWidget);
   });
+
+  testWidgets('the Pipelines section maps the reviewed cascade and explains a step', (tester) async {
+    await tester.pumpWidget(const ProviderScope(child: LoopRunnerApp()));
+    await settle(tester);
+    await tester.tap(find.text('Pipelines').first);
+    for (var i = 0; i < 40 && find.text('reviewed-cascade').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    expect(find.text('reviewed-cascade'), findsWidgets);
+    for (final id in ['scout', 'cheap', 'review', 'escalated', 'done']) {
+      expect(find.text(id), findsWidgets, reason: 'the map draws $id');
+    }
+    // The map scrolls sideways when it is wider than its pane
+    await tester.ensureVisible(find.text('review').first);
+    await settle(tester);
+    await tester.tap(find.text('review').first);
+    await settle(tester);
+    expect(find.textContaining('accepts or rejects it'), findsOneWidget);
+    expect(find.text('reject → escalated'), findsOneWidget);
+  });
 }

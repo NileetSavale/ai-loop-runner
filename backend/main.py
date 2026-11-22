@@ -14,6 +14,7 @@ from routes.ws import router as ws_router
 from routes.chat import router as chat_router
 from routes.keys import router as keys_router
 from routes.test_gen import router as test_gen_router
+from routes.pipelines import router as pipelines_router
 from core.workspace import HOSTED
 
 app = FastAPI(title="Loop Runner")
@@ -32,6 +33,7 @@ app.include_router(sessions_router)
 app.include_router(analytics_router)
 app.include_router(ws_router)
 app.include_router(keys_router)
+app.include_router(pipelines_router)
 # Chat and test generation work on a folder on this machine, so a server other people use leaves them out
 if not HOSTED:
     app.include_router(chat_router)

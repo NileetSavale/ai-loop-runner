@@ -58,6 +58,12 @@ class Pipeline:
     name: str
     start: str
     steps: dict[str, Step]
+    description: str = ""
+
+    def to_json(self) -> dict:
+        return {"name": self.name, "description": self.description, "start": self.start,
+                "steps": [{"id": s.id, "kind": s.kind, "model": s.model, "edges": s.edges, "options": s.options}
+                          for s in self.steps.values()]}
 
 
 def parse(document: dict, source: str = "pipeline") -> Pipeline:
@@ -121,7 +127,8 @@ def parse(document: dict, source: str = "pipeline") -> Pipeline:
     unreached = sorted(set(steps) - reached)
     if unreached:
         refuse(f"nothing leads to steps {unreached}")
-    return Pipeline(name, start, steps)
+    description = document.get("description") or ""
+    return Pipeline(name, start, steps, description.strip() if isinstance(description, str) else "")
 
 
 def load(name: str) -> Pipeline:
@@ -130,6 +137,11 @@ def load(name: str) -> Pipeline:
     if not path.is_file():
         raise PipelineError(f"no pipeline {name!r} in {PIPELINES}")
     return parse(yaml.safe_load(path.read_text()), path.name)
+
+
+def names() -> list[str]:
+    """Every pipeline in backend/pipelines/, by name."""
+    return sorted(path.stem for path in PIPELINES.glob("*.yaml"))
 
 
 def resolve(model: str, cheap: str, main: str) -> str:

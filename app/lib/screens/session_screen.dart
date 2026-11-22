@@ -6,6 +6,9 @@ import 'package:go_router/go_router.dart';
 
 import '../main.dart';
 import '../models.dart';
+import '../widgets/pipeline_map.dart';
+import '../widgets/pipeline_progress.dart';
+import 'pipelines_screen.dart';
 import 'sessions_screen.dart';
 
 /// One session, live: what it was asked, then every step as it happens. The saved events are loaded first and the
@@ -195,9 +198,10 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
 /// One attempt of one model's loop. A cascade runs a loop per model and each counts its attempts from 1, so a
 /// stage starts a new set of attempts.
 class _Attempt {
-  _Attempt(this.stage, this.number);
+  _Attempt(this.stage, this.number, this.model);
   final String stage;
   final int number;
+  final String model;
   final List<SessionEvent> events = [];
 
   bool? get passed {
@@ -223,19 +227,22 @@ class _Timeline extends StatelessWidget {
     final attempts = <_Attempt>[];
     final cascade = <SessionEvent>[];
     SessionEvent? end;
-    var stage = session.model;
+    // A fix step's loop: the session itself, or a cascade step (cheap, escalated) once one starts
+    var stage = '';
+    var model = session.model;
     for (final e in events) {
       if (e.kind == 'session_complete') {
         end = e;
       } else if (e.kind == 'cascade') {
         cascade.add(e);
-        if (e.data['model'] is String && const {'cheap', 'escalated'}.contains(e.data['step'])) {
-          stage = '${e.data['step']}: ${e.data['model']}';
+        if (e.data['model'] is String && !const {'scout', 'review', 'reviewed'}.contains(e.data['step'])) {
+          stage = e.data['step'] as String;
+          model = e.data['model'] as String;
         }
       } else if (e.data['iteration'] is int) {
         final n = e.data['iteration'] as int;
         if (attempts.isEmpty || attempts.last.stage != stage || attempts.last.number != n) {
-          attempts.add(_Attempt(stage, n));
+          attempts.add(_Attempt(stage, n, model));
         }
         attempts.last.events.add(e);
       } else if (e.kind != 'iteration_complete') {
@@ -252,7 +259,10 @@ class _Timeline extends StatelessWidget {
           const SizedBox(height: 12),
           _End(end ?? SessionEvent('session_complete', {'status': session.status})),
         ],
-        if (cascade.isNotEmpty) ...[const SizedBox(height: 12), _CascadeSteps(cascade)],
+        if (cascade.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _SessionMap(session: session, events: events, attempts: attempts),
+        ],
         const SizedBox(height: 12),
         for (final e in before) _EventTile(e),
         for (final (i, a) in attempts.indexed)
@@ -267,7 +277,7 @@ class _Timeline extends StatelessWidget {
                 false => Icons.cancel,
                 null => Icons.more_horiz,
               }, color: switch (a.passed) { true => Colors.green, false => Colors.red, null => null }),
-              title: Text('Attempt ${a.number}${a.stage == session.model ? '' : '  ·  ${a.stage}'}'),
+              title: Text('Attempt ${a.number}${a.stage.isEmpty ? '' : '  ·  ${a.stage} (${a.model})'}'),
               subtitle: Text([
                 switch (a.passed) {
                   true => 'tests passed',
@@ -321,34 +331,90 @@ class _Summary extends StatelessWidget {
   }
 }
 
-/// The cascade's steps in order: scout, the cheap model, the review and its verdict, the escalation.
-class _CascadeSteps extends StatelessWidget {
-  const _CascadeSteps(this.steps);
-  final List<SessionEvent> steps;
+/// The session's pipeline as a live map: the step running now pulses, finished steps show how they ended, and the
+/// arrows the session took are bold. A click opens what happened at that step.
+class _SessionMap extends ConsumerWidget {
+  const _SessionMap({required this.session, required this.events, required this.attempts});
+  final Session session;
+  final List<SessionEvent> events;
+  final List<_Attempt> attempts;
+
+  /// Sessions record no pipeline name yet; every pipeline session today runs the default.
+  static const _pipeline = 'reviewed-cascade';
 
   @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 4,
-      runSpacing: 4,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        for (final (i, e) in steps.indexed) ...[
-          if (i > 0) const Icon(Icons.chevron_right, size: 16),
-          Tooltip(
-            message: [e.data['model'], e.data['why'] ?? e.data['reason']].whereType<String>().join('\n'),
-            child: Chip(
-              visualDensity: VisualDensity.compact,
-              avatar: switch (e.data['accept']) {
-                true => const Icon(Icons.thumb_up_alt_outlined, size: 16),
-                false => const Icon(Icons.thumb_down_alt_outlined, size: 16),
-                _ => null,
-              },
-              label: Text('${e.data['step']}'),
-            ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    return ref.watch(pipelineProvider(_pipeline)).when(
+          loading: () => const LinearProgressIndicator(),
+          error: (e, _) => Text('Couldn\'t load the pipeline map: $e'),
+          data: (pipeline) {
+            final progress = PipelineProgress.of(pipeline, events, session);
+            final cascade = events.where((e) => e.kind == 'cascade');
+            String? modelOf(String step) =>
+                cascade.where((e) => e.data['step'] == step).map((e) => e.data['model'] as String?).firstOrNull;
+            final models = {
+              'cheap': modelOf('scout') ?? modelOf('cheap') ?? 'cheap',
+              'main': modelOf('escalated') ?? session.model,
+            };
+            return Card(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: Text('Pipeline: ${pipeline.name}', style: text.titleSmall),
+                ),
+                PipelineMap(
+                  pipeline: pipeline,
+                  states: progress.states,
+                  taken: progress.taken,
+                  models: models,
+                  onSelect: (id) => _showStep(context, pipeline.step(id)!, models, progress),
+                ),
+              ]),
+            );
+          },
+        );
+  }
+
+  void _showStep(BuildContext context, PipelineStep step, Map<String, String> models, PipelineProgress progress) {
+    final mine = events
+        .where((e) => e.kind == 'cascade' && (e.data['step'] == step.id || (step.kind == 'review' && e.data['step'] == 'reviewed')))
+        .toList();
+    final stepAttempts = attempts.where((a) => a.stage == step.id).toList();
+    final reached = progress.visited.contains(step.id);
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${step.id}  ·  ${step.kind}'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text(explainKind(step.kind)),
+              const SizedBox(height: 8),
+              Text('Model: ${models[step.model] ?? step.model}'),
+              if (!reached) const Padding(padding: EdgeInsets.only(top: 8), child: Text('The session didn\'t reach this step.')),
+              for (final e in mine) ...[
+                if (e.data['notes'] != null) ...[const Divider(), const Text('Notes for the next model:'), SelectableText('${e.data['notes']}')],
+                if (e.data['accept'] != null) ...[
+                  const Divider(),
+                  Text(e.data['accept'] == true ? 'Accepted' : 'Rejected'),
+                  if (e.data['why'] != null) SelectableText('${e.data['why']}'),
+                ],
+                if (e.data['reason'] != null) ...[const Divider(), Text('Why it ran: ${e.data['reason']}')],
+                if (e.data['cost_usd'] is num) Text('Cost: \$${(e.data['cost_usd'] as num).toStringAsFixed(4)}'),
+              ],
+              if (stepAttempts.isNotEmpty) ...[
+                const Divider(),
+                for (final a in stepAttempts)
+                  Text('Attempt ${a.number}: ${switch (a.passed) { true => 'tests passed', false => 'tests failed', null => 'no test result' }}'
+                      '${a.cost > 0 ? '  ·  \$${a.cost.toStringAsFixed(4)}' : ''}'),
+              ],
+            ]),
           ),
-        ],
-      ],
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+      ),
     );
   }
 }

@@ -106,3 +106,38 @@ class SavedKey {
   final String provider;
   final String label;
 }
+
+/// A pipeline's step (backend/pipelines/*.yaml, core/pipeline.py): its kind, its model, and where each outcome leads.
+class PipelineStep {
+  PipelineStep.fromJson(Map<String, dynamic> json)
+      : id = json['id'] as String,
+        kind = json['kind'] as String,
+        model = json['model'] as String,
+        edges = (json['edges'] as Map<String, dynamic>).cast<String, String>(),
+        options = (json['options'] as Map<String, dynamic>?) ?? const {};
+
+  final String id;
+  final String kind;
+  final String model;
+  final Map<String, String> edges;
+  final Map<String, dynamic> options;
+}
+
+class Pipeline {
+  Pipeline.fromJson(Map<String, dynamic> json)
+      : name = json['name'] as String,
+        description = json['description'] as String? ?? '',
+        start = json['start'] as String? ?? '',
+        error = json['error'] as String?,
+        steps = [for (final s in (json['steps'] as List?) ?? const []) PipelineStep.fromJson(s as Map<String, dynamic>)];
+
+  final String name;
+  final String description;
+  final String start;
+
+  /// Set when the file doesn't load; the backend says why.
+  final String? error;
+  final List<PipelineStep> steps;
+
+  PipelineStep? step(String id) => steps.where((s) => s.id == id).firstOrNull;
+}

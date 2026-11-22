@@ -1,6 +1,6 @@
 # Loop Runner apps: desktop, mobile and web from one Flutter codebase
 
-Status: plan, 2026-11-21. Nothing built yet.
+Status, 2026-11-22: phases 0-2 built (branch `feat/flutter-app`); phase 3 and the next items below are planned.
 
 ## What this covers
 
@@ -9,74 +9,61 @@ admin portal (TaskQ's UI, `docker compose --profile queue`) stays an internal we
 
 | Surface | Built with | Why |
 |---|---|---|
-| Desktop app (macOS first, then Windows, Linux) | Flutter | Can open a folder on the user's machine and run agents on it, which a website can't |
-| Mobile app (iOS, Android) | Flutter, same code | Watch sessions, get notified when one ends, approve or reject a flagged fix |
-| Website | Next.js (today's `frontend/`), unchanged | Public pages need fast loading and search indexing, which Flutter web is poor at |
+| Desktop app (macOS, Windows, Linux) | Flutter | Can open a folder on the user's machine and run agents on it, which a website can't |
+| Mobile app (iOS; Android when an Android SDK is set up) | Flutter, same code | Watch sessions, get notified, approve or reject a fix |
+| Website | Next.js (`frontend/`) | Public pages need fast loading and search indexing, which Flutter web is poor at |
 
-Flutter over React Native: the owner has shipped several Flutter apps (Stamp'd, flashcards, the carpooling app with
-Riverpod and go_router) and no React Native app; React Native's desktop support (Microsoft's macOS/Windows ports)
-is also less mature than Flutter's.
+Flutter over React Native: the owner has shipped several Flutter apps and no React Native app, and React Native's
+desktop support is less mature.
 
-## What the backend already gives us
+## Decisions taken
 
-- Auth: Supabase. REST calls send `Authorization: Bearer <access token>`; the live WebSocket
-  (`/ws/sessions/{id}`) takes the token as its first message. `supabase_flutter` provides the token, so **no auth
-  change is needed**.
-- Endpoints the apps need exist: `GET/POST /sessions`, `GET /sessions/{id}` (+ `/events`, `/iterations`, `/diff`,
-  `/map`), `POST /sessions/{id}/stop`, `DELETE /sessions/{id}`, `/models`, `/keys`, `/analytics/*`.
-- FastAPI publishes `/openapi.json`, so a typed Dart client can be generated instead of hand-written.
+- Local first: a fresh clone runs with only a model key. Supabase login is optional (bring your own project), and so
+  is Redis (live events stay in the process without it).
+- The apps read `API_URL` and the Supabase settings from `app/.env` (`--dart-define-from-file=.env`).
+- Closed-app push is built but off until the paid Apple Developer Program; in-app notifications work now.
 
-Gaps:
-1. Some routes return untyped dicts, so the generated client would have loose types. Add response models for the
-   routes the apps use (sessions, events, iterations).
-2. Hosted mode clones a repo URL; a local folder only works when the backend runs on the same machine. The desktop
-   app's local-folder mode needs a backend on that machine (phase 3).
-3. Push notifications need a device-token endpoint and a sender (phase 2).
+## Built
 
-## Layout
+**Phase 0: desktop viewer.** Login, the sessions list, one session live with reconnect and replay.
 
-`app/` in this monorepo, beside `frontend/` and `backend/`. Riverpod for state, go_router for navigation (as in the
-carpooling app), the generated API client in `app/lib/api/`, a WebSocket client that reconnects and replays missed
-events from `GET /sessions/{id}/events` (the page already merges saved and live events by id).
+**Phase 1: desktop does the work.** New session (a folder or a GitHub repo, model, pipeline), Stop, Delete, the diff,
+API keys; macOS, Windows and Linux builds in CI.
 
-## Phases
+**Desktop polish.** Sidebar and split view, native menus and shortcuts, list search and filters, attempts grouped by
+step; pipelines as a live map; a pipeline editor (scout, fix, review, command and approve steps) with the map redrawn
+as you edit.
 
-Each phase ends with something usable and a check that it works.
+**Phase 2: mobile.** Phone layouts; approve or reject a fix from the phone (the approve step); in-app notifications
+when a session ends or waits for you; push registration ready for the paid account. Checked on the iPhone simulator
+and on a real iPhone logged in through Supabase against the backend on a Mac over Wi-Fi.
 
-**Phase 0: desktop viewer (about 3 days)**
-- Flutter project, macOS target, login with Supabase.
-- Sessions list; one session live: steps, attempts, test output, cost, the cascade's steps.
-- Done when: a session started on the website can be watched live in the macOS app, and survives a reconnect.
+## Next
 
-**Phase 1: desktop does the work (about 1 week)**
-- New session (repo URL, model, cascade or a pipeline), Stop, Delete, the diff view, API keys.
-- Windows and Linux builds in CI (GitHub Actions has macOS, Windows and Linux runners).
-- Done when: a full session can be run from the app without the website, on all three desktops.
+1. **Repos on the backend's machine, for the phone.** A phone can't browse the Mac's folders. Add `GET /repos`: git
+   repos under a folder the owner allows (`REPOS_DIR`) plus repos used in past sessions; logged-in users only, off on
+   a hosted server. The phone picks from that list instead of typing a path.
+2. **Unknown model names.** `providers/router.py` sends any model it doesn't recognise to Anthropic. Refuse an
+   unknown model instead.
+3. **Open-source and custom models.** Any OpenAI-compatible endpoint: Ollama (models found automatically when it
+   runs on the backend's machine), LM Studio, llama.cpp, vLLM, and hosted ones (OpenRouter, Together, Groq).
+   Endpoints are added like API keys (a name, a base URL, an optional key); local models cost $0. They run on the
+   loop's whole-file path first, which works with any model; tool calling per model after. Measure how far a free
+   coder model (Qwen2.5-Coder 14-32B) gets with the SWE-bench harness.
+4. **Releases.** A Flutter fix or workaround for `flutter run --release` on iOS looking in `build/ios/iphoneos` while
+   Xcode writes `build/ios/Release-iphoneos` (today: `xcrun devicectl device install app`).
+5. **Database upgrades.** The backend creates missing tables but never adds columns, so an old `loop_runner.db` breaks
+   on new fields (it happened with `session.user_id`). Add migrations, or at least a clear startup error.
 
-**Phase 2: mobile (about 1 week)**
-- iOS and Android builds of the same app, with layouts for a phone: list, live view, diff.
-- Push notification when a session ends: backend stores device tokens and sends on `session_complete`
-  (Firebase Cloud Messaging covers both platforms; its free tier is enough to start).
-- Approve or reject a flagged fix from the phone. This needs an "approve" step kind in the pipeline format
-  (`backend/pipelines/`), which waits for a person; TaskQ's `wait_signal` is built for exactly that wait.
-- Done when: a phone gets a notification for a finished session and can approve a fix the reviewer flagged.
-
-**Phase 3: desktop local mode, and releases (1-2 weeks)**
-- The desktop app runs agents on a local folder: it starts a local backend (Docker Compose, or a packaged binary)
-  and talks to it instead of the hosted one.
-- Signed releases: Apple Developer Program (USD 99 a year) for macOS and iOS, Google Play (USD 25 once), a code-signing
-  certificate for Windows. These cost money, so each one waits for an explicit yes.
+**Phase 3: desktop local mode, and signed releases.** The desktop app starts a local backend (Docker Compose, or a
+packaged binary) and runs agents on a local folder. Signed releases: Apple Developer Program (USD 99 a year) for
+macOS and iOS push and distribution, Google Play (USD 25 once), a Windows code-signing certificate. Each waits for an
+explicit yes.
 
 ## Risks
 
-- Two web frontends: Flutter can build for the web too, but this plan keeps Next.js as the website to avoid
-  maintaining both. Revisit only if the Next.js app falls behind the Flutter one.
+- Two web frontends: Flutter can build for the web too; this plan keeps Next.js as the website.
 - Packaging the Python backend for desktop local mode is the hardest part; Docker Compose is the fallback.
-- Mobile WebSockets drop when the app is backgrounded; the replay from `/events` covers the gap, and push covers the
-  end of a session.
-
-## Decisions needed before phase 0
-
-1. Which backend URL the apps use by default: a hosted one (where?) or `localhost:8000` for now.
-2. Whether desktop local mode (phase 3) is wanted, since it shapes how the desktop app picks a repo.
-3. Whether to pay for the Apple Developer Program now or develop unsigned until phase 3.
+- Mobile WebSockets drop in the background; the replay from `/events` and the 15-second request limit cover it, and
+  push covers the end of a session once switched on.
+- Small open models are much weaker at multi-step fixes than Claude or GPT; quote measured numbers, not hopes.

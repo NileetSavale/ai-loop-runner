@@ -108,3 +108,12 @@ class ChatMessage(SQLModel, table=True):
     git_commit_hash: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None
+
+
+class DeviceToken(SQLModel, table=True):
+    """A phone or desktop that wants push notifications (core/notify.py). The token is the platform's (APNs or FCM)."""
+    id: str = Field(primary_key=True)
+    user_id: Optional[str] = None          # None = the local user (ALLOW_ANONYMOUS)
+    platform: str                          # ios | android | macos
+    token: str = Field(index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)

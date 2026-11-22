@@ -14,3 +14,4 @@ google-genai>=1.5.0
 mistralai>=2.9.2
 fakeredis[aioredis]>=2.23.0
 pyyaml==6.0.4  # pipelines/*.yaml (core/pipeline.py)
+h2==4.3.0  # HTTP/2 for Apple's push service (core/notify.py); used once push is configured

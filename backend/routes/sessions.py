@@ -86,7 +86,42 @@ def list_sessions(user: dict | None = Depends(get_optional_user)):
             # Local / unauthenticated: only show sessions with no user_id
             query = query.where(Session.user_id == None)  # noqa: E711
         sessions = db.exec(query).all()
-        return [s.model_dump() for s in sessions]
+        return [{**s.model_dump(), "waiting_for": _waiting_for(s.id, db) if s.status == "running" else None}
+                for s in sessions]
+
+
+def _waiting_for(session_id: str, db) -> str | None:
+    """The approve step a running session is waiting on, or None: its latest waiting event with no answer after it."""
+    waiting = db.exec(select(SessionEvent).where(SessionEvent.session_id == session_id, SessionEvent.kind == "cascade")
+                      .order_by(SessionEvent.id.desc())).first()
+    if waiting is None:
+        return None
+    data = json.loads(waiting.data)
+    if not (data.get("kind") == "approve" and data.get("waiting")):
+        return None
+    answered = db.exec(select(SessionEvent).where(SessionEvent.session_id == session_id,
+                                                  SessionEvent.kind == "approval", SessionEvent.id > waiting.id)).first()
+    return None if answered else data.get("step")
+
+
+class Approval(BaseModel):
+    step: str
+    accept: bool
+    note: str = Field("", max_length=2000)
+
+
+@router.post("/sessions/{session_id}/approval")
+async def approve_session(session_id: str, body: Approval, user: dict | None = Depends(get_optional_user)):
+    """A person's answer at an approve step (core/cascade.py). Only the step the session waits on, and only once."""
+    uid = user_id(user) if user else None
+    with db_session() as db:
+        session = _own_session(session_id, uid, db)
+        if session.status != "running" or _waiting_for(session_id, db) != body.step:
+            raise HTTPException(status_code=409, detail=f"The session isn't waiting for an answer at {body.step!r}.")
+        db.add(SessionEvent(session_id=session_id, kind="approval",
+                            data=json.dumps({"step": body.step, "accept": body.accept, "note": body.note})))
+        db.commit()
+    return {"step": body.step, "accept": body.accept}
 
 
 @router.post("/sessions")

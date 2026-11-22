@@ -195,3 +195,54 @@ def test_ws_silent_client_is_dropped(subscribed, monkeypatch):
         with pytest.raises(WebSocketDisconnect) as exc:
             ws.receive_text()
     assert exc.value.code == routes.ws.CLOSE_UNAUTHORIZED
+
+
+# --- Supabase signing keys (ES256, from the project's JWKS) ---
+
+from fastapi import HTTPException
+
+def _signed_with_key(sub: str, key, kid: str = "k1") -> str:
+    return jwt.encode({"sub": sub, "aud": "authenticated"}, key, algorithm="ES256", headers={"kid": kid})
+
+
+@pytest.fixture
+def signing_key(monkeypatch):
+    """A project's signing key pair, with the JWKS fetch replaced by its public half."""
+    from types import SimpleNamespace
+    from cryptography.hazmat.primitives.asymmetric import ec
+    private = ec.generate_private_key(ec.SECP256R1())
+    monkeypatch.setattr(auth, "SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setattr(auth, "_signing_keys", lambda: SimpleNamespace(
+        get_signing_key_from_jwt=lambda token: SimpleNamespace(key=private.public_key())))
+    return private
+
+
+def test_a_token_signed_with_the_projects_key_is_accepted(signing_key):
+    assert auth.resolve_user(_signed_with_key("alice", signing_key))["sub"] == "alice"
+
+
+def test_a_token_signed_with_another_key_is_refused(signing_key):
+    from cryptography.hazmat.primitives.asymmetric import ec
+    other = ec.generate_private_key(ec.SECP256R1())
+    with pytest.raises(HTTPException) as e:
+        auth.resolve_user(_signed_with_key("alice", other))
+    assert e.value.status_code == 401
+
+
+def test_a_signing_key_token_needs_supabase_url(signing_key, monkeypatch):
+    monkeypatch.setattr(auth, "SUPABASE_URL", "")
+    with pytest.raises(HTTPException) as e:
+        auth.resolve_user(_signed_with_key("alice", signing_key))
+    assert "SUPABASE_URL" in e.value.detail
+
+
+def test_an_unsigned_token_is_refused(signing_key):
+    unsigned = jwt.encode({"sub": "alice", "aud": "authenticated"}, None, algorithm="none")
+    with pytest.raises(HTTPException) as e:
+        auth.resolve_user(unsigned)
+    assert e.value.status_code == 401
+
+
+def test_the_legacy_secret_still_works_beside_signing_keys(signing_key):
+    token = jwt.encode({"sub": "bob", "aud": "authenticated"}, SECRET, algorithm="HS256")
+    assert auth.resolve_user(token)["sub"] == "bob"

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from auth import resolve_user, user_id
 from cache import redis
+from core.notify import notify
 from database import get_session as db_session
 from models import ChatSession, Session
 
@@ -14,8 +15,14 @@ CLOSE_UNAUTHORIZED = 4401
 
 
 async def broadcast(channel: str, message: dict):
-    """Publish to Redis — all subscribers on any instance receive it."""
+    """Publish to Redis — all subscribers on any instance receive it. A session's end, or a wait for approval, also
+    goes to the owner's devices as a push notification once push is configured (core/notify.py)."""
     await redis.publish(f"ws:{channel}", json.dumps(message))
+    if not channel.startswith("chat:"):
+        try:
+            notify(channel, message)
+        except Exception:
+            pass  # a notification must never break the session's own events
 
 
 async def _listen_and_forward(websocket: WebSocket, channel: str):

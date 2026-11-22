@@ -231,7 +231,48 @@ async def _command(run: _Run, step: Step, model: str) -> str:
     return "on_pass" if result.passed else "on_fail"
 
 
-_KINDS = {"scout": _scout, "fix": _fix, "review": _review, "command": _command}
+APPROVAL_POLL_SECONDS = 2.0
+
+
+def _approval(session_id: str, step_id: str, after: int) -> dict | None:
+    """A person's answer to this approve step, saved after its waiting event by POST /sessions/{id}/approval."""
+    with db_session() as db:
+        rows = db.exec(select(SessionEvent).where(SessionEvent.session_id == session_id,
+                                                  SessionEvent.kind == "approval", SessionEvent.id > after)).all()
+    for row in rows:
+        data = json.loads(row.data)
+        if data.get("step") == step_id:
+            return data
+    return None
+
+
+async def _approve(run: _Run, step: Step, model: str) -> str:
+    """Wait for a person to accept or reject the last fix. The answer is read from the database rather than held in
+    this process, so it reaches a run on a TaskQ worker as well as one in the API."""
+    diff = run.attempt_diff()
+    hours = step.options.get("timeout_hours", 24)
+    with db_session() as db:
+        waiting = SessionEvent(session_id=run.session_id, kind="cascade", data=json.dumps(
+            {"step": step.id, "kind": "approve", "waiting": True, "files": _changed_files(diff), "timeout_hours": hours}))
+        db.add(waiting)
+        db.commit()
+        waiting_id = waiting.id
+    await run.broadcast_fn({"event": "cascade", "data": {**json.loads(waiting.data), "id": waiting_id}})
+    deadline = asyncio.get_running_loop().time() + hours * 3600
+    while (answer := _approval(run.session_id, step.id, waiting_id)) is None:
+        if asyncio.get_running_loop().time() > deadline:
+            answer = {"accept": False, "note": f"No one answered within {hours:g} hours."}
+            break
+        _running[run.session_id] = asyncio.current_task()
+        await asyncio.sleep(APPROVAL_POLL_SECONDS)
+    accept = bool(answer.get("accept"))
+    note = (answer.get("note") or "").strip()
+    await run.step({"step": "approved", "of": step.id, "accept": accept, "why": note or None})
+    run.rejected = None if accept else (note or "A person rejected the fix.")
+    return "on_accept" if accept else "on_reject"
+
+
+_KINDS = {"scout": _scout, "fix": _fix, "review": _review, "command": _command, "approve": _approve}
 
 
 async def run_cascade(session_id: str, broadcast_fn: BroadcastFn, user_api_key: str | None = None,

@@ -236,3 +236,106 @@ def test_a_pipeline_of_commands_only_ends_with_the_last_commands_result(repo, co
     assert steps == ["check"] and finals == [status]
     with db_session() as db:
         assert db.get(Session, sid).status == status
+
+
+APPROVE = {"kind": "approve", "on_accept": "done", "on_reject": "main"}
+
+
+def _answer_when_waiting(session_id: str, accept: bool, note: str = ""):
+    """A person answering in the app: once the step waits, the API saves their answer."""
+    import json
+    import threading
+    import time
+    from database import get_session as db_session
+    from models import SessionEvent
+    from routes.sessions import _waiting_for
+
+    def answer():
+        for _ in range(200):
+            with db_session() as db:
+                step = _waiting_for(session_id, db)
+                if step:
+                    db.add(SessionEvent(session_id=session_id, kind="approval",
+                                        data=json.dumps({"step": step, "accept": accept, "note": note})))
+                    db.commit()
+                    return
+            time.sleep(0.02)
+    threading.Thread(target=answer, daemon=True).start()
+
+
+@pytest.fixture
+def fast_approval(monkeypatch):
+    monkeypatch.setattr(cascade, "APPROVAL_POLL_SECONDS", 0.02)
+
+
+def test_an_approval_ends_the_session_on_the_fix(repo, fast_approval):
+    sid = seed(repo)
+    _answer_when_waiting(sid, accept=True)
+    document = pipeline(cheap={"kind": "fix", "model": "cheap", "on_pass": "ok", "on_fail": "done"},
+                        ok=APPROVE, main={**FIX, "undo": True})
+    seen, steps, finals = run(sid, document, [True])
+    assert steps == ["cheap", "ok", "approved"]  # waiting at ok, then the answer
+    assert finals == ["passed"] and len(seen) == 1
+
+
+def test_a_rejection_hands_its_note_to_the_next_step(repo, fast_approval):
+    sid = seed(repo)
+    _answer_when_waiting(sid, accept=False, note="Don't touch the public API")
+    document = pipeline(cheap={"kind": "fix", "model": "cheap", "on_pass": "ok", "on_fail": "done"},
+                        ok=APPROVE, main={**FIX, "undo": True})
+    seen, steps, finals = run(sid, document, [True, True])
+    assert steps == ["cheap", "ok", "approved", "main"]
+    assert "Don't touch the public API" in seen[1]["spec"]
+
+
+def test_no_answer_in_time_is_a_rejection(repo, fast_approval):
+    sid = seed(repo)
+    document = pipeline(cheap={"kind": "fix", "model": "cheap", "on_pass": "ok", "on_fail": "done"},
+                        ok={**APPROVE, "timeout_hours": 0.0002}, main={**FIX, "undo": True})
+    seen, steps, _ = run(sid, document, [True, True])
+    assert steps == ["cheap", "ok", "approved", "main"]
+    assert "No one answered within" in seen[1]["spec"]
+
+
+def test_the_api_takes_one_answer_for_the_step_a_session_waits_on(repo, monkeypatch):
+    import json
+    import auth
+    from fastapi.testclient import TestClient
+    from database import get_session as db_session
+    from main import app
+    from models import SessionEvent
+    monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", True)
+    client = TestClient(app)
+    sid = seed(repo)
+    answer = {"step": "ok", "accept": True}
+    assert client.post(f"/sessions/{sid}/approval", json=answer).status_code == 409  # not waiting yet
+    with db_session() as db:
+        db.add(SessionEvent(session_id=sid, kind="cascade", data=json.dumps({"step": "ok", "kind": "approve", "waiting": True})))
+        db.commit()
+    listed = next(s for s in client.get("/sessions").json() if s["id"] == sid)
+    assert listed["waiting_for"] == "ok"
+    assert client.post(f"/sessions/{sid}/approval", json={**answer, "step": "other"}).status_code == 409
+    assert client.post(f"/sessions/{sid}/approval", json=answer).status_code == 200
+    assert client.post(f"/sessions/{sid}/approval", json=answer).status_code == 409  # only once
+
+
+def test_notifications_go_out_for_a_session_end_and_a_wait_for_approval():
+    from core.notify import message_for
+    assert message_for({"event": "session_complete", "data": {"status": "passed"}}, "Fix login") == \
+        ("Session passed", "Fix login")
+    assert message_for({"event": "cascade", "data": {"kind": "approve", "waiting": True}}, "Fix login")[0] == \
+        "Waiting for your approval"
+    assert message_for({"event": "usage", "data": {}}, "Fix login") is None
+
+
+def test_a_device_registers_once_per_token(monkeypatch):
+    import auth
+    from fastapi.testclient import TestClient
+    from main import app
+    monkeypatch.setattr(auth, "ALLOW_ANONYMOUS", True)
+    client = TestClient(app)
+    first = client.post("/devices", json={"platform": "ios", "token": "apns-token-123"}).json()["id"]
+    again = client.post("/devices", json={"platform": "ios", "token": "apns-token-123"}).json()["id"]
+    assert first == again
+    assert client.post("/devices", json={"platform": "blackberry", "token": "apns-token-123"}).status_code == 422
+    assert client.delete(f"/devices/{first}").json() == {"deleted": first}

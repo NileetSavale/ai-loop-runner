@@ -18,6 +18,8 @@ Step kinds and the outcomes each one leads on:
 - review: a second model reads the last fix's diff against the task; `on_accept` / `on_reject`.
 - command: runs `run` (a shell command: a linter, a type checker, more tests) in the repo the way the session's own
   test command runs, in its sandbox if it has one; `on_pass` / `on_fail` by the exit code. It takes no model.
+- approve: waits for a person to accept or reject the last fix (from the app, or POST /sessions/{id}/approval);
+  `on_accept` / `on_reject`. No answer within `timeout_hours` (default 24) counts as a rejection. No model.
 
 `model` is a model id, or `cheap` (the cheap model) or `main` (the session's own model). `done` ends the session.
 A pipeline is checked when it is loaded: unknown kinds, models or fields, an edge to a missing step, a step nothing
@@ -35,9 +37,9 @@ PIPELINES = Path(__file__).resolve().parent.parent / "pipelines"
 DONE = "done"
 ALIASES = ("cheap", "main")
 OUTCOMES = {"scout": ("next",), "fix": ("on_pass", "on_fail"), "review": ("on_accept", "on_reject"),
-            "command": ("on_pass", "on_fail")}
-OPTIONS = {"scout": {"budget_usd"}, "fix": {"undo"}, "review": set(), "command": {"run"}}
-NO_MODEL = {"command"}  # kinds that run no model
+            "command": ("on_pass", "on_fail"), "approve": ("on_accept", "on_reject")}
+OPTIONS = {"scout": {"budget_usd"}, "fix": {"undo"}, "review": set(), "command": {"run"}, "approve": {"timeout_hours"}}
+NO_MODEL = {"command", "approve"}  # kinds that run no model
 BUILT_IN = {"reviewed-cascade"}  # the study's pipeline: read-only, so its results stay reproducible
 _MODELS = {m["id"] for models in SUPPORTED_MODELS.values() for m in models}
 
@@ -104,6 +106,9 @@ def parse(document: dict, source: str = "pipeline") -> Pipeline:
                 refuse(f"step {step_id!r} ({kind}) runs no model, so it takes none")
         elif model not in ALIASES and model not in _MODELS:
             refuse(f"step {step_id!r} has model {model!r}: use a supported model id, or cheap or main")
+        timeout = spec.get("timeout_hours", 24)
+        if kind == "approve" and not (isinstance(timeout, (int, float)) and 0 < timeout <= 24 * 30):
+            refuse(f"step {step_id!r} (approve) timeout_hours must be a number of hours, at most 30 days")
         if kind == "command" and not (isinstance(spec.get("run"), str) and spec["run"].strip()):
             refuse(f"step {step_id!r} (command) needs `run`: the shell command to run in the repo")
         allowed = {"kind", "model", *OUTCOMES[kind], *OPTIONS[kind]}
